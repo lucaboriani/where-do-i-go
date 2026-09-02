@@ -1,6 +1,7 @@
 {
   "name": "where-i-go",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,7 +15,9 @@
     "check:vocab": "tsx scripts/check-vocab.ts",
     "check:commands": "tsx scripts/check-commands.ts",
     "pod:dev": "npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data",
-    "size": "size-limit"
+    "pod:seed": "tsx scripts/seed-dev-pod.ts",
+    "size": "size-limit",
+    "size:public": "tsx scripts/check-public-bundle.ts"
   },
   "dependencies": {
     "@inrupt/solid-client": "3.0.0",

@@ -284,16 +284,17 @@ cached-and-invalidated model expects.
       Radix, or anything from `app/(studio)`.
 - [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
-- [~] `size-limit` budget, failing CI. **Wired but not yet doing its job — fix in phase 1.**
-      The config globs `.next/static/chunks/**/*.js`, which measures *every* chunk including the
-      studio's. That is not a public-route budget: Radix and shadcn weight counts against it,
-      and a genuine public regression could hide inside the total. With no real public pages
-      yet there is nothing to isolate, so:
-      - [x] size-limit installed, configured and running (172.96 kB gzip at scaffold time)
-      - [ ] Once phase 1 ships real public pages, narrow the glob to the public route's own
-            first-load JS and re-baseline the ceiling from that build. Then only ever lower it.
-      - [ ] Verify the budget actually fails by pushing it under the current size once, the same
-            way the guardrail rules are tested.
+- [x] Bundle budget, failing CI. **Now measures public routes specifically.**
+      `size-limit` globs files and cannot answer "what does a public page ship", so
+      `scripts/check-public-bundle.ts` derives the script list from each prerendered public
+      page's HTML and sums it gzipped. Chunk names are content-hashed, so deriving beats
+      hardcoding, and `[slug].html` is a zero-byte PPR shell — the file that matters is the one
+      built for a real param.
+      - [x] Ceiling set from the first real build: worst public route 173.3 kB gzip, budget 180.
+            Verified all of it is React and the Next runtime by scanning every loaded chunk for
+            radix / inrupt / maplibre / exifreader — none present.
+      - [x] Verified the budget actually fails, by running it under the real size.
+      - [ ] Only ever lower this number. Raising it is how a budget stops being a budget.
 
 ### Local Pod
 
@@ -381,9 +382,24 @@ Trip slugs come from the Pod, so:
       Next's raw error. Record which in `docs/decisions.md`.
 - [ ] Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
       defensible; failing with an unreadable stack trace is not.
-- [ ] Confirm the App Shell path: a trip published after the build should be served the shell and
-      upgraded in the background, with no redeploy. Verify rather than assume — this is what
-      makes the publish flow tolerable.
+- [x] Confirm the App Shell path: a trip published after the build should be served the shell and
+      upgraded in the background, with no redeploy. **Verified** — the build's route table shows
+      known params as `○ (Static)` and unknown ones as `◐ (Partial Prerender)`.
+
+- [x] **Soft 404 on unknown slugs — fixed in `proxy.ts`.** Under PPR the shell is flushed
+      before the dynamic part resolves, so `notFound()` in a page cannot set the status.
+      Neither `instant = false` nor an in-page slug check works; both were tried and measured.
+      The check now runs in `proxy.ts`, which executes before rendering, and fails open so a
+      Pod outage never 404s real content. See `docs/decisions.md` §24.
+
+**Known limitation carried from phase 1 — draft trips return a soft 404.**
+A guessed URL for an unpublished trip (`/trips/<draft-slug>`) returns HTTP 200 while rendering
+the not-found page. Its name, description and metadata do not leak — verified — but the status
+is wrong, for the same reason as `docs/decisions.md` §24: `proxy.ts` allows it through because
+`diary.ttl` lists drafts, and `notFound()` in the page body cannot set a status under Partial
+Prerendering. Fixing it properly means the proxy reading `dy:status` per trip, which costs a
+fetch per trip in a file that must stay small. Accepted for now because drafts are linked from
+nowhere and leak nothing; revisit with the publish flow.
 
 ## Phase 2 — studio
 

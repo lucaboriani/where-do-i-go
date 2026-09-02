@@ -415,3 +415,44 @@ reads. Pre-existing, not introduced by the port, and worth tightening if it ever
 **Consequences.** `n3` moves from optional to required in `docs/versions.md`. CI needs no Python.
 The `validate:fixtures` script name is unchanged, so `CLAUDE.md`, the CI job and the check
 asserting the two files cannot drift all keep working.
+
+---
+
+## 24. Unknown slugs 404 from `proxy.ts`, not from the page
+
+Under Partial Prerendering the static shell is flushed before the dynamic part
+resolves, so a `notFound()` inside a page arrives after the status line is already
+committed: `/trips/nope` returned **HTTP 200 carrying 404 content**. The body was
+right and the status was wrong, which is the worst combination for a site that
+server-renders specifically for SEO and share previews (decision 2).
+
+Two plausible fixes were tried and measured, and both failed:
+
+- **`export const instant = false`.** Next's own labelled-error menu lists it under
+  "[block] allow a blocking route", but the bundled reference is explicit that
+  `instant` governs *instant-navigation validation*, not response blocking. The
+  status stayed 200.
+- **Validating the slug inside the page before touching anything dynamic.** Awaiting
+  `params` is itself the dynamic phase, so the check runs after the shell has been
+  committed. Also stayed 200.
+
+An unrouted path like `/definitely-not-a-route` returns a correct 404, which
+confirmed the cause was PPR on a *matched* dynamic route rather than routing.
+
+So the check moved to `proxy.ts` — the one place that runs before rendering and can
+still set a status. It reads the diary once, extracts trip slugs with a regex rather
+than a parser (proxy code must stay small, and nothing downstream trusts what it
+extracts — `lib/pod/read.ts` remains the only validated reader), and caches them
+briefly.
+
+**It fails open.** If the Pod is unreachable or the diary unreadable, the request is
+allowed through. A transient Pod hiccup must never 404 real content; the cost of
+failing open is a soft 404 on genuinely unknown slugs during an outage, which is the
+lesser harm. Verified by stopping the Pod and confirming a real trip still serves.
+
+**Consequences.** `proxy.ts` is the only file outside `lib/pod/` that reads a Pod
+resource, and it is deliberately dumb. No Node APIs, because Netlify does not support
+them there (decision 13). Next's docs warn that proxy code may be deployed to a CDN
+and should not rely on shared modules or globals, so the in-process cache is
+best-effort and correctness does not depend on it. The in-page `notFound()` checks
+stay as a second line: when the proxy fails open, they still render the right content.

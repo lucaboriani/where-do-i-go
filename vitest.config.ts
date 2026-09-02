@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: { alias: { "@": root } },
   test: {
     environment: "node",
+    setupFiles: ["test/setup.ts"],
     include: ["test/**/*.test.ts", "lib/**/*.test.ts"],
   },
 });

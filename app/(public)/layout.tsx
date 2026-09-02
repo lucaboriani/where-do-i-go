@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { config } from "@/lib/config";
 import "../globals.css";
 
 /**
@@ -11,8 +12,11 @@ import "../globals.css";
  * no-restricted-imports and by the size-limit budget that fails CI.
  */
 export const metadata: Metadata = {
-  title: process.env.SITE_NAME ?? "Travel diary",
+  metadataBase: new URL(config.siteUrl),
+  title: { default: config.siteName, template: `%s · ${config.siteName}` },
   description: "A travel diary that stores its own data in a Solid Pod.",
+  alternates: { types: { "application/rss+xml": "/rss.xml" } },
+  openGraph: { type: "website", siteName: config.siteName },
 };
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
