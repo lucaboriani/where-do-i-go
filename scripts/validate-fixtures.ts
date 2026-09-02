@@ -16,12 +16,11 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Parser, type Quad, type Term } from "n3";
+import { NS } from "../lib/vocab";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DOC = resolve(REPO_ROOT, "docs", "data-model.md");
 const POD = "https://me.solidcommunity.net";
-
-const XSD = "http://www.w3.org/2001/XMLSchema#";
 
 /** Base URI each turtle block would be served from, in document order. */
 const CASES: ReadonlyArray<readonly [string, string]> = [
@@ -72,13 +71,13 @@ function main(): number {
       if (q.object.termType !== "Literal") continue;
       const dt = q.object.datatype.value;
       const p = q.predicate.value;
-      if (dt === `${XSD}float`) {
+      if (dt === `${NS.xsd}float`) {
         fail(label, `xsd:float literal on ${p} (use xsd:decimal)`);
       }
-      if (GEO_PREDS.some((k) => p.includes(k)) && dt !== `${XSD}decimal`) {
+      if (GEO_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}decimal`) {
         fail(label, `${p} is ${dt}, expected xsd:decimal`);
       }
-      if (dt === `${XSD}dateTime` && !DT_RE.test(q.object.value)) {
+      if (dt === `${NS.xsd}dateTime` && !DT_RE.test(q.object.value)) {
         fail(label, `dateTime without UTC offset on ${p}: ${q.object.value}`);
       }
     }

@@ -138,11 +138,11 @@ cached-and-invalidated model expects.
       invalidated by the studio's revalidation hook calling `revalidateTag`.
       **`'use cache: remote'` is rejected** — it incurs platform fees and needs a `cacheHandlers`
       implementation when self-hosting, contradicting the no-API-keys and host-neutral rules.
-- [ ] Set both flags in `next.config.ts` during the scaffold step, not later.
+- [x] Set both flags in `next.config.ts` during the scaffold step, not later.
 - [ ] Read the bundled caching guide at `node_modules/next/dist/docs/01-app/01-getting-started/`
       `08-caching.md` first, and treat the labelled error menu as the specification for which fix
       to apply per route.
-- [ ] No route may set `runtime = 'edge'`. Cache Components requires the Node runtime.
+- [x] No route may set `runtime = 'edge'`. Cache Components requires the Node runtime.
 
 ### Prerequisites
 
@@ -208,19 +208,19 @@ cached-and-invalidated model expects.
 
 ### shadcn/ui — studio only
 
-- [ ] Initialise:
+- [x] Initialise:
 
       pnpm dlx shadcn@latest init
 
       Template `next`, base colour `neutral`. **Not** `npx shadcn-ui` — that package name is
       dead.
 
-- [ ] Add only what the studio needs. Resist adding the whole registry:
+- [x] Add only what the studio needs. Resist adding the whole registry:
 
       pnpm dlx shadcn@latest add button input textarea select dialog drawer \
         tabs popover command switch tooltip sonner
 
-- [ ] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
+- [x] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
 - [ ] Note that `drawer` pulls in `vaul`, last published 2024-12. Verify its snap-point API
       against current shadcn docs, not blog posts. This component is the mobile map sheet.
 - [ ] Restyle rather than tweak: radius near zero, borders and background steps instead of
@@ -228,7 +228,7 @@ cached-and-invalidated model expects.
 
 ### Theme tokens
 
-- [ ] Replace the generated CSS variables in `app/globals.css` wholesale with the palette from
+- [x] Replace the generated CSS variables in `app/globals.css` wholesale with the palette from
       `docs/design-brief.md`. Tailwind v4 is CSS-first — there is no `tailwind.config.js`
       theme block to edit:
 
@@ -246,14 +246,14 @@ cached-and-invalidated model expects.
         --color-accent-deep:   oklch(0.420 0.117 250);
       }
 
-- [ ] Map the shadcn variables (`--background`, `--foreground`, `--primary`, `--ring`, …) onto
+- [x] Map the shadcn variables (`--background`, `--foreground`, `--primary`, `--ring`, …) onto
       these tokens at `:root`. **Not under a `.dark` class** — the site is fixed dark, so
       there is no toggle and no flash of wrong theme.
-- [ ] Delete any generated light-mode block.
+- [x] Delete any generated light-mode block.
 
 ### Project structure
 
-- [ ] Route groups with **separate root layouts**:
+- [x] Route groups with **separate root layouts**:
 
       app/(public)/layout.tsx
       app/(studio)/layout.tsx
@@ -261,32 +261,39 @@ cached-and-invalidated model expects.
       Separate layouts are what keep the bundles apart. A single shared root layout importing
       a session provider would undo the whole boundary in one line.
 
-- [ ] Pod layer split along the same seam:
+- [x] Pod layer split along the same seam:
 
       lib/pod/read.ts      unauthenticated, imported by both
       lib/pod/write.ts     studio only
       lib/pod/access.ts    studio only, the four-method ACL interface
       lib/vocab.ts         every IRI as a named constant
 
-- [ ] Generate `lib/vocab.ts` from `docs/data-model.md` §3 and keep it the only source of IRIs.
+- [x] Generate `lib/vocab.ts` from `docs/data-model.md` §3 and keep it the only source of IRIs.
 
 ### Guardrail enforcement
 
-- [ ] ESLint `no-restricted-syntax` banning raw vocabulary IRIs outside `lib/vocab.ts`:
+- [x] ESLint `no-restricted-syntax` banning raw vocabulary IRIs outside `lib/vocab.ts`:
 
       {
         selector: "Literal[value=/^https?:\\/\\/(schema\\.org|purl\\.org|www\\.w3\\.org|example\\.org\\/ns)/]",
         message: "Import the IRI from lib/vocab.ts instead of writing it inline."
       }
 
-- [ ] ESLint `no-restricted-imports` so nothing outside `lib/pod/access.ts` imports ACL
+- [x] ESLint `no-restricted-imports` so nothing outside `lib/pod/access.ts` imports ACL
       primitives, and nothing under `app/(public)` imports `@inrupt/solid-client-authn-browser`,
       Radix, or anything from `app/(studio)`.
-- [ ] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
+- [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
-- [ ] `size-limit` budget on the public routes, failing CI. This is the only enforcement that
-      really holds — an agent can rationalise past a lint rule but not past a failing build.
-      Set the initial ceiling from the first real build, then only ever lower it.
+- [~] `size-limit` budget, failing CI. **Wired but not yet doing its job — fix in phase 1.**
+      The config globs `.next/static/chunks/**/*.js`, which measures *every* chunk including the
+      studio's. That is not a public-route budget: Radix and shadcn weight counts against it,
+      and a genuine public regression could hide inside the total. With no real public pages
+      yet there is nothing to isolate, so:
+      - [x] size-limit installed, configured and running (172.96 kB gzip at scaffold time)
+      - [ ] Once phase 1 ships real public pages, narrow the glob to the public route's own
+            first-load JS and re-baseline the ceiling from that build. Then only ever lower it.
+      - [ ] Verify the budget actually fails by pushing it under the current size once, the same
+            way the guardrail rules are tested.
 
 ### Local Pod
 
@@ -302,7 +309,7 @@ cached-and-invalidated model expects.
 
 ### Configuration
 
-- [ ] `.env.example`, committed, with every variable and a comment each:
+- [x] `.env.example`, committed, with every variable and a comment each:
 
       OWNER_WEBID=
       POD_ROOT=
@@ -313,9 +320,9 @@ cached-and-invalidated model expects.
 
 - [ ] Verify the OpenFreeMap style URL against their current docs before committing it as the
       default.
-- [ ] `next.config.ts`: add the Pod host to `images.remotePatterns`. Without it `next/image`
+- [x] `next.config.ts`: add the Pod host to `images.remotePatterns`. Without it `next/image`
       refuses Pod-hosted photos.
-- [ ] Serve `client-id.jsonld` from the app origin, generated from config rather than
+- [x] Serve `client-id.jsonld` from the app origin, generated from config rather than
       hardcoded, since each deployer serves it from their own domain.
 
 ### Scripts and CI
