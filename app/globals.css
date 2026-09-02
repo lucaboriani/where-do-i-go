@@ -1,0 +1,125 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* ---------------------------------------------------------------------------
+   Fixed dark theme. There is no light mode and no toggle, so the palette lives
+   at :root rather than under a .dark class — no flash of the wrong theme, and
+   nothing to keep in sync. The generated light-mode :root and .dark blocks and
+   the `dark` custom variant were deleted wholesale, per TODO.md phase 0.5.
+
+   Values are fixed by docs/design-brief.md and verified in-gamut for sRGB with
+   contrast ratios measured. Do not invent neighbouring values.
+   --------------------------------------------------------------------------- */
+
+@theme {
+  /* Surfaces and text */
+  --color-bg:            oklch(0.145 0.012 250); /* #070B0F page background   */
+  --color-surface:       oklch(0.195 0.014 250); /* #10151B cards, drawer     */
+  --color-hairline:      oklch(0.300 0.018 250); /* #272F37 borders, dividers */
+  --color-text-muted:    oklch(0.680 0.012 250); /* #9399A0 metadata          */
+  --color-text:          oklch(0.920 0.006 250); /* #E2E5E8 body copy         */
+
+  /* The accent is two-step on purpose: saturated blue has low luminance, so
+     `accent` is for fills and thick strokes, `accent-bright` for text and thin
+     strokes, `accent-deep` for route casing and pressed states. */
+  --color-accent:        oklch(0.660 0.182 250); /* #1295FC  6.4:1 on bg  */
+  --color-accent-bright: oklch(0.790 0.107 250); /* #84C0FD 10.3:1 on bg  */
+  --color-accent-deep:   oklch(0.420 0.117 250); /* #034F8A casing        */
+
+  /* Basemap. Water is pushed to hue 235 at a tenth of the accent's chroma so
+     the route line never competes with the sea. Roads stay achromatic. */
+  --color-map-land:      oklch(0.185 0.008 250);
+  --color-map-water:     oklch(0.235 0.020 235);
+  --color-map-label:     oklch(0.560 0.010 250);
+}
+
+/* shadcn's semantic tokens, mapped onto ours. `--color-accent` and
+   `--color-accent-foreground` are deliberately NOT re-declared here: shadcn
+   uses `accent` to mean "hover surface", which collides with the brand accent
+   above. Only select.tsx referenced them, and it now uses surface tokens. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* Radius near zero, borders and background steps instead of shadows,
+     focus rings in accent — design-brief.md. */
+  --radius: 0.125rem;
+
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-text);
+  --secondary: var(--color-surface);
+  --secondary-foreground: var(--color-text);
+
+  --muted: var(--color-surface);
+  --muted-foreground: var(--color-text-muted);
+
+  --border: var(--color-hairline);
+  --input: var(--color-hairline);
+  --ring: var(--color-accent);
+
+  --destructive: oklch(0.62 0.19 25);
+
+  --sidebar: var(--color-surface);
+  --sidebar-foreground: var(--color-text);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: var(--color-text);
+  --sidebar-accent: var(--color-hairline);
+  --sidebar-accent-foreground: var(--color-text);
+  --sidebar-border: var(--color-hairline);
+  --sidebar-ring: var(--color-accent);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

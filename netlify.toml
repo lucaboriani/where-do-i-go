@@ -1,0 +1,20 @@
+# Netlify is the deploy target, not a dependency. Nothing in the architecture is
+# platform-shaped — no database, no sessions, no background jobs — so the
+# Dockerfile and `next start` beside this file stay first-class (decisions.md §13).
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Must match .nvmrc. See docs/versions.md for why it is 22 and not 24.
+  NODE_VERSION = "22.23.2"
+
+# Requires the current Next adapter: the legacy v4 runtime supports neither tag
+# nor path revalidation, and the studio's revalidation hook depends on tags.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Node.js APIs are unsupported in Netlify Middleware, so nothing needing them
+# may live there. Cache Components also requires the Node runtime, so no route
+# may set runtime = 'edge' (decisions.md §22).

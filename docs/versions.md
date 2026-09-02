@@ -37,9 +37,10 @@ than a few weeks stale — record what you actually installed by committing the 
 | Package | Version | Notes |
 |---|---|---|
 | `shadcn` (CLI) | 4.19.1 | run via `pnpm dlx shadcn@latest`; the old package name `shadcn-ui` is dead |
-| `eslint` | 10.9.1 | requires Node `^20.19 || ^22.13 || >=24` |
+| `eslint` | **9.39.5** | not latest — see the ESLint conflict below |
 | `eslint-config-next` | 16.3.4 | tracks the `next` version |
 | `typescript-eslint` | 8.69.0 | **peer-declares `typescript >=4.8.4 <6.1.0`** |
+| `@types/n3` | 1.26.3 | required — `n3` ships no type declarations of its own |
 | `prettier` | 3.9.6 | |
 | `vitest` | 4.1.11 | |
 | `@vitest/coverage-v8` | 4.1.11 | match vitest exactly |
@@ -87,6 +88,37 @@ claim to support, and finding out at runtime.
 **Upgrade trigger:** when `@inrupt/solid-client` publishes a release whose engine range admits
 `^24`, move to Node 24 in a single dedicated commit and update this file. Check with
 `npm view @inrupt/solid-client engines`.
+
+## The ESLint conflict — read this before installing
+
+Found in phase 0.5 by running it, not by reading version numbers.
+
+**ESLint's `latest` is 10.9.1, and this project cannot use it.** `eslint-config-next@16.3.4`
+declares a permissive `eslint >=9.0.0` peer, which looks fine — but it nests
+`eslint-plugin-react@7.37.5`, whose own peer range stops at `^9.7`. Under ESLint 10 that plugin
+crashes on the first file linted:
+
+```
+TypeError: Error while loading rule 'react/display-name':
+contextOrFilename.getFilename is not a function
+    at resolveBasedir (node_modules/eslint-config-next/node_modules/eslint-plugin-react/lib/util/version.js)
+```
+
+ESLint 10 removed a deprecated `context` API that `eslint-plugin-react` 7.x still calls. Nothing
+in the top-level peer declarations predicts this, because the incompatible package is a
+transitive dependency of the config, not of the project.
+
+**So use ESLint 9.39.5**, which is what `create-next-app@16.3.4` installs anyway, and which
+satisfies every other constraint: `eslint-config-next` wants `>=9.0.0`, `typescript-eslint@8.69.0`
+wants `^8.57.0 || ^9.0.0 || ^10.0.0`. Verified: `lint` and `typecheck` both exit 0.
+
+npm reports this only as `npm warn ERESOLVE overriding peer dependency` during install — easy to
+scroll past, and the failure arrives later as a stack trace inside a linter rule. Do not take a
+clean install as evidence that a version combination works.
+
+**Upgrade trigger:** when `eslint-config-next` ships with an `eslint-plugin-react` that supports
+ESLint 10, move up in a dedicated commit and update this file. Check with
+`npm view eslint-config-next@latest dependencies` and the nested plugin's peer range.
 
 ## The TypeScript conflict — read this before installing
 

@@ -56,8 +56,16 @@ list, verified against `create-next-app@16.3.4`, is: `.claude`, `.cursor`, `.DS_
 `.idea`, `.npmignore`, `.travis.yml`, `.vscode`, `.zed`, `LICENSE`, `Thumbs.db`, `docs`,
 `mkdocs.yml`, the npm/yarn debug logs, `yarnrc.yml` and `.yarn`.
 
-So `docs/` and `.claude/` may stay. `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and
-`scripts/` will block it.
+So `docs/`, `.claude/`, `.git` and `.gitignore` may stay. Everything else blocks it. In this
+repository that meant **eight** entries, not the five originally listed here: `CLAUDE.md`,
+`AGENTS.md`, `README.md`, `TODO.md`, `scripts/`, and also **`.nvmrc`, `.env.spike` and
+`where-i-go.zip`** — none of which are on the tolerated list. Enumerate the directory against the
+list above rather than trusting a remembered set.
+
+**`.gitignore` is tolerated but overwritten.** `create-next-app` replaces it wholesale with its
+own. Merge yours back afterwards — and note its generated `.env*` line would exclude the
+`.env.example` this phase requires you to commit, so the `!.env.example` negation has to be
+re-added.
 
 **`create-next-app` also generates `AGENTS.md` and `CLAUDE.md` itself**, programmatically
 rather than from a template. Pass `--no-agents-md` and there is nothing to merge at scaffold
@@ -65,16 +73,16 @@ time — `next dev` adds the managed block afterwards anyway.
 
 Do this:
 
-- [ ] Move `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and `scripts/` aside — into
+- [x] Move `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and `scripts/` aside — into
       `docs/`, which is tolerated, or one directory up. Leave `docs/`, `.git`, `.gitignore`
       and `LICENSE` in place.
-- [ ] Scaffold with `--no-agents-md` (next section).
-- [ ] Move the five back.
-- [ ] **Merge the two READMEs.** `create-next-app` writes its own with generic dev-server
+- [x] Scaffold with `--no-agents-md` (next section).
+- [x] Move the five back.
+- [x] **Merge the two READMEs.** `create-next-app` writes its own with generic dev-server
       boilerplate. The project README wins on structure and content; fold in only what is
       useful, realistically just the dev-server command, then delete the generated version.
       Do not keep both, and do not let boilerplate end up at the top of the file.
-- [ ] Confirm `AGENTS.md` is present before the first `next dev`. It is the designated host
+- [x] Confirm `AGENTS.md` is present before the first `next dev`. It is the designated host
       for the Next.js managed block, and if it is missing the block lands in `CLAUDE.md`
       instead.
 
@@ -130,21 +138,21 @@ cached-and-invalidated model expects.
       invalidated by the studio's revalidation hook calling `revalidateTag`.
       **`'use cache: remote'` is rejected** — it incurs platform fees and needs a `cacheHandlers`
       implementation when self-hosting, contradicting the no-API-keys and host-neutral rules.
-- [ ] Set both flags in `next.config.ts` during the scaffold step, not later.
+- [x] Set both flags in `next.config.ts` during the scaffold step, not later.
 - [ ] Read the bundled caching guide at `node_modules/next/dist/docs/01-app/01-getting-started/`
       `08-caching.md` first, and treat the labelled error menu as the specification for which fix
       to apply per route.
-- [ ] No route may set `runtime = 'edge'`. Cache Components requires the Node runtime.
+- [x] No route may set `runtime = 'edge'`. Cache Components requires the Node runtime.
 
 ### Prerequisites
 
-- [ ] **Node 22 LTS.** Write `.nvmrc` containing `22.23.2`. **Not 24, and not 20** — the two
+- [x] **Node 22 LTS.** Write `.nvmrc` containing `22.23.2`. **Not 24, and not 20** — the two
       Inrupt packages disagree: `@inrupt/solid-client@3.0.0` declares
       `^20.0.0 || ^22.0.0` and `@inrupt/solid-client-authn-core@5.0.0` (transitive, via
       `solid-client-authn-browser`) declares `^22.0.0 || ^24.0.0`. The 22 line is the only
       overlap, and `jsdom@30.0.1` (`^22.22.2`) sets the floor inside it. Verified against the
       registry in phase 0; full reasoning in `docs/versions.md`.
-- [ ] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
+- [x] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
       for everything in this checkout and commit its lockfile; never mix two. The commands below
       are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
       `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
@@ -152,7 +160,7 @@ cached-and-invalidated model expects.
 
 ### Scaffold
 
-- [ ] Create the app:
+- [x] Create the app:
 
       pnpm create next-app@16.3.4 . --ts --app --tailwind --eslint \
         --use-pnpm --no-src-dir --import-alias "@/*" --no-agents-md
@@ -160,7 +168,7 @@ cached-and-invalidated model expects.
       Swap `--use-pnpm` for `--use-npm`, `--use-yarn` or `--use-bun` to match your choice —
       the flag decides which lockfile the scaffold generates.
 
-- [ ] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
+- [x] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
       rescue. Verified in phase 0: `create-next-app@16.3.4` writes `"typescript": "^5"` into
       the generated `package.json` and installs 5.9.3 — already inside
       `typescript-eslint@8.69.0`'s peer range (`>=4.8.4 <6.1.0`), so nothing is broken on
@@ -171,24 +179,24 @@ cached-and-invalidated model expects.
       TypeScript's `latest` is 7.0.2, but nothing in this scaffold reaches for it. Do not
       install it — it falls outside the typescript-eslint peer range. See `docs/versions.md`.
 
-- [ ] Verify: the `typecheck` and `lint` scripts both run clean before adding anything else.
+- [x] Verify: the `typecheck` and `lint` scripts both run clean before adding anything else.
 
 ### Runtime dependencies
 
-- [ ] Install, exact versions:
+- [x] Install, exact versions:
 
       pnpm add maplibre-gl@6.6.0 react-map-gl@8.1.2 \
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
-- [ ] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
+- [x] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
       for it, that is stale training data — replace with `exifreader`.
-- [ ] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
+- [x] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
       the parser behind every Pod read. See `docs/decisions.md` §23.
 
 ### Dev dependencies
 
-- [ ] Install:
+- [x] Install:
 
       pnpm add -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
         @testing-library/react@16.3.3 @testing-library/jest-dom@7.0.1 jsdom@30.0.1 \
@@ -200,19 +208,19 @@ cached-and-invalidated model expects.
 
 ### shadcn/ui — studio only
 
-- [ ] Initialise:
+- [x] Initialise:
 
       pnpm dlx shadcn@latest init
 
       Template `next`, base colour `neutral`. **Not** `npx shadcn-ui` — that package name is
       dead.
 
-- [ ] Add only what the studio needs. Resist adding the whole registry:
+- [x] Add only what the studio needs. Resist adding the whole registry:
 
       pnpm dlx shadcn@latest add button input textarea select dialog drawer \
         tabs popover command switch tooltip sonner
 
-- [ ] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
+- [x] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
 - [ ] Note that `drawer` pulls in `vaul`, last published 2024-12. Verify its snap-point API
       against current shadcn docs, not blog posts. This component is the mobile map sheet.
 - [ ] Restyle rather than tweak: radius near zero, borders and background steps instead of
@@ -220,7 +228,7 @@ cached-and-invalidated model expects.
 
 ### Theme tokens
 
-- [ ] Replace the generated CSS variables in `app/globals.css` wholesale with the palette from
+- [x] Replace the generated CSS variables in `app/globals.css` wholesale with the palette from
       `docs/design-brief.md`. Tailwind v4 is CSS-first — there is no `tailwind.config.js`
       theme block to edit:
 
@@ -238,14 +246,14 @@ cached-and-invalidated model expects.
         --color-accent-deep:   oklch(0.420 0.117 250);
       }
 
-- [ ] Map the shadcn variables (`--background`, `--foreground`, `--primary`, `--ring`, …) onto
+- [x] Map the shadcn variables (`--background`, `--foreground`, `--primary`, `--ring`, …) onto
       these tokens at `:root`. **Not under a `.dark` class** — the site is fixed dark, so
       there is no toggle and no flash of wrong theme.
-- [ ] Delete any generated light-mode block.
+- [x] Delete any generated light-mode block.
 
 ### Project structure
 
-- [ ] Route groups with **separate root layouts**:
+- [x] Route groups with **separate root layouts**:
 
       app/(public)/layout.tsx
       app/(studio)/layout.tsx
@@ -253,48 +261,57 @@ cached-and-invalidated model expects.
       Separate layouts are what keep the bundles apart. A single shared root layout importing
       a session provider would undo the whole boundary in one line.
 
-- [ ] Pod layer split along the same seam:
+- [x] Pod layer split along the same seam:
 
       lib/pod/read.ts      unauthenticated, imported by both
       lib/pod/write.ts     studio only
       lib/pod/access.ts    studio only, the four-method ACL interface
       lib/vocab.ts         every IRI as a named constant
 
-- [ ] Generate `lib/vocab.ts` from `docs/data-model.md` §3 and keep it the only source of IRIs.
+- [x] Generate `lib/vocab.ts` from `docs/data-model.md` §3 and keep it the only source of IRIs.
 
 ### Guardrail enforcement
 
-- [ ] ESLint `no-restricted-syntax` banning raw vocabulary IRIs outside `lib/vocab.ts`:
+- [x] ESLint `no-restricted-syntax` banning raw vocabulary IRIs outside `lib/vocab.ts`:
 
       {
         selector: "Literal[value=/^https?:\\/\\/(schema\\.org|purl\\.org|www\\.w3\\.org|example\\.org\\/ns)/]",
         message: "Import the IRI from lib/vocab.ts instead of writing it inline."
       }
 
-- [ ] ESLint `no-restricted-imports` so nothing outside `lib/pod/access.ts` imports ACL
+- [x] ESLint `no-restricted-imports` so nothing outside `lib/pod/access.ts` imports ACL
       primitives, and nothing under `app/(public)` imports `@inrupt/solid-client-authn-browser`,
       Radix, or anything from `app/(studio)`.
-- [ ] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
+- [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
-- [ ] `size-limit` budget on the public routes, failing CI. This is the only enforcement that
-      really holds — an agent can rationalise past a lint rule but not past a failing build.
-      Set the initial ceiling from the first real build, then only ever lower it.
+- [~] `size-limit` budget, failing CI. **Wired but not yet doing its job — fix in phase 1.**
+      The config globs `.next/static/chunks/**/*.js`, which measures *every* chunk including the
+      studio's. That is not a public-route budget: Radix and shadcn weight counts against it,
+      and a genuine public regression could hide inside the total. With no real public pages
+      yet there is nothing to isolate, so:
+      - [x] size-limit installed, configured and running (172.96 kB gzip at scaffold time)
+      - [ ] Once phase 1 ships real public pages, narrow the glob to the public route's own
+            first-load JS and re-baseline the ceiling from that build. Then only ever lower it.
+      - [ ] Verify the budget actually fails by pushing it under the current size once, the same
+            way the guardrail rules are tested.
 
 ### Local Pod
 
-- [ ] Run Community Solid Server pinned, no Docker needed:
+- [x] Run Community Solid Server pinned, no Docker needed:
 
       pnpm dlx @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
 
-- [ ] Add `.pod-data/` to `.gitignore`.
-- [ ] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
+- [x] Add `.pod-data/` to `.gitignore`.
+- [x] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
       a live Pod.
-- [ ] Note which access-control mechanism it uses versus the hosted Pod, and confirm
-      `lib/pod/access.ts` covers both.
+- [x] Note which access-control mechanism it uses versus the hosted Pod, and confirm
+      `lib/pod/access.ts` covers both. **Done in phase 0**: CSS is WAC, Inrupt ESS is ACP, and
+      `universalAccess` handled both with identical calling code. Do not branch on mechanism —
+      `rel="acl"` does not mean WAC. See `docs/decisions.md` §19.
 
 ### Configuration
 
-- [ ] `.env.example`, committed, with every variable and a comment each:
+- [x] `.env.example`, committed, with every variable and a comment each:
 
       OWNER_WEBID=
       POD_ROOT=
@@ -305,30 +322,35 @@ cached-and-invalidated model expects.
 
 - [ ] Verify the OpenFreeMap style URL against their current docs before committing it as the
       default.
-- [ ] `next.config.ts`: add the Pod host to `images.remotePatterns`. Without it `next/image`
+- [x] `next.config.ts`: add the Pod host to `images.remotePatterns`. Without it `next/image`
       refuses Pod-hosted photos.
-- [ ] Serve `client-id.jsonld` from the app origin, generated from config rather than
+- [x] Serve `client-id.jsonld` from the app origin, generated from config rather than
       hardcoded, since each deployer serves it from their own domain.
 
 ### Scripts and CI
 
-- [ ] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
-- [ ] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
+- [x] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
+- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
       written and already passes. It runs on `tsx` and `n3`, both already in the dependency
       list; there is no second language runtime to install.
-- [ ] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
+- [x] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
       `lib/vocab.ts`, in both directions. This is what stops the data model rotting.
-- [ ] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.
-- [ ] `.nvmrc`, `.prettierrc`, `netlify.toml`, `Dockerfile`.
+- [x] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.
+- [x] `.nvmrc`, `.prettierrc`, `netlify.toml`, `Dockerfile`.
 
 ### Done when
 
-- [ ] `build` succeeds
-- [ ] `test`, `lint`, `typecheck` and `validate:fixtures` all pass
-- [ ] Local Pod starts and the app reads one hand-written resource from it
-- [ ] A deliberate violation of each guardrail rule fails CI — test the enforcement, don't
-      assume it
+- [x] `build` succeeds
+- [x] `test`, `lint`, `typecheck` and `validate:fixtures` all pass
+- [x] Local Pod starts and the app reads one hand-written resource from it
+- [x] A deliberate violation of each guardrail rule fails CI — test the enforcement, don't
+      assume it. **Done for the lint guardrails**: `test/guardrails.test.ts` lints deliberate
+      violations at the paths where each rule applies, and asserts the allow-cases too, since a
+      rule that rejects everything is useless. 10 cases, all passing.
+      - [ ] **Not yet done for the size budget.** See the size-limit item above: the glob still
+            measures every chunk, so there is nothing meaningful to violate yet. Do it when the
+            budget is narrowed to public routes in phase 1.
 
 ---
 

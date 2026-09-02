@@ -6,8 +6,9 @@ Trips, entries and photographs live in storage you control. The site reads them 
 them; it never holds a copy. Delete the app and every word and photograph is still yours,
 where it always was.
 
-> **Status: pre-implementation.** The data model and architecture are specified; the
-> application is not built yet. Start at `TODO.md`.
+> **Status: scaffolded, not implemented.** Phase 0 (the platform spike) is answered against
+> two Solid servers; phase 0.5 (installation and setup) is in progress. The Next.js app exists
+> but has no behaviour yet — no reading, no writing, no map. Start at `TODO.md`.
 
 ## What makes it unusual
 
@@ -38,11 +39,27 @@ other software can read your trips where they sit, with no import step.
 - No offline support yet, which matters more than it sounds when travelling.
 - Map tiles come from community infrastructure funded by donations. Best effort, not an SLA.
 
-## Note on scaffolding
+## Development
 
-This README predates the application. When `create-next-app` runs it will generate its own
-`README.md`; that one is boilerplate and this one wins. See the merge instructions at the top
-of phase 0.5 in `TODO.md`.
+Requires Node 22 (`.nvmrc` pins 22.23.2 — `nvm use` picks it up). Any package manager works;
+this checkout uses npm.
+
+```bash
+npm install
+npm run dev          # http://localhost:3000
+```
+
+| Script | What it does |
+|---|---|
+| `dev` | Next dev server |
+| `build` | production build |
+| `test` | vitest |
+| `lint` / `typecheck` | eslint / `tsc --noEmit` |
+| `validate:fixtures` | checks the Turtle fixtures in `docs/data-model.md` |
+| `pod:dev` | local Community Solid Server to develop against |
+
+Develop against the local Pod, never a live one. See `CLAUDE.md` for the rules that are not
+inferable from the code.
 
 ## Deploying your own
 

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 is not a preference. @inrupt/solid-client excludes 24 and
+      # @inrupt/solid-client-authn-core excludes 20, so 22 is the only overlap;
+      # jsdom sets the floor at 22.22.2. See docs/versions.md.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (includes the guardrail-enforcement tests)
+        run: npm test
+
+      # The data model is normative. These two stop it drifting from the code.
+      - name: Fixtures in docs/data-model.md are valid
+        run: npm run validate:fixtures
+
+      - name: lib/vocab.ts matches the data model, both directions
+        run: npm run check:vocab
+
+      - name: CLAUDE.md commands all exist in package.json
+        run: npm run check:commands
+
+      - name: Build
+        run: npm run build
+
+      # TODO.md: this is the enforcement that really holds — an agent can
+      # rationalise past a lint rule but not past a failing build.
+      - name: Bundle budget
+        run: npm run size
