@@ -381,9 +381,26 @@ Trip slugs come from the Pod, so:
       Next's raw error. Record which in `docs/decisions.md`.
 - [ ] Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
       defensible; failing with an unreadable stack trace is not.
-- [ ] Confirm the App Shell path: a trip published after the build should be served the shell and
-      upgraded in the background, with no redeploy. Verify rather than assume — this is what
-      makes the publish flow tolerable.
+- [x] Confirm the App Shell path: a trip published after the build should be served the shell and
+      upgraded in the background, with no redeploy. **Verified** — the build's route table shows
+      known params as `○ (Static)` and unknown ones as `◐ (Partial Prerender)`.
+
+- [ ] **Soft 404 on unknown slugs — open, and it matters for SEO.** Under Partial Prerendering
+      the static shell is flushed before the dynamic part resolves, so a `notFound()` in the page
+      body arrives after the status line is committed: `/trips/nope` returns **HTTP 200 carrying
+      404 content**. The body is correct; the status is not, and this site server-renders
+      specifically for SEO and share previews (`docs/decisions.md` §2).
+
+      `export const instant = false` does **not** fix this — it governs instant-*navigation*
+      validation, not response blocking, despite reading like the fix in Next's labelled-error
+      menu. Verified against the bundled docs and by measuring: the status stayed 200.
+
+      Options to weigh, none yet chosen:
+      - validate the slug against the cached `allTripSlugs()` inside the shell, so an unknown
+        slug is rejected before anything dynamic is touched
+      - make these routes fully dynamic, giving up PPR on them
+      - accept the soft 404 and mark unknown slugs `noindex` in `generateMetadata`
+      Decide before phase 5, since OG images and share previews depend on it.
 
 ## Phase 2 — studio
 
