@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "validate:fixtures": "tsx scripts/validate-fixtures.ts",
+    "check:vocab": "tsx scripts/check-vocab.ts",
+    "check:commands": "tsx scripts/check-commands.ts",
     "pod:dev": "npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data",
     "size": "size-limit"
   },
@@ -58,7 +60,8 @@
     "tsx": "4.23.13",
     "typescript": "6.0.3",
     "typescript-eslint": "8.69.0",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@inrupt/solid-client-authn-node": "5.0.0"
   },
   "engines": {
     "node": "^22.22.2"

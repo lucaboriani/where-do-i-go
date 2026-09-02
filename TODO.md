@@ -297,15 +297,17 @@ cached-and-invalidated model expects.
 
 ### Local Pod
 
-- [ ] Run Community Solid Server pinned, no Docker needed:
+- [x] Run Community Solid Server pinned, no Docker needed:
 
       pnpm dlx @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
 
-- [ ] Add `.pod-data/` to `.gitignore`.
-- [ ] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
+- [x] Add `.pod-data/` to `.gitignore`.
+- [x] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
       a live Pod.
-- [ ] Note which access-control mechanism it uses versus the hosted Pod, and confirm
-      `lib/pod/access.ts` covers both.
+- [x] Note which access-control mechanism it uses versus the hosted Pod, and confirm
+      `lib/pod/access.ts` covers both. **Done in phase 0**: CSS is WAC, Inrupt ESS is ACP, and
+      `universalAccess` handled both with identical calling code. Do not branch on mechanism —
+      `rel="acl"` does not mean WAC. See `docs/decisions.md` §19.
 
 ### Configuration
 
@@ -328,22 +330,27 @@ cached-and-invalidated model expects.
 ### Scripts and CI
 
 - [x] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
-- [ ] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
+- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
       written and already passes. It runs on `tsx` and `n3`, both already in the dependency
       list; there is no second language runtime to install.
-- [ ] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
+- [x] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
       `lib/vocab.ts`, in both directions. This is what stops the data model rotting.
-- [ ] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.
-- [ ] `.nvmrc`, `.prettierrc`, `netlify.toml`, `Dockerfile`.
+- [x] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.
+- [x] `.nvmrc`, `.prettierrc`, `netlify.toml`, `Dockerfile`.
 
 ### Done when
 
-- [ ] `build` succeeds
-- [ ] `test`, `lint`, `typecheck` and `validate:fixtures` all pass
-- [ ] Local Pod starts and the app reads one hand-written resource from it
-- [ ] A deliberate violation of each guardrail rule fails CI — test the enforcement, don't
-      assume it
+- [x] `build` succeeds
+- [x] `test`, `lint`, `typecheck` and `validate:fixtures` all pass
+- [x] Local Pod starts and the app reads one hand-written resource from it
+- [x] A deliberate violation of each guardrail rule fails CI — test the enforcement, don't
+      assume it. **Done for the lint guardrails**: `test/guardrails.test.ts` lints deliberate
+      violations at the paths where each rule applies, and asserts the allow-cases too, since a
+      rule that rejects everything is useless. 10 cases, all passing.
+      - [ ] **Not yet done for the size budget.** See the size-limit item above: the glob still
+            measures every chunk, so there is nothing meaningful to violate yet. Do it when the
+            budget is narrowed to public routes in phase 1.
 
 ---
 
