@@ -62,9 +62,17 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
       thumbnail: e.photos[0]?.thumbnailUrl,
       sortOrder: i + 1,
     }))
-    // Chronological where a timestamp exists; ties keep input order, which
-    // dy:sortOrder then makes explicit so parse order is never relied on (§6).
-    .sort((a, b) => (a.occurredAt ?? "").localeCompare(b.occurredAt ?? ""))
+    // Sort on the INSTANT, not the text. dy:occurredAt carries the local offset
+    // of the place (§7.3), so lexical order is not chronological order and a
+    // trip that crosses a time zone — the normal case here — would be ordered
+    // wrongly. Values are Zod-validated ISO-with-offset, so Date.parse is total.
+    // Entries without a timestamp sort first and keep input order; dy:sortOrder
+    // then makes the result explicit so parse order is never relied on (§6).
+    .sort(
+      (a, b) =>
+        (a.occurredAt ? Date.parse(a.occurredAt) : -Infinity) -
+        (b.occurredAt ? Date.parse(b.occurredAt) : -Infinity),
+    )
     .map((row, i) => ({ ...row, sortOrder: i + 1 }));
 
   const points = rows.filter(

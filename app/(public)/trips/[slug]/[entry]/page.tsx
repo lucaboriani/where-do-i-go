@@ -14,7 +14,9 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug, entry } = await params;
   const e = await getEntry(slug, entry);
-  if (!e.ok) return { title: entry };
+  // Same reason as the trip route: metadata runs regardless of what the body
+  // renders, so a draft headline would otherwise leak into the served HTML.
+  if (!e.ok || e.value.status !== "published") return { title: "Not found" };
   return { title: e.value.headline.value, description: e.value.articleBody?.value?.slice(0, 160) };
 }
 

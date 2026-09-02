@@ -43,12 +43,19 @@ async function knownSlugs(): Promise<Set<string> | null> {
     // A regex, not a full parser: middleware must stay small, and this reads one
     // predicate from one resource. lib/pod/read.ts remains the only validated
     // reader — nothing downstream trusts what is extracted here.
+    // Check this IS a diary BEFORE extracting, and test for something that can
+    // actually be absent. The previous guard tested for the substring "trip",
+    // which any document containing a .../trips/x/trip.ttl link necessarily has
+    // — so it could never fail, and a non-diary 200 response would have cached
+    // an empty slug set and 404'd every real trip for a minute.
+    if (!body.includes(DY.trip) && !/\bdy:trip\b/.test(body)) return null;
+
     const slugs = new Set<string>();
-    const dyTrip = DY.trip.split("#").pop();
     for (const m of body.matchAll(/<([^>]*trips\/([^/>]+)\/trip\.ttl)(?:#it)?>/g)) {
       slugs.add(m[2]);
     }
-    if (!body.includes(dyTrip ?? "trip")) return null; // not the document we expected
+    // Never cache an empty set: failing open beats 404-ing real content.
+    if (slugs.size === 0) return null;
     cache = { slugs, at: Date.now() };
     return slugs;
   } catch {

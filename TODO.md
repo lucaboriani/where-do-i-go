@@ -392,6 +392,15 @@ Trip slugs come from the Pod, so:
       The check now runs in `proxy.ts`, which executes before rendering, and fails open so a
       Pod outage never 404s real content. See `docs/decisions.md` §24.
 
+**Known limitation carried from phase 1 — draft trips return a soft 404.**
+A guessed URL for an unpublished trip (`/trips/<draft-slug>`) returns HTTP 200 while rendering
+the not-found page. Its name, description and metadata do not leak — verified — but the status
+is wrong, for the same reason as `docs/decisions.md` §24: `proxy.ts` allows it through because
+`diary.ttl` lists drafts, and `notFound()` in the page body cannot set a status under Partial
+Prerendering. Fixing it properly means the proxy reading `dy:status` per trip, which costs a
+fetch per trip in a file that must stay small. Accepted for now because drafts are linked from
+nowhere and leak nothing; revisit with the publish flow.
+
 ## Phase 2 — studio
 
 - [ ] Solid login, static client ID document, session restore across reload

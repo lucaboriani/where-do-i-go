@@ -10,7 +10,8 @@ import {
   DCTERMS, DY, DY_CLASS, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
 } from "@/lib/vocab";
 import {
-  decimal, fetchTurtle, itOf, offsetDateTime, viewOf, type ReadOptions, type View,
+  date, decimal, fetchTurtle, integer, itOf, offsetDateTime, viewOf,
+  type ReadOptions, type View,
 } from "./rdf";
 import { describe, err, ok, type PodError, type Result } from "./result";
 import {
@@ -69,8 +70,8 @@ function travelModeOf(view: View): string | undefined {
 /** dy:schemaVersion, checked on every top-level read including entries (§11). */
 function schemaVersionOf(view: View, url: string): number {
   const lit = view.typed(DY.schemaVersion);
-  const n = lit ? Number(lit.value) : NaN;
-  if (!Number.isInteger(n) || n !== SCHEMA_VERSION) {
+  const n = take(integer(view, DY.schemaVersion, url));
+  if (n === undefined || n !== SCHEMA_VERSION) {
     throw new Bail({ kind: "schemaVersion", url, found: lit?.value, expected: SCHEMA_VERSION });
   }
   return n;
@@ -99,7 +100,7 @@ function placeOf(quads: Quad[], placeIri: string | undefined, url: string) {
 
   const lat = g ? take(decimal(g, SCHEMA.latitude, url)) : undefined;
   const long = g ? take(decimal(g, SCHEMA.longitude, url)) : undefined;
-  const precision = g?.typed(DY.precisionMeters)?.value;
+  const precision = g ? take(integer(g, DY.precisionMeters, url)) : undefined;
 
   return validate(
     Place,
@@ -109,7 +110,7 @@ function placeOf(quads: Quad[], placeIri: string | undefined, url: string) {
       country: a?.one(SCHEMA.addressCountry),
       geo:
         lat !== undefined && long !== undefined
-          ? { lat, long, precisionMeters: precision ? Number(precision) : undefined }
+          ? { lat, long, precisionMeters: precision }
           : undefined,
     },
     url,
@@ -125,6 +126,18 @@ export function assertSlug(url: string, slug: string): Result<string> {
   const segments = new URL(url).pathname.split("/").filter(Boolean);
   const segment = segments[segments.length - 2];
   return segment === slug ? ok(slug) : err({ kind: "slugMismatch", url, slug, segment: segment ?? "" });
+}
+
+/**
+ * Entries are files, not containers, so their slug must match the FILENAME
+ * rather than the containing directory. Asserted for the same reason as the
+ * trip invariant: a mismatch reaches the index, the sitemap and the feed, and
+ * every link built from it is dead while the resource looks intact in the Pod.
+ */
+export function assertEntrySlug(url: string, slug: string): Result<string> {
+  const file = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+  const segment = file.replace(/\.ttl$/, "");
+  return segment === slug ? ok(slug) : err({ kind: "slugMismatch", url, slug, segment });
 }
 
 export const tripUrl = (podRoot: string, slug: string) =>
@@ -158,8 +171,8 @@ export async function readTrip(url: string, opts?: ReadOptions): Promise<Result<
         schemaVersion: schemaVersionOf(v, url),
         name: langText(v, SCHEMA.name),
         description: langText(v, SCHEMA.description),
-        startDate: v.typed(DY.startDate)?.value,
-        endDate: v.typed(DY.endDate)?.value,
+        startDate: take(date(v, DY.startDate, url)),
+        endDate: take(date(v, DY.endDate, url)),
         index: v.one(DY.index),
         coverImage: v.one(DY.coverImage),
         track: v.one(DY.track),
@@ -190,17 +203,20 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
         contentUrl: p.one(SCHEMA.contentUrl),
         thumbnailUrl: p.one(SCHEMA.thumbnailUrl),
         caption: langText(p, SCHEMA.caption),
-        width: p.typed(SCHEMA.width)?.value ? Number(p.typed(SCHEMA.width)!.value) : undefined,
-        height: p.typed(SCHEMA.height)?.value ? Number(p.typed(SCHEMA.height)!.value) : undefined,
-        sortOrder: p.typed(DY.sortOrder)?.value ? Number(p.typed(DY.sortOrder)!.value) : undefined,
+        width: take(integer(p, SCHEMA.width, url)),
+        height: take(integer(p, SCHEMA.height, url)),
+        sortOrder: take(integer(p, DY.sortOrder, url)),
       }))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+    const slug = v.typed(DY.slug)?.value ?? "";
+    take(assertEntrySlug(url, slug));
 
     return validate(
       Entry,
       {
         iri: itOf(url),
-        slug: v.typed(DY.slug)?.value ?? "",
+        slug,
         status: statusOf(v, url),
         schemaVersion: schemaVersionOf(v, url),
         headline: langText(v, SCHEMA.headline),
@@ -243,12 +259,12 @@ export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Re
             occurredAt: take(offsetDateTime(e, DY.occurredAt, url)),
             lat: take(decimal(e, DY.lat, url)),
             long: take(decimal(e, DY.long, url)),
-            precisionMeters: e.typed(DY.precisionMeters)?.value
-              ? Number(e.typed(DY.precisionMeters)!.value)
-              : undefined,
+            precisionMeters: take(integer(e, DY.precisionMeters, url)),
             thumbnail: e.one(DY.thumbnail),
             travelModeFrom: travelModeOf(e),
-            sortOrder: Number(e.typed(DY.sortOrder)?.value ?? 0),
+            // No default: §6 forbids relying on parse order, and a silent 0
+            // does exactly that. Absent becomes a shape error via the schema.
+            sortOrder: take(integer(e, DY.sortOrder, url)),
           },
           url,
         ),
@@ -271,7 +287,7 @@ export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Re
         iri: itOf(url),
         indexOf: v.one(DY.indexOf),
         schemaVersion: schemaVersionOf(v, url),
-        entryCount: v.typed(DY.entryCount)?.value ? Number(v.typed(DY.entryCount)!.value) : undefined,
+        entryCount: take(integer(v, DY.entryCount, url)),
         bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
         center: centerLat !== undefined && centerLong !== undefined
           ? { lat: centerLat, long: centerLong }

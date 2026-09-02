@@ -15,7 +15,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const trip = await getTrip(slug);
-  if (!trip.ok) return { title: slug };
+  // A draft's name must not reach <title> or the OG tags. generateMetadata runs
+  // even when the page body renders not-found, so without this check the draft
+  // title leaks into the served HTML and into link previews.
+  if (!trip.ok || trip.value.status !== "published") return { title: "Not found" };
   return {
     title: trip.value.name.value,
     description: trip.value.description?.value,
@@ -42,6 +45,11 @@ export default async function TripPage({ params }: { params: Promise<{ slug: str
   if (!trip.ok && trip.error.kind === "http" && [401, 403, 404].includes(trip.error.status)) {
     notFound();
   }
+
+  // A draft trip that happens to be readable is still not published. The entry
+  // page has always enforced this; the trip page did not, which left the
+  // boundary depending on an ACL rather than on the data.
+  if (trip.ok && trip.value.status !== "published") notFound();
 
   return (
     <main className="mx-auto max-w-2xl p-8">

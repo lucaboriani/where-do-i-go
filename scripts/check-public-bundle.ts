@@ -78,8 +78,20 @@ for (const page of PAGES) {
   if (bytes > worst.bytes) worst = { page, bytes, files: refs.size };
 }
 
-if (missing === PAGES.length) {
+if (missing === PAGES.length || PAGES.length === 0) {
   console.log("\nNo public pages were prerendered — did `next build` run?");
+  process.exit(1);
+}
+
+// A budget that measures nothing must fail, not pass. If Next changes how it
+// emits script references, the extraction silently matches zero files and every
+// page reports 0.0 kB — which would print "within budget" and exit 0.
+if (worst.bytes === 0) {
+  console.log(
+    "\nMeasured 0 bytes across every public page. That is not a pass: the script " +
+      "extraction found nothing, so this check is not enforcing anything. Fix the " +
+      "extraction in scripts/check-public-bundle.ts.",
+  );
   process.exit(1);
 }
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDiary } from "@/lib/pod/cached";
+import { allTripSlugs, getDiary } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
 
 export default async function Home() {
@@ -14,9 +14,9 @@ export default async function Home() {
     );
   }
 
-  const slugs = diary.value.trips
-    .map((iri) => iri.match(/trips\/([^/]+)\//)?.[1])
-    .filter((s): s is string => Boolean(s));
+  // Not diary.value.trips: that lists drafts too, because trips have no index
+  // acting as a publication boundary the way entries do.
+  const slugs = await allTripSlugs();
 
   return (
     <main className="mx-auto max-w-2xl p-8">

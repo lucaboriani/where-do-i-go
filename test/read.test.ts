@@ -94,14 +94,62 @@ describe("readEntry", () => {
     expect(r.value.photos[0].width).toBe(1600);
   });
 
+  it("rejects a slug that does not match its own filename", async () => {
+    // §11 guardrail 7 and §4: assert on read, because a mismatch makes an entry
+    // unreachable from the web while looking intact in the Pod — it reaches the
+    // index, the sitemap and the feed, and every one of those links is dead.
+    servePod({
+      [URLS.entry]: ENTRY.replace(
+        'dy:slug              "2026-03-29-arrival"',
+        'dy:slug              "totally-different"',
+      ),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("slugMismatch");
+  });
+
+  it("rejects a date that is not xsd:date", async () => {
+    servePod({
+      [URLS.trip]: TRIP.replace('"2026-03-28"^^xsd:date', '"2026-03-28"'),
+    });
+    const r = await readTrip(URLS.trip);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("datatype");
+  });
+
   it("rejects a dateTime with no UTC offset", async () => {
     servePod({
       [URLS.entry]: ENTRY.replace('"2026-03-29T21:40:00+09:00"^^xsd:dateTime', '"2026-03-29T21:40:00"^^xsd:dateTime'),
     });
     const r = await readEntry(URLS.entry);
     expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("shape");
   });
 });
+
+/** The §7.4 fixture declares two dy:entry links but only gives one of them any
+ *  triples, so the reader filters the other out and every ordering assertion
+ *  runs on a single row. Add a fully-populated second row, declared LAST but
+ *  sorting FIRST, so the sort is actually exercised. */
+const TWO_ROW_INDEX =
+  INDEX.replace(
+    "dy:entry         <#e-2026-03-29-arrival>, <#e-2026-03-31-nara> .",
+    "dy:entry         <#e-2026-03-29-arrival>, <#e-2026-03-28-departure> .",
+  ).trimEnd() +
+  `
+
+<#e-2026-03-28-departure>
+    a dy:IndexEntry ;
+    dy:entryResource   <entries/2026-03-28-departure.ttl#it> ;
+    dcterms:title      "Leaving Milan"@en ;
+    dy:slug            "2026-03-28-departure" ;
+    dy:occurredAt      "2026-03-28T07:00:00+01:00"^^xsd:dateTime ;
+    dy:sortOrder       0 .
+`;
 
 describe("readTripIndex", () => {
   it("returns entries sorted by dy:sortOrder, with the bbox", async () => {
@@ -117,12 +165,36 @@ describe("readTripIndex", () => {
     );
   });
 
-  it("never exposes dy:status — the index is the publication boundary", async () => {
-    servePod({ [URLS.index]: INDEX });
+  it("sorts rows by dy:sortOrder regardless of document order", async () => {
+    servePod({ [URLS.index]: TWO_ROW_INDEX });
     const r = await readTripIndex(URLS.index);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(JSON.stringify(r.value)).not.toContain("status");
+    expect(r.value.entries).toHaveLength(2);
+    // Declared second, sortOrder 0 — must come first.
+    expect(r.value.entries.map((e) => e.slug)).toEqual([
+      "2026-03-28-departure",
+      "2026-03-29-arrival",
+    ]);
+  });
+
+  it("rejects a row with no dy:sortOrder rather than defaulting it to 0", async () => {
+    // §6: "Ordering is always explicit … parse order carries no meaning and
+    // must never be relied on." A silent 0 does exactly what that forbids, and
+    // does it where every other bad field produces a structured error.
+    servePod({ [URLS.index]: INDEX.replace("dy:sortOrder       1 .", ".") });
+    const r = await readTripIndex(URLS.index);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("shape");
+  });
+
+  it("rejects a count that is not xsd:integer", async () => {
+    servePod({ [URLS.index]: INDEX.replace("dy:entryCount    14 ;", 'dy:entryCount    "14" ;') });
+    const r = await readTripIndex(URLS.index);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("datatype");
   });
 });
 

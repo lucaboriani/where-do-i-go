@@ -85,6 +85,32 @@ export function decimal(view: View, predicate: string, url: string): Result<numb
     : err({ kind: "shape", url, issues: [`${predicate} is not a number: ${lit.value}`] });
 }
 
+/** Counts and distances are xsd:integer (§6). Without this check a
+ *  `"14"^^xsd:string` reads back as the number 14 and nothing complains, which
+ *  is exactly the silent-wrong-value the structured-error design exists to
+ *  prevent. */
+export function integer(view: View, predicate: string, url: string): Result<number | undefined> {
+  const lit = view.typed(predicate);
+  if (!lit) return ok(undefined);
+  if (lit.datatype !== XSD.integer) {
+    return err({ kind: "datatype", url, predicate, found: lit.datatype, expected: XSD.integer });
+  }
+  const n = Number(lit.value);
+  return Number.isInteger(n)
+    ? ok(n)
+    : err({ kind: "shape", url, issues: [`${predicate} is not an integer: ${lit.value}`] });
+}
+
+/** Trip extent is xsd:date — a travel diary wants dates, not times (§7.2). */
+export function date(view: View, predicate: string, url: string): Result<string | undefined> {
+  const lit = view.typed(predicate);
+  if (!lit) return ok(undefined);
+  if (lit.datatype !== XSD.date) {
+    return err({ kind: "datatype", url, predicate, found: lit.datatype, expected: XSD.date });
+  }
+  return ok(lit.value);
+}
+
 /** xsd:dateTime with a UTC offset. Normalising to UTC destroys the fact that it
  *  was evening, which for a travel diary is most of the meaning (§7.3). */
 const OFFSET = /([+-]\d{2}:\d{2}|Z)$/;

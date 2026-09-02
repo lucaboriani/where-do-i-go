@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { computeIndex, serialiseIndex } from "@/lib/pod/index-model";
 import { readTripIndex } from "@/lib/pod/read";
-import { graphEquals, triples } from "./graph";
+import { readFileSync } from "node:fs";
+import { triples } from "./graph";
 import { servePod } from "./msw";
 import type { Entry } from "@/lib/pod/schema";
 
@@ -38,6 +39,18 @@ describe("computeIndex", () => {
     ]);
     expect(c.rows.map((r) => r.slug)).toEqual(["early", "late"]);
     expect(c.rows.map((r) => r.sortOrder)).toEqual([1, 2]);
+  });
+
+  it("orders by the instant, not the text, across time zones", () => {
+    // dy:occurredAt carries the LOCAL offset of the place (§7.3), which is the
+    // whole point of the field — so lexical order is not chronological order,
+    // and a trip that crosses a time zone is the normal case, not an edge one.
+    // Tokyo 00:30+09:00 is 15:30Z on the 28th; Milan 23:00+01:00 is 22:00Z.
+    const c = computeIndex([
+      entry({ slug: "milan", occurredAt: "2026-03-28T23:00:00+01:00" }),
+      entry({ slug: "tokyo", occurredAt: "2026-03-29T00:30:00+09:00" }),
+    ]);
+    expect(c.rows.map((r) => r.slug)).toEqual(["tokyo", "milan"]);
   });
 
   it("derives bbox and centre from the points, ignoring entries without one", () => {
@@ -83,14 +96,39 @@ describe("serialiseIndex", () => {
     expect(r.value.entryCount).toBe(1);
   });
 
-  it("is stable as a graph across reserialisation, whatever the bytes do", async () => {
-    const computed = computeIndex([entry({ slug: "a", place: { geo: { lat: 1.5, long: 2.5 } } })]);
-    const a = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");
-    const b = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");
-    const cmp = graphEquals(a, b, INDEX);
-    expect(cmp.missing).toEqual([]);
-    expect(cmp.extra).toEqual([]);
-    expect(cmp.equal).toBe(true);
+  it("matches the normative §7.4 fixture as a graph", async () => {
+    // Serialising twice and comparing proves nothing: serialiseIndex is pure, so
+    // the bytes are identical and graphEquals is never exercised. Compare against
+    // the specification instead — that is what §11 guardrail 6 asks for, and it
+    // would catch a shared writer/reader error that every other test tolerates.
+    const doc = readFileSync("docs/data-model.md", "utf8");
+    const fixture = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1])[3];
+
+    const computed = computeIndex([
+      entry({
+        slug: "2026-03-29-arrival",
+        headline: { value: "First night in Shinjuku", language: "en" },
+        occurredAt: "2026-03-29T21:40:00+09:00",
+        travelModeFrom: "Flight",
+        place: { geo: { lat: 35.6938, long: 139.7034, precisionMeters: 500 } },
+        photos: [
+          {
+            contentUrl: `${POD}/travel/media/6f2a1c8e/web.jpg`,
+            thumbnailUrl: `${POD}/travel/media/6f2a1c8e/thumb.jpg`,
+          },
+        ],
+      }),
+    ]);
+    const ours = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");
+
+    // The fixture carries derived values for the whole 14-entry trip; ours is
+    // built from one entry. Compare the shape of the row we do produce.
+    const oursTriples = triples(ours, INDEX);
+    const specTriples = triples(fixture, INDEX);
+    const rowOf = (set: Set<string>) =>
+      new Set([...set].filter((t) => t.includes("e-2026-03-29-arrival")));
+    const missing = [...rowOf(specTriples)].filter((t) => !rowOf(oursTriples).has(t));
+    expect(missing).toEqual([]);
   });
 
   it("emits no blank nodes", async () => {

@@ -44,20 +44,36 @@ const cc = await api(controls.account.clientCredentials, { name, webId }, token)
 const session = new Session();
 await session.login({ clientId: cc.id, clientSecret: cc.secret, oidcIssuer: BASE });
 
+// Preconditioned, like every other write in this repo. CLAUDE.md's rule covers
+// scratch code explicitly, and this script runs in CI on every re-run — a blind
+// PUT here would silently overwrite a seeded pod rather than failing.
 const put = async (path: string, body: string, type = "text/turtle") => {
   const r = await session.fetch(`${POD}${path}`, {
     method: "PUT",
-    headers: { "content-type": type },
+    headers: { "content-type": type, "if-none-match": "*" },
     body,
   });
   console.log(`  PUT ${path} -> ${r.status}`);
+  if (!r.ok) {
+    throw new Error(
+      `PUT ${path} failed with ${r.status}. ` +
+        (r.status === 412
+          ? "That pod already has this resource — use a different SEED_NAME."
+          : "Seeding aborted; the pod is in an unknown state."),
+    );
+  }
 };
 
 for (const c of ["travel/", "travel/trips/", "travel/trips/2026-japan/", "travel/trips/2026-japan/entries/"]) {
-  await session.fetch(`${POD}${c}`, {
+  const r = await session.fetch(`${POD}${c}`, {
     method: "PUT",
-    headers: { "content-type": "text/turtle", link: `<${NS.ldp}BasicContainer>; rel="type"` },
+    headers: {
+      "content-type": "text/turtle",
+      "if-none-match": "*",
+      link: `<${NS.ldp}BasicContainer>; rel="type"`,
+    },
   });
+  if (!r.ok) throw new Error(`creating container ${c} failed with ${r.status}`);
 }
 
 // Public read that INHERITS to children — the CSS default grants acl:accessTo
@@ -71,11 +87,34 @@ await put(
 );
 
 // One trip only: the fixture diary lists a second that does not exist here.
-await put("travel/diary.ttl", DIARY.replace(/\s*,\s*<trips\/2025-patagonia\/trip\.ttl#it>/, ""));
+await put(
+  "travel/diary.ttl",
+  DIARY.replace(/\s*,\s*<trips\/2025-patagonia\/trip\.ttl#it>/, "").replace(
+    "<trips/2026-japan/trip.ttl#it> .",
+    "<trips/2026-japan/trip.ttl#it> ,\n                        <trips/2026-secret/trip.ttl#it> .",
+  ),
+);
 await put("travel/trips/2026-japan/trip.ttl", TRIP);
 await put("travel/trips/2026-japan/entries.ttl", INDEX);
 await put("travel/trips/2026-japan/entries/2026-03-29-arrival.ttl", ENTRY);
 
+// A draft trip, so the publication boundary can actually be exercised in dev.
+// diary.ttl lists it exactly as it lists the published one — there is no index
+// acting as a boundary for trips, so the app must filter on dy:status.
+await session.fetch(`${POD}travel/trips/2026-secret/`, {
+  method: "PUT",
+  headers: {
+    "content-type": "text/turtle",
+    "if-none-match": "*",
+    link: `<${NS.ldp}BasicContainer>; rel="type"`,
+  },
+});
+await put(
+  "travel/trips/2026-secret/trip.ttl",
+  TRIP.replace('dy:slug            "2026-japan"', 'dy:slug            "2026-secret"')
+    .replace("dy:status          dy:Published", "dy:status          dy:Draft")
+    .replace('schema:name        "Japan, spring"@en', 'schema:name        "Unpublished plans"@en'),
+);
 console.log(`\n  Seeded. Add to .env.local:\n    POD_ROOT=${POD}\n    OWNER_WEBID=${webId}\n`);
 
 // @inrupt/solid-client-authn-node keeps a refresh timer alive; without this

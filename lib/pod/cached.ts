@@ -94,14 +94,23 @@ export async function allTripSlugs(): Promise<string[]> {
         `and that /travel/diary.ttl exists and is publicly readable.`,
     );
   }
-  const slugs = diary.value.trips
+  const candidates = diary.value.trips
     .map((iri) => iri.match(/trips\/([^/]+)\//)?.[1])
     .filter((s): s is string => Boolean(s));
 
+  // diary.ttl lists every trip, draft or not — unlike entries, there is no
+  // index acting as a publication boundary for trips. So filter here, or a
+  // draft is linked from the home page and advertised in the sitemap and feed.
+  // The reads are cached and tagged, so this costs no extra fetch per request.
+  const checked = await Promise.all(candidates.map(async (slug) => [slug, await getTrip(slug)] as const));
+  const slugs = checked
+    .filter(([, trip]) => trip.ok && trip.value.status === "published")
+    .map(([slug]) => slug);
+
   if (slugs.length === 0) {
     throw new Error(
-      `Your diary at ${diaryUrl(config.podRoot)} lists no trips, so there is nothing to ` +
-        `prerender and the build cannot continue. Create one trip in the studio and redeploy.`,
+      `Your diary at ${diaryUrl(config.podRoot)} lists no published trips, so there is nothing ` +
+        `to prerender and the build cannot continue. Create and publish one trip, then redeploy.`,
     );
   }
   return slugs;
