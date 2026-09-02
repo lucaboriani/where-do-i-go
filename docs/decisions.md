@@ -297,3 +297,34 @@ draft existence and title are not.
 On WAC the container listing can be closed by granting the public `acl:default` without
 `acl:accessTo`, which `initialiseContainers()` should do; this is verified. The ACP equivalent is
 untested, so until it is, a hosted deployment should assume draft slugs are discoverable.
+
+---
+
+## 21. The package manager is not dictated
+
+pnpm, npm, yarn and bun are all fine. Pick one per checkout, commit its lockfile, never mix two
+in the same tree. Documentation examples are written with pnpm because something has to be
+written down; that is a convention, not a requirement.
+
+Earlier revisions asserted pnpm and told contributors to "never mix in `npm install`", without
+ever recording why — this file had eighteen entries and none of them was about the package
+manager. An unjustified absolute is worse than no rule: it gets re-argued every time someone new
+reads it, which is the exact failure this file exists to prevent.
+
+**Why not mandate pnpm.** The product promise is "fork it, set your WebID, deploy", with a
+README deploy section under ten steps tested by someone other than the author. Every mandated
+tool is a step that person has to take. Nothing in the architecture needs pnpm: there is no
+monorepo, no workspaces, one application.
+
+**What was given up.** pnpm's strict `node_modules` layout means a package can only import what
+it declares, while npm's flat layout lets a phantom transitive import work by accident. That is
+a real protection, and this project cares about imports more than most — the whole public/studio
+boundary is an import rule. Losing it puts more weight on the enforcement that remains:
+`no-restricted-imports`, and the `size-limit` budget on public routes that fails CI. Those were
+already the primary defences; they are now the only ones. Keep them strict.
+
+**Consequences.** `package.json` script *names* are the contract, not the runner — `CLAUDE.md`
+lists them without a prefix, and the CI check asserting every command named there exists in
+`package.json` compares names only. The scaffold flag (`--use-pnpm` / `--use-npm` / `--use-yarn`
+/ `--use-bun`) must match whatever the deployer chose, since it decides which lockfile is
+generated. `scripts/validate-fixtures.py` needs Python with rdflib either way.

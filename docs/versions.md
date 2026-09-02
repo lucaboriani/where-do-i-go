@@ -3,7 +3,8 @@
 Resolved against the npm registry on **2026-09-02**. Every version below is the
 `latest` dist-tag as published on that date, except where a note says otherwise.
 
-Re-resolve before starting work: `pnpm outdated` after install, or query the registry
+Re-resolve before starting work: your package manager's `outdated` command after install, or
+query the registry
 directly (`npm view <pkg> version`). Do not trust these numbers if the date above is more
 than a few weeks stale — record what you actually installed by committing the lockfile.
 
@@ -53,7 +54,9 @@ than a few weeks stale — record what you actually installed by committing the 
 
 - **Node 22 LTS — 22.23.2 or later, and below 23.** Pin it in `.nvmrc` and in the Netlify
   build image. See the engine conflict below; this is not interchangeable with Node 24.
-- **pnpm** as the package manager. Commit `pnpm-lock.yaml`.
+- **Package manager: the deployer's choice** — pnpm, npm, yarn or bun. Pick one per checkout,
+  commit its lockfile, and never mix two in the same tree. Examples throughout these docs are
+  written with pnpm; substitute the equivalent. Rationale in `docs/decisions.md` §21.
 
 ### The Node engine conflict — this is why it is 22, not 24
 

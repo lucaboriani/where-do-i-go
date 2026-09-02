@@ -160,18 +160,22 @@ disposable. Ask before proceeding past this if it is still unset.
 
 ## Commands
 
+**The package manager is not dictated** — see `docs/decisions.md` §21. Run these with whichever
+one the checkout uses: `pnpm <script>`, `npm run <script>`, `yarn <script>`, `bun run <script>`.
+The script *names* are the contract; the runner is not.
+
 ```
-pnpm dev                  # Next dev server
-pnpm build                # production build
-pnpm test                 # vitest
-pnpm test:e2e             # playwright, login flow only
-pnpm lint                 # eslint
-pnpm typecheck            # tsc --noEmit
-pnpm validate:fixtures    # python3 scripts/validate-fixtures.py
-pnpm pod:dev              # local Community Solid Server via docker compose
+dev                  # Next dev server
+build                # production build
+test                 # vitest
+test:e2e             # playwright, login flow only
+lint                 # eslint
+typecheck            # tsc --noEmit
+validate:fixtures    # python3 scripts/validate-fixtures.py
+pod:dev              # local Community Solid Server
 ```
 
-`pnpm validate:fixtures` must pass. It parses every Turtle block in `docs/data-model.md`,
+`validate:fixtures` must pass. It parses every Turtle block in `docs/data-model.md`,
 checks IRI resolution, and rejects blank nodes and wrong datatypes.
 
 ## Testing

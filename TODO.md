@@ -140,7 +140,10 @@ cached-and-invalidated model expects.
       `solid-client-authn-browser`) declares `^22.0.0 || ^24.0.0`. The 22 line is the only
       overlap, and `jsdom@30.0.1` (`^22.22.2`) sets the floor inside it. Verified against the
       registry in phase 0; full reasoning in `docs/versions.md`.
-- [ ] **pnpm** installed and used for everything. Never mix in `npm install`.
+- [ ] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
+      for everything in this checkout and commit its lockfile; never mix two. The commands below
+      are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
+      `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
 - [ ] **Python 3 with rdflib** — `pip install rdflib` — for `scripts/validate-fixtures.py`.
 - [ ] Docker is optional. The local Pod runs fine without it (see below).
 
@@ -150,6 +153,9 @@ cached-and-invalidated model expects.
 
       pnpm create next-app@16.3.4 . --ts --app --tailwind --eslint \
         --use-pnpm --no-src-dir --import-alias "@/*" --no-agents-md
+
+      Swap `--use-pnpm` for `--use-npm`, `--use-yarn` or `--use-bun` to match your choice —
+      the flag decides which lockfile the scaffold generates.
 
 - [ ] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
       rescue. Verified in phase 0: `create-next-app@16.3.4` writes `"typescript": "^5"` into
@@ -162,7 +168,7 @@ cached-and-invalidated model expects.
       TypeScript's `latest` is 7.0.2, but nothing in this scaffold reaches for it. Do not
       install it — it falls outside the typescript-eslint peer range. See `docs/versions.md`.
 
-- [ ] Verify: `pnpm typecheck` and `pnpm lint` both run clean before adding anything else.
+- [ ] Verify: the `typecheck` and `lint` scripts both run clean before adding anything else.
 
 ### Runtime dependencies
 
@@ -277,7 +283,7 @@ cached-and-invalidated model expects.
       pnpm dlx @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
 
 - [ ] Add `.pod-data/` to `.gitignore`.
-- [ ] Wire it as `pnpm pod:dev` and use it for all development and CI. Do not develop against
+- [ ] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
       a live Pod.
 - [ ] Note which access-control mechanism it uses versus the hosted Pod, and confirm
       `lib/pod/access.ts` covers both.
@@ -304,8 +310,9 @@ cached-and-invalidated model expects.
 
 - [ ] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
 - [ ] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
-- [ ] `pnpm validate:fixtures` must pass from a clean checkout. Verify it now — it is already
-      written and already passes.
+- [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
+      written and already passes. It needs Python 3 with `rdflib`, which is independent of the
+      JavaScript package manager.
 - [ ] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
       `lib/vocab.ts`, in both directions. This is what stops the data model rotting.
 - [ ] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.
@@ -313,8 +320,8 @@ cached-and-invalidated model expects.
 
 ### Done when
 
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm validate:fixtures` all pass
+- [ ] `build` succeeds
+- [ ] `test`, `lint`, `typecheck` and `validate:fixtures` all pass
 - [ ] Local Pod starts and the app reads one hand-written resource from it
 - [ ] A deliberate violation of each guardrail rule fails CI — test the enforcement, don't
       assume it
