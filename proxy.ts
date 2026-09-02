@@ -65,9 +65,12 @@ export async function proxy(request: NextRequest) {
   // page is far better than 404-ing real content over a transient hiccup.
   if (!slugs) return NextResponse.next();
 
-  return slugs.has(match[1])
-    ? NextResponse.next()
-    : new NextResponse(null, { status: 404 });
+  if (slugs.has(match[1])) return NextResponse.next();
+
+  // Rewrite rather than returning a bare 404: a status with an empty body is
+  // worse than the stock page it replaces. The rewrite renders the app's own
+  // not-found UI while keeping the 404 status.
+  return NextResponse.rewrite(new URL("/not-found", request.url), { status: 404 });
 }
 
 export const config = { matcher: "/trips/:path*" };
