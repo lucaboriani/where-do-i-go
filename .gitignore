@@ -1,0 +1,21 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# The original archive. Its contents are laid out in the repo; committing it
+# would duplicate every tracked document. Kept on disk, not in history.
+where-i-go.zip
+
+# Phase-0 spike leftovers (throwaway; see TODO.md phase 0)
+.pod-data/
+.unzip-tmp/
+
+# Node / Next (present from phase 0.5 onward)
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# OS
+.DS_Store
