@@ -24,6 +24,12 @@ export default async function EntryPage({
   params: Promise<{ slug: string; entry: string }>;
 }) {
   const { slug, entry } = await params;
+
+  // Same reason as the trip route: reject unknown (trip, entry) pairs against
+  // the cached list first, so the 404 status is set before the shell flushes.
+  const known = await allEntryParams();
+  if (!known.some((p) => p.slug === slug && p.entry === entry)) notFound();
+
   const e = await getEntry(slug, entry);
 
   if (!e.ok) {

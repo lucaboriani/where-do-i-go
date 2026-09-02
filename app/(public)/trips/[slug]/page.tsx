@@ -24,6 +24,15 @@ export async function generateMetadata({
 
 export default async function TripPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+
+  // Reject an unknown slug against the cached trip list BEFORE touching
+  // anything dynamic. Under Partial Prerendering the shell is flushed before
+  // the dynamic part resolves, so a notFound() further down arrives after the
+  // status line is committed and yields 200 carrying 404 content — a soft 404,
+  // which is exactly what a site that server-renders for SEO cannot afford.
+  // allTripSlugs is already cached and tagged, so this costs no extra fetch.
+  if (!(await allTripSlugs()).includes(slug)) notFound();
+
   const [trip, index] = await Promise.all([getTrip(slug), getTripIndex(slug)]);
 
   // A missing trip must be a 404, not a 200 carrying an error message.

@@ -386,22 +386,11 @@ Trip slugs come from the Pod, so:
       upgraded in the background, with no redeploy. **Verified** — the build's route table shows
       known params as `○ (Static)` and unknown ones as `◐ (Partial Prerender)`.
 
-- [ ] **Soft 404 on unknown slugs — open, and it matters for SEO.** Under Partial Prerendering
-      the static shell is flushed before the dynamic part resolves, so a `notFound()` in the page
-      body arrives after the status line is committed: `/trips/nope` returns **HTTP 200 carrying
-      404 content**. The body is correct; the status is not, and this site server-renders
-      specifically for SEO and share previews (`docs/decisions.md` §2).
-
-      `export const instant = false` does **not** fix this — it governs instant-*navigation*
-      validation, not response blocking, despite reading like the fix in Next's labelled-error
-      menu. Verified against the bundled docs and by measuring: the status stayed 200.
-
-      Options to weigh, none yet chosen:
-      - validate the slug against the cached `allTripSlugs()` inside the shell, so an unknown
-        slug is rejected before anything dynamic is touched
-      - make these routes fully dynamic, giving up PPR on them
-      - accept the soft 404 and mark unknown slugs `noindex` in `generateMetadata`
-      Decide before phase 5, since OG images and share previews depend on it.
+- [x] **Soft 404 on unknown slugs — fixed in `proxy.ts`.** Under PPR the shell is flushed
+      before the dynamic part resolves, so `notFound()` in a page cannot set the status.
+      Neither `instant = false` nor an in-page slug check works; both were tried and measured.
+      The check now runs in `proxy.ts`, which executes before rendering, and fails open so a
+      Pod outage never 404s real content. See `docs/decisions.md` §24.
 
 ## Phase 2 — studio
 
