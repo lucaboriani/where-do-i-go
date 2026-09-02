@@ -3,6 +3,21 @@ import type { Metadata } from "next";
 import { allEntryParams, getEntry } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
 
+/**
+ * This route blocks on navigation, and says so.
+ *
+ * It reads `params` and then the Pod before it can render anything meaningful,
+ * which Next's instant-navigation validation flags. `instant = false` is the
+ * documented way to declare that — the same export I misused earlier trying to
+ * fix an HTTP status, which it does not do. Here it is the correct tool.
+ *
+ * The alternative is to render a shell immediately and stream the content in a
+ * <Suspense> boundary, which would make navigation instant. That is a real
+ * improvement and a real restructure; it belongs with the look-and-feel work in
+ * phase 7, not smuggled in here.
+ */
+export const instant = false;
+
 export async function generateStaticParams() {
   return allEntryParams();
 }
