@@ -21,6 +21,29 @@ jobs:
 
       - run: npm ci
 
+      # The build reads the Pod: generateStaticParams needs the trip list, and
+      # decision 22 accepts that coupling deliberately. So CI needs a Pod, or
+      # `build` fails here for reasons that have nothing to do with the change.
+      # This also lets the integration test actually run instead of skipping.
+      - name: Start a local Community Solid Server
+        run: |
+          npm run pod:dev > /tmp/pod.log 2>&1 &
+          for i in $(seq 1 30); do
+            sleep 2
+            curl -sf -o /dev/null http://localhost:3001/ && break
+          done
+          curl -sf -o /dev/null http://localhost:3001/ || { cat /tmp/pod.log; exit 1; }
+
+      - name: Seed it with the §7 fixtures
+        run: |
+          SEED_NAME=ci npm run pod:seed
+          {
+            echo "POD_ROOT=http://localhost:3001/ci/"
+            echo "OWNER_WEBID=http://localhost:3001/ci/profile/card#me"
+            echo "SITE_NAME=Travel diary"
+            echo "SITE_URL=http://localhost:3000"
+          } >> "$GITHUB_ENV"
+
       - name: Lint
         run: npm run lint
 
