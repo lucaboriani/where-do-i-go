@@ -243,7 +243,8 @@ logs cannot see them.
 
 ## 18. Pod reads need an explicit caching story
 
-Open, to be decided in phase 1 and recorded here.
+**Resolved in phase 0.5 — see decision 22.** The reasoning below stands as written; it framed
+the question correctly and the answer went the way it points.
 
 Under Cache Components, uncached data access outside a `<Suspense>` boundary blocks
 prerendering. Every public page in this project reads from the Pod, so this is the main render
@@ -328,3 +329,51 @@ lists them without a prefix, and the CI check asserting every command named ther
 `package.json` compares names only. The scaffold flag (`--use-pnpm` / `--use-npm` / `--use-yarn`
 / `--use-bun`) must match whatever the deployer chose, since it decides which lockfile is
 generated. `scripts/validate-fixtures.py` needs Python with rdflib either way.
+
+---
+
+## 22. Cache Components on from the start; no remote cache
+
+Closes decision 18. `cacheComponents: true` and `partialPrefetching: true` from the first
+scaffold, `use cache` with `cacheTag`, invalidated by the studio's existing revalidation hook
+calling `revalidateTag`. **`'use cache: remote'` is rejected.**
+
+Checked against the version-matched docs bundled in `next@16.3.4`, not from recollection.
+
+**Why now rather than in phase 1.** Adopting later is a migration, not a flag flip: the official
+guide covers `force-dynamic`, `force-static`, `revalidate`, `fetchCache`, fetch cache options,
+`unstable_cache`, on-demand revalidation, `generateStaticParams`, `dynamicParams`, `cookies` /
+`headers` / `searchParams`, route handlers, `generateMetadata` and `runtime = 'edge'` — and
+Vercel ships a dedicated agent skill (`next-cache-components-adoption`) to drive it one feature
+at a time. The existence of that skill is the argument. There is no code yet, so the cost now is
+zero and the cost later is a project.
+
+It also matches what was already designed. Decision 2 established that the Pod cannot notify the
+app, so invalidation has to be explicit and push-based; the studio already calls a hook after
+each save. That is exactly `cacheTag` + `revalidateTag`. Decision 13 confirms the current
+Netlify adapter supports tag revalidation. Separately, `cacheComponents` makes Partial
+Prerendering the App Router default — `experimental.ppr` has been removed — so declining it means
+opting out of the framework's direction.
+
+**Why not `'use cache: remote'`.** The docs are explicit that it "requires a network roundtrip to
+check the cache and typically incurs platform fees", and self-hosting requires implementing
+`cacheHandlers`. That contradicts two product invariants at once: zero required API keys or
+signups, and host-neutral self-hostability. The limitation it solves — in-memory entries not
+surviving across serverless instances — mainly affects request-time dynamic content, and this
+app's public path is prerendered and tag-invalidated. There is very little per-request dynamic
+content in a travel diary.
+
+**Rejected alternative:** Suspense boundaries around every Pod read. It streams instead of
+caching, which gives up the edge-cached public site and puts a Pod round-trip on every view.
+
+**Consequences, including one that costs something.**
+
+- **The build reads the Pod.** `generateStaticParams` must return at least one param — an empty
+  array now raises `empty-generate-static-params` — and `dynamicParams` is not supported. So
+  every deploy is coupled to Pod availability, and a deployer whose Pod has no trips yet gets a
+  **failed build rather than an empty site**. Phase 1 must handle this deliberately; see TODO.
+- Trips published after a build are fine: with `partialPrefetching`, an unknown slug is served
+  the App Shell and upgraded in the background, so new entries never require a redeploy.
+- Node runtime only. No `runtime = 'edge'` on any route.
+- `use cache` entries are keyed partly by build ID, so a deploy invalidates everything. Expected,
+  and harmless for a site whose content changes on a human timescale.

@@ -125,12 +125,16 @@ main render path. The good news is that `"use cache"` with tag-based revalidatio
 the design: the studio calls a revalidation hook after each save, which is exactly what the
 cached-and-invalidated model expects.
 
-- [ ] Decide whether to enable Cache Components in phase 1 rather than retrofitting. Record
-      the outcome in `docs/decisions.md`.
-- [ ] If enabled, read the bundled caching guide first, and treat the labelled error menu as
-      the specification for which fix to apply per route.
-- [ ] Whichever way you go, the Pod read path needs an explicit caching story before phase 1
-      ships. Do not leave it to defaults.
+- [x] **Decided: enable it, from the first scaffold.** See `docs/decisions.md` §22, which closes
+      §18. `cacheComponents: true` and `partialPrefetching: true`; `use cache` with `cacheTag`,
+      invalidated by the studio's revalidation hook calling `revalidateTag`.
+      **`'use cache: remote'` is rejected** — it incurs platform fees and needs a `cacheHandlers`
+      implementation when self-hosting, contradicting the no-API-keys and host-neutral rules.
+- [ ] Set both flags in `next.config.ts` during the scaffold step, not later.
+- [ ] Read the bundled caching guide at `node_modules/next/dist/docs/01-app/01-getting-started/`
+      `08-caching.md` first, and treat the labelled error menu as the specification for which fix
+      to apply per route.
+- [ ] No route may set `runtime = 'edge'`. Cache Components requires the Node runtime.
 
 ### Prerequisites
 
@@ -339,6 +343,25 @@ Against hand-written Turtle placed in the Pod manually. No editor yet.
 - [ ] Trip index page and entry page, server-rendered
 - [ ] Slug resolution plus the slug-equals-container-segment invariant asserted
 - [ ] Sitemap, RSS, metadata
+
+**Cache Components consequence — handle this deliberately, it is a build-breaker.**
+
+`generateStaticParams` must return **at least one param**; returning `[]` raises
+`empty-generate-static-params`, and `dynamicParams` is not supported (`docs/decisions.md` §22).
+Trip slugs come from the Pod, so:
+
+- [ ] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
+      This couples every deploy to Pod availability — accept it knowingly.
+- [ ] Decide and implement the empty-Pod case. A deployer who has not written a trip yet
+      currently gets a **failed build, not an empty site**, which is a terrible first run for the
+      "fork it and deploy" promise. Either seed a placeholder param, or fail with an explicit
+      message naming the fix ("create your diary root and one trip, then redeploy") rather than
+      Next's raw error. Record which in `docs/decisions.md`.
+- [ ] Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
+      defensible; failing with an unreadable stack trace is not.
+- [ ] Confirm the App Shell path: a trip published after the build should be served the shell and
+      upgraded in the background, with no redeploy. Verify rather than assume — this is what
+      makes the publish flow tolerable.
 
 ## Phase 2 — studio
 
