@@ -284,16 +284,17 @@ cached-and-invalidated model expects.
       Radix, or anything from `app/(studio)`.
 - [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
-- [~] `size-limit` budget, failing CI. **Wired but not yet doing its job — fix in phase 1.**
-      The config globs `.next/static/chunks/**/*.js`, which measures *every* chunk including the
-      studio's. That is not a public-route budget: Radix and shadcn weight counts against it,
-      and a genuine public regression could hide inside the total. With no real public pages
-      yet there is nothing to isolate, so:
-      - [x] size-limit installed, configured and running (172.96 kB gzip at scaffold time)
-      - [ ] Once phase 1 ships real public pages, narrow the glob to the public route's own
-            first-load JS and re-baseline the ceiling from that build. Then only ever lower it.
-      - [ ] Verify the budget actually fails by pushing it under the current size once, the same
-            way the guardrail rules are tested.
+- [x] Bundle budget, failing CI. **Now measures public routes specifically.**
+      `size-limit` globs files and cannot answer "what does a public page ship", so
+      `scripts/check-public-bundle.ts` derives the script list from each prerendered public
+      page's HTML and sums it gzipped. Chunk names are content-hashed, so deriving beats
+      hardcoding, and `[slug].html` is a zero-byte PPR shell — the file that matters is the one
+      built for a real param.
+      - [x] Ceiling set from the first real build: worst public route 173.3 kB gzip, budget 180.
+            Verified all of it is React and the Next runtime by scanning every loaded chunk for
+            radix / inrupt / maplibre / exifreader — none present.
+      - [x] Verified the budget actually fails, by running it under the real size.
+      - [ ] Only ever lower this number. Raising it is how a budget stops being a budget.
 
 ### Local Pod
 

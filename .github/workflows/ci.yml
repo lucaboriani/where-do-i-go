@@ -45,5 +45,12 @@ jobs:
 
       # TODO.md: this is the enforcement that really holds — an agent can
       # rationalise past a lint rule but not past a failing build.
-      - name: Bundle budget
+      # Whole-app total: a coarse signal, and it includes the studio.
+      - name: Bundle budget (all chunks)
         run: npm run size
+
+      # What a public page actually ships. This is the one that matters: the
+      # studio is allowed to be heavy, and its weight must not hide a public
+      # regression inside a combined total.
+      - name: Bundle budget (public routes)
+        run: npm run size:public
