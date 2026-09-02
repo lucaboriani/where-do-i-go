@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -25,7 +26,39 @@ export async function generateMetadata({
   };
 }
 
-export default async function TripPage({ params }: { params: Promise<{ slug: string }> }) {
+/**
+ * The page itself does NOT await params. Reading URL data here would block the
+ * static shell, which is what makes a navigation feel slow — Next's
+ * instant-navigation validation flags exactly that. Instead the promise is
+ * passed down and awaited inside <Suspense>, so the shell is served instantly
+ * and the Pod-dependent content streams in behind it.
+ */
+export default function TripPage(props: { params: Promise<{ slug: string }> }) {
+  return (
+    <main className="mx-auto max-w-2xl p-8">
+      <Suspense fallback={<TripSkeleton />}>
+        <TripContent params={props.params} />
+      </Suspense>
+    </main>
+  );
+}
+
+/** Shaped like the real content so the page does not jump when it arrives. */
+function TripSkeleton() {
+  return (
+    <div aria-hidden className="animate-pulse">
+      <div className="h-8 w-2/3 rounded-sm bg-surface" />
+      <div className="mt-3 h-4 w-full rounded-sm bg-surface" />
+      <div className="mt-2 h-4 w-1/3 rounded-sm bg-surface" />
+      <div className="mt-8 space-y-3">
+        <div className="h-4 w-1/2 rounded-sm bg-surface" />
+        <div className="h-4 w-2/5 rounded-sm bg-surface" />
+      </div>
+    </div>
+  );
+}
+
+async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
   // Second line of defence only. proxy.ts is what sets the 404 status, because
@@ -46,13 +79,11 @@ export default async function TripPage({ params }: { params: Promise<{ slug: str
     notFound();
   }
 
-  // A draft trip that happens to be readable is still not published. The entry
-  // page has always enforced this; the trip page did not, which left the
-  // boundary depending on an ACL rather than on the data.
+  // A draft trip that happens to be readable is still not published.
   if (trip.ok && trip.value.status !== "published") notFound();
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <>
       {trip.ok ? (
         <>
           <h1 className="text-2xl">{trip.value.name.value}</h1>
@@ -86,6 +117,6 @@ export default async function TripPage({ params }: { params: Promise<{ slug: str
         // The index is one resource. Losing it must not lose the trip page.
         <p className="mt-8 text-muted-foreground">{describe(index.error)}</p>
       )}
-    </main>
+    </>
   );
 }

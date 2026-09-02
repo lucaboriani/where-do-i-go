@@ -7,7 +7,15 @@ Rules and invariants for this repository. Read every session. Dense on purpose.
 ## This file, AGENTS.md, and the Next.js managed block
 
 `next dev` on Next 16.3+ writes a managed block of Next.js agent rules, delimited by
-`<!-- BEGIN:nextjs-agent-rules -->` and `<!-- END:nextjs-agent-rules -->`. It never truncates
+`<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->`. It never truncates
 existing content — it replaces the block in place if the markers are present, otherwise
 appends it to the end of the file.
 
