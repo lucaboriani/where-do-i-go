@@ -96,11 +96,23 @@ export async function rebuildIndex(opts: {
   const entries: Entry[] = [];
   const skipped: { url: string; reason: string }[] = [];
 
-  for (const url of listed.value) {
-    if (!url.endsWith(".ttl")) continue;
-    const r = await readEntry(url, { fetch: opts.fetch });
-    if (r.ok) entries.push(r.value);
-    else skipped.push({ url, reason: r.error.kind });
+  // Concurrently, not in a loop. data-model.md §13 item 6 after phase 0: "200
+  // sequential reads against a hosted Pod over real RTT … rebuildIndex must
+  // read concurrently regardless." Phase 0 measured 0.6s at concurrency 12 vs
+  // 1.1s serially on localhost, where RTT is zero — over a network the serial
+  // version is 200 x RTT.
+  const CONCURRENCY = 12;
+  const urls = listed.value.filter((u) => u.endsWith(".ttl"));
+  for (let i = 0; i < urls.length; i += CONCURRENCY) {
+    const batch = await Promise.all(
+      urls.slice(i, i + CONCURRENCY).map(async (url) => [url, await readEntry(url, { fetch: opts.fetch })] as const),
+    );
+    for (const [url, r] of batch) {
+      if (r.ok) entries.push(r.value);
+      // One malformed entry is skipped and reported, never fatal: a single bad
+      // resource must not make the whole trip unrecoverable.
+      else skipped.push({ url, reason: r.error.kind });
+    }
   }
 
   const computed = computeIndex(entries);
@@ -127,7 +139,7 @@ export async function rebuildIndex(opts: {
   if (!written.ok) return written;
 
   return ok({
-    read: listed.value.length,
+    read: urls.length,
     published: computed.entryCount,
     skipped,
     indexUrl: opts.indexUrl,

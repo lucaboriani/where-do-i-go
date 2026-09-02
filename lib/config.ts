@@ -25,6 +25,12 @@ export const config = {
   get siteName() {
     return process.env.SITE_NAME ?? "Travel diary";
   },
+  /** §6: human-readable text is language-tagged, "with a configurable default
+   *  language". Used when writing, so a diary kept in another language is not
+   *  silently tagged @en. */
+  get defaultLanguage() {
+    return process.env.SITE_LANGUAGE ?? "en";
+  },
   get siteUrl() {
     return process.env.SITE_URL ?? "http://localhost:3000";
   },

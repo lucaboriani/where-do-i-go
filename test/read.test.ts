@@ -198,6 +198,17 @@ describe("readTripIndex", () => {
   });
 });
 
+describe("URL construction", () => {
+  it("percent-encodes slugs so a crafted one cannot address another resource", async () => {
+    // new URL("travel/trips/a#b/trip.ttl", root) silently fetches the container
+    // travel/trips/a — a different resource entirely.
+    const { tripUrl, tripIndexUrl } = await import("@/lib/pod/read");
+    expect(tripUrl(`${POD}/`, "a#b")).toContain("a%23b");
+    expect(tripUrl(`${POD}/`, "a?b")).toContain("a%3Fb");
+    expect(tripIndexUrl(`${POD}/`, "a#b")).toContain("a%23b");
+  });
+});
+
 describe("readDiary", () => {
   it("returns the trip list", async () => {
     servePod({ [URLS.diary]: DIARY });

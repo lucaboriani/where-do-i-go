@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { allTripSlugs, getTrip, getTripIndex } from "@/lib/pod/cached";
+import { allTripSlugs, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
 
 export async function generateStaticParams() {
@@ -28,13 +28,13 @@ export async function generateMetadata({
 export default async function TripPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
-  // Reject an unknown slug against the cached trip list BEFORE touching
-  // anything dynamic. Under Partial Prerendering the shell is flushed before
-  // the dynamic part resolves, so a notFound() further down arrives after the
-  // status line is committed and yields 200 carrying 404 content — a soft 404,
-  // which is exactly what a site that server-renders for SEO cannot afford.
-  // allTripSlugs is already cached and tagged, so this costs no extra fetch.
-  if (!(await allTripSlugs()).includes(slug)) notFound();
+  // Second line of defence only. proxy.ts is what sets the 404 status, because
+  // under Partial Prerendering the shell is flushed before this code runs and a
+  // notFound() here arrives too late to change the status (decisions.md §24).
+  // This still matters: when the proxy fails open — a deliberate choice, so a
+  // Pod hiccup never 404s real content — this renders the right body.
+  const known = await publishedTripSlugs();
+  if (known.ok && !known.value.includes(slug)) notFound();
 
   const [trip, index] = await Promise.all([getTrip(slug), getTripIndex(slug)]);
 

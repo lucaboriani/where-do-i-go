@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { config } from "@/lib/config";
-import { allTripSlugs, getTrip, getTripIndex } from "@/lib/pod/cached";
+import { getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 
 /**
  * Only published content reaches here, for free: the index lists published
@@ -8,7 +8,10 @@ import { allTripSlugs, getTrip, getTripIndex } from "@/lib/pod/cached";
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = config.siteUrl.replace(/\/$/, "");
-  const slugs = await allTripSlugs();
+  // A sitemap that 500s is worse than a short one: fall back to just the home
+  // page rather than throwing out of the render path.
+  const published = await publishedTripSlugs();
+  const slugs = published.ok ? published.value : [];
 
   const entries: MetadataRoute.Sitemap = [{ url: `${base}/`, changeFrequency: "weekly" }];
 

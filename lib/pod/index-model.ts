@@ -11,6 +11,7 @@ import { DataFactory, Writer } from "n3";
 import {
   DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE, XSD,
 } from "@/lib/vocab";
+import { config } from "@/lib/config";
 import type { Entry } from "./schema";
 
 const { namedNode, literal, quad } = DataFactory;
@@ -100,7 +101,17 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
   };
 }
 
-const dec = (n: number) => literal(String(n), namedNode(XSD.decimal));
+/** xsd:decimal has no exponent form. String(1e-7) is "1e-7", which is reachable
+ *  through the computed centre when a bbox straddles the equator or prime
+ *  meridian narrowly, so format explicitly. */
+const decimalLexical = (n: number): string => {
+  if (Number.isInteger(n)) return n.toFixed(1);
+  const s = String(n);
+  if (!/e/i.test(s)) return s;
+  // 7 decimal places is ~1cm of latitude; coordinates here are fuzzed anyway.
+  return n.toFixed(7).replace(/0+$/, "").replace(/\.$/, ".0");
+};
+const dec = (n: number) => literal(decimalLexical(n), namedNode(XSD.decimal));
 const int = (n: number) => literal(String(n), namedNode(XSD.integer));
 const dt = (s: string) => literal(s, namedNode(XSD.dateTime));
 
@@ -142,7 +153,7 @@ export async function serialiseIndex(
       quad(it, namedNode(DY.entry), node),
       quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
       quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
-      quad(node, namedNode(DCTERMS.title), literal(row.title.value, row.title.language ?? "en")),
+      quad(node, namedNode(DCTERMS.title), literal(row.title.value, row.title.language ?? config.defaultLanguage)),
       quad(node, namedNode(DY.slug), literal(row.slug)),
       quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
     );

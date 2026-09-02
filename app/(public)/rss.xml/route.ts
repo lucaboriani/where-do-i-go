@@ -1,5 +1,5 @@
 import { config } from "@/lib/config";
-import { allTripSlugs, getDiary, getTripIndex } from "@/lib/pod/cached";
+import { getDiary, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 
 const escape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -14,7 +14,8 @@ export async function GET() {
   const title = diary.ok ? (diary.value.title?.value ?? config.siteName) : config.siteName;
 
   const items: string[] = [];
-  for (const slug of await allTripSlugs()) {
+  const published = await publishedTripSlugs();
+  for (const slug of published.ok ? published.value : []) {
     const index = await getTripIndex(slug);
     if (!index.ok) continue;
     for (const e of index.value.entries) {

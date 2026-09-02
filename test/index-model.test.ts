@@ -131,6 +131,18 @@ describe("serialiseIndex", () => {
     expect(missing).toEqual([]);
   });
 
+  it("never emits exponent notation, which is not a valid xsd:decimal", async () => {
+    // Reachable through the computed centre when a bbox straddles the equator
+    // or prime meridian narrowly: String(1e-7) is "1e-7", which no xsd:decimal
+    // parser is obliged to accept.
+    const computed = computeIndex([
+      entry({ slug: "a", place: { geo: { lat: 0.0000001, long: -0.0000002 } } }),
+      entry({ slug: "b", place: { geo: { lat: 0.0000003, long: 0.0000004 } } }),
+    ]);
+    const ttl = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");
+    expect(ttl).not.toMatch(/\de[+-]?\d/i);
+  });
+
   it("emits no blank nodes", async () => {
     const computed = computeIndex([entry({ slug: "a", place: { geo: { lat: 1, long: 2 } } })]);
     const ttl = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");

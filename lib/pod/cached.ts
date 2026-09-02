@@ -47,7 +47,10 @@ export async function getEntry(slug: string, entrySlug: string): Promise<Result<
   "use cache";
   cacheTag(TAGS.entry(slug, entrySlug));
   return readEntry(
-    new URL(`travel/trips/${slug}/entries/${entrySlug}.ttl`, config.podRoot).toString(),
+    new URL(
+      `travel/trips/${encodeURIComponent(slug)}/entries/${encodeURIComponent(entrySlug)}.ttl`,
+      config.podRoot,
+    ).toString(),
   );
 }
 
@@ -60,8 +63,6 @@ export async function getEntry(slug: string, entrySlug: string): Promise<Result<
  * the background by partialPrefetching, so publishing never needs a redeploy.
  */
 export async function allEntryParams(): Promise<{ slug: string; entry: string }[]> {
-  "use cache";
-  cacheTag(TAGS.diary);
   const slugs = await allTripSlugs();
   const pairs: { slug: string; entry: string }[] = [];
   for (const slug of slugs) {
@@ -73,7 +74,41 @@ export async function allEntryParams(): Promise<{ slug: string; entry: string }[
 }
 
 /**
- * Trip slugs for prerendering.
+ * Published trip slugs, as a Result.
+ *
+ * This is what the render path uses. `result.ts` opens with "a thrown exception
+ * is not a structured error … failures are values, not control flow", and
+ * proxy.ts deliberately fails open on exactly this condition — so a Pod that is
+ * briefly unreachable must render the same fallback the home page already has,
+ * not a 500 from an error boundary.
+ */
+export async function publishedTripSlugs(): Promise<Result<string[]>> {
+  "use cache";
+  cacheTag(TAGS.diary);
+  const diary = await getDiary();
+  if (!diary.ok) return diary;
+
+  const candidates = diary.value.trips
+    .map((iri) => iri.match(/trips\/([^/]+)\//)?.[1])
+    .filter((s): s is string => Boolean(s));
+
+  // diary.ttl lists every trip, draft or not — unlike entries, there is no
+  // index acting as a publication boundary for trips. So filter here, or a
+  // draft is linked from the home page and advertised in the sitemap and feed.
+  const checked = await Promise.all(
+    candidates.map(async (slug) => [slug, await getTrip(slug)] as const),
+  );
+  return {
+    ok: true,
+    value: checked
+      .filter(([, trip]) => trip.ok && trip.value.status === "published")
+      .map(([slug]) => slug),
+  };
+}
+
+/**
+ * Trip slugs for prerendering. THROWS on purpose — use only from
+ * generateStaticParams, never from a render path.
  *
  * generateStaticParams must return at least one param — an empty array raises
  * `empty-generate-static-params` — and dynamicParams is unsupported. So a
@@ -84,29 +119,15 @@ export async function allEntryParams(): Promise<{ slug: string; entry: string }[
  * placeholder trip that would appear on a real site.
  */
 export async function allTripSlugs(): Promise<string[]> {
-  "use cache";
-  cacheTag(TAGS.diary);
-  const diary = await getDiary();
-  if (!diary.ok) {
+  const result = await publishedTripSlugs();
+  if (!result.ok) {
     throw new Error(
-      `Cannot read the diary at ${diaryUrl(config.podRoot)} — ${diary.error.kind}. ` +
+      `Cannot read the diary at ${diaryUrl(config.podRoot)} — ${result.error.kind}. ` +
         `The build reads your Pod to know which trips to prerender. Check POD_ROOT, ` +
         `and that /travel/diary.ttl exists and is publicly readable.`,
     );
   }
-  const candidates = diary.value.trips
-    .map((iri) => iri.match(/trips\/([^/]+)\//)?.[1])
-    .filter((s): s is string => Boolean(s));
-
-  // diary.ttl lists every trip, draft or not — unlike entries, there is no
-  // index acting as a publication boundary for trips. So filter here, or a
-  // draft is linked from the home page and advertised in the sitemap and feed.
-  // The reads are cached and tagged, so this costs no extra fetch per request.
-  const checked = await Promise.all(candidates.map(async (slug) => [slug, await getTrip(slug)] as const));
-  const slugs = checked
-    .filter(([, trip]) => trip.ok && trip.value.status === "published")
-    .map(([slug]) => slug);
-
+  const slugs = result.value;
   if (slugs.length === 0) {
     throw new Error(
       `Your diary at ${diaryUrl(config.podRoot)} lists no published trips, so there is nothing ` +

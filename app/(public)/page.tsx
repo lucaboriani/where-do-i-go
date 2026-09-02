@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { allTripSlugs, getDiary } from "@/lib/pod/cached";
+import { getDiary, publishedTripSlugs } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
 
 export default async function Home() {
@@ -16,7 +16,8 @@ export default async function Home() {
 
   // Not diary.value.trips: that lists drafts too, because trips have no index
   // acting as a publication boundary the way entries do.
-  const slugs = await allTripSlugs();
+  const published = await publishedTripSlugs();
+  const slugs = published.ok ? published.value : [];
 
   return (
     <main className="mx-auto max-w-2xl p-8">

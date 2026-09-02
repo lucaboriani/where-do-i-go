@@ -140,10 +140,14 @@ export function assertEntrySlug(url: string, slug: string): Result<string> {
   return segment === slug ? ok(slug) : err({ kind: "slugMismatch", url, slug, segment });
 }
 
+/** Slugs come from route params, so they are attacker-controlled. Unencoded, a
+ *  slug containing `#` or `?` silently addresses a different resource:
+ *  new URL("travel/trips/a#b/trip.ttl", root) fetches the container
+ *  travel/trips/a. Encoding costs nothing and closes it. */
 export const tripUrl = (podRoot: string, slug: string) =>
-  new URL(`travel/trips/${slug}/trip.ttl`, podRoot).toString();
+  new URL(`travel/trips/${encodeURIComponent(slug)}/trip.ttl`, podRoot).toString();
 export const tripIndexUrl = (podRoot: string, slug: string) =>
-  new URL(`travel/trips/${slug}/entries.ttl`, podRoot).toString();
+  new URL(`travel/trips/${encodeURIComponent(slug)}/entries.ttl`, podRoot).toString();
 export const diaryUrl = (podRoot: string) => new URL("travel/diary.ttl", podRoot).toString();
 
 /* --------------------------------------------------------------------- read */
@@ -209,6 +213,9 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
       }))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
+    if (!v.types().includes(DY_CLASS.Entry)) {
+      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });
+    }
     const slug = v.typed(DY.slug)?.value ?? "";
     take(assertEntrySlug(url, slug));
 
@@ -243,6 +250,10 @@ export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Re
   return guard(() => {
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+
+    if (!v.types().includes(DY_CLASS.TripIndex)) {
+      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.TripIndex}`] });
+    }
 
     const entries = v
       .all(DY.entry)
@@ -308,6 +319,9 @@ export async function readDiary(url: string, opts?: ReadOptions): Promise<Result
   return guard(() => {
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+    if (!v.types().includes(DY_CLASS.Diary)) {
+      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Diary}`] });
+    }
     return validate(
       Diary,
       {

@@ -27,8 +27,11 @@ export default async function EntryPage({
 }) {
   const { slug, entry } = await params;
 
-  // Same reason as the trip route: reject unknown (trip, entry) pairs against
-  // the cached list first, so the 404 status is set before the shell flushes.
+  // Second line of defence, like the trip route: this renders the right body,
+  // but it cannot set the status — the shell has already been flushed
+  // (decisions.md §24). The proxy does not yet check entry slugs, so a guessed
+  // entry under a real trip returns 200 with this not-found body; recorded in
+  // TODO.md rather than papered over.
   const known = await allEntryParams();
   if (!known.some((p) => p.slug === slug && p.entry === entry)) notFound();
 
