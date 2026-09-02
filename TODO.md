@@ -148,7 +148,6 @@ cached-and-invalidated model expects.
       for everything in this checkout and commit its lockfile; never mix two. The commands below
       are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
       `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
-- [ ] **Python 3 with rdflib** — `pip install rdflib` — for `scripts/validate-fixtures.py`.
 - [ ] Docker is optional. The local Pod runs fine without it (see below).
 
 ### Scaffold
@@ -184,7 +183,8 @@ cached-and-invalidated model expects.
 
 - [ ] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
       for it, that is stale training data — replace with `exifreader`.
-- [ ] `n3@2.7.2` only if a lower-level RDF parser turns out to be needed. Try without it.
+- [ ] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
+      the parser behind every Pod read. See `docs/decisions.md` §23.
 
 ### Dev dependencies
 
@@ -315,8 +315,8 @@ cached-and-invalidated model expects.
 - [ ] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
 - [ ] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
-      written and already passes. It needs Python 3 with `rdflib`, which is independent of the
-      JavaScript package manager.
+      written and already passes. It runs on `tsx` and `n3`, both already in the dependency
+      list; there is no second language runtime to install.
 - [ ] Add a CI check asserting every `dy:` term in `docs/data-model.md` matches the exports in
       `lib/vocab.ts`, in both directions. This is what stops the data model rotting.
 - [ ] Add a CI check that every command named in `CLAUDE.md` exists in `package.json`.

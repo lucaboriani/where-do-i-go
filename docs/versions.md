@@ -22,7 +22,7 @@ than a few weeks stale — record what you actually installed by committing the 
 | `react-map-gl` | 8.1.2 | peer accepts `maplibre-gl >= 1.13.0` |
 | `@inrupt/solid-client` | 3.0.0 | `engines: ^20 \|\| ^22` — **excludes Node 24** |
 | `@inrupt/solid-client-authn-browser` | 5.0.0 | declares no engines; pulls `authn-core` 5.0.0, which needs `^22 \|\| ^24` |
-| `n3` | 2.7.2 | only if a lower-level RDF parser is needed |
+| `n3` | 2.7.2 | **required** — `scripts/validate-fixtures.ts` and the Pod read path both use it |
 | `zod` | 4.5.4 | read-validation layer |
 | `exifreader` | 4.44.0 | **not `exifr`** — see stale-package note |
 | `sonner` | 2.0.8 | shadcn's toast replacement |

@@ -171,7 +171,7 @@ test                 # vitest
 test:e2e             # playwright, login flow only
 lint                 # eslint
 typecheck            # tsc --noEmit
-validate:fixtures    # python3 scripts/validate-fixtures.py
+validate:fixtures    # tsx scripts/validate-fixtures.ts
 pod:dev              # local Community Solid Server
 ```
 

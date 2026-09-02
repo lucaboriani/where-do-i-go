@@ -701,15 +701,23 @@ version of the app.
    Version 1 costs nothing now and makes migration possible later.
 4. **Fragments only, no blank nodes.** Add a test that fails if serialised output contains a
    blank-node label.
-5. **Compare triple sets, never bytes.** Turtle has no canonical form: prefix order, predicate
+5. **The fixtures are checked by the same parser the application uses.**
+   `scripts/validate-fixtures.ts` runs on `n3`, which is also what reads Pod resources. This
+   keeps the project to one language and one RDF stack, at the cost of the cross-check an
+   independent implementation would give: a bug or quirk in `n3` passes both the fixture check
+   and the code that depends on it. Accepted deliberately — see `docs/decisions.md` §23. If a
+   fixture ever looks right but behaves oddly in practice, validate it against a second parser
+   before assuming the document is correct.
+
+6. **Compare triple sets, never bytes.** Turtle has no canonical form: prefix order, predicate
    grouping, whitespace and `35.6938` versus `35.69380` are all free choices that any library
    upgrade may change. Parse both sides and assert graph isomorphism against the §7 fixtures.
    A byte-comparison test would be permanently red and quickly ignored.
-6. **Assert the slug invariant**: `dy:slug` equals the containing path segment, on both write
+7. **Assert the slug invariant**: `dy:slug` equals the containing path segment, on both write
    and read.
-7. **Access control goes through the §5 interface only.** Add a lint rule against importing ACL
+8. **Access control goes through the §5 interface only.** Add a lint rule against importing ACL
    primitives outside that module.
-8. **Pin library majors** and keep a short cheat sheet of the Solid client API surface in the
+9. **Pin library majors** and keep a short cheat sheet of the Solid client API surface in the
    repo. These libraries are thinly represented in training data and agents will confidently
    invent method names.
 

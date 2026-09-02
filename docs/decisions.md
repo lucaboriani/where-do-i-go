@@ -328,7 +328,8 @@ already the primary defences; they are now the only ones. Keep them strict.
 lists them without a prefix, and the CI check asserting every command named there exists in
 `package.json` compares names only. The scaffold flag (`--use-pnpm` / `--use-npm` / `--use-yarn`
 / `--use-bun`) must match whatever the deployer chose, since it decides which lockfile is
-generated. `scripts/validate-fixtures.py` needs Python with rdflib either way.
+generated. (The clause that stood here about `validate-fixtures.py` needing Python is
+superseded by §23 — the validator is now TypeScript.)
 
 ---
 
@@ -377,3 +378,40 @@ caching, which gives up the edge-cached public site and puts a Pod round-trip on
 - Node runtime only. No `runtime = 'edge'` on any route.
 - `use cache` entries are keyed partly by build ID, so a deploy invalidates everything. Expected,
   and harmless for a site whose content changes on a human timescale.
+
+---
+
+## 23. One language: the fixture validator is TypeScript, not Python
+
+`scripts/validate-fixtures.py` has been ported to `scripts/validate-fixtures.ts`, running on
+`tsx` and `n3` — both already in the dependency list. Python and rdflib are no longer
+prerequisites for anything in this repository.
+
+The rule this sets: **no second technology stack without a decision recorded here.** The
+validator arrived as Python because whoever wrote it reached for rdflib, not because the project
+chose Python. That is how a stack acquires a language nobody meant to depend on, and how
+contributor setup grows a step at a time.
+
+**What this costs, stated plainly.** `docs/data-model.md` is normative — its Turtle blocks *are*
+the specification. Validating them with rdflib meant checking the spec against an implementation
+independent of the one the app uses, which is how conformance suites are normally run: a bug or
+quirk in the app's parser could not silently pass the spec check. That property is now gone. The
+fixtures and the Pod read path share `n3`, so an `n3` quirk passes both. §11 records this at the
+point of use.
+
+Judged worth it: the fixtures assert basic, widely-implemented Turtle behaviour (prefix
+resolution, blank nodes, datatypes, timezone offsets), not parser edge cases, and `n3` is a
+mature implementation. If a fixture ever looks correct but behaves oddly against a real Pod,
+check it against a second parser before assuming the document is right.
+
+**Verified, not assumed.** The port was checked against the Python original on identical input:
+same six labels, same triple counts, same verdict. Both were then run against deliberately
+broken documents — blank node injected, coordinate retyped to `xsd:float`, `dateTime` stripped
+of its offset, a prefix declaration removed, a whole turtle block deleted — and agreed on every
+case. One weakness surfaced and is shared by both: an over-deep relative IRI (`../../../../..`)
+resolves cleanly rather than failing, so the "unresolved relative IRI" check is weaker than it
+reads. Pre-existing, not introduced by the port, and worth tightening if it ever matters.
+
+**Consequences.** `n3` moves from optional to required in `docs/versions.md`. CI needs no Python.
+The `validate:fixtures` script name is unchanged, so `CLAUDE.md`, the CI job and the check
+asserting the two files cannot drift all keep working.
