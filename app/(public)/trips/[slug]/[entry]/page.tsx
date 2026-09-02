@@ -1,22 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { allEntryParams, getEntry } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
-
-/**
- * This route blocks on navigation, and says so.
- *
- * It reads `params` and then the Pod before it can render anything meaningful,
- * which Next's instant-navigation validation flags. `instant = false` is the
- * documented way to declare that — the same export I misused earlier trying to
- * fix an HTTP status, which it does not do. Here it is the correct tool.
- *
- * The alternative is to render a shell immediately and stream the content in a
- * <Suspense> boundary, which would make navigation instant. That is a real
- * improvement and a real restructure; it belongs with the look-and-feel work in
- * phase 7, not smuggled in here.
- */
-export const instant = false;
 
 export async function generateStaticParams() {
   return allEntryParams();
@@ -35,7 +21,35 @@ export async function generateMetadata({
   return { title: e.value.headline.value, description: e.value.articleBody?.value?.slice(0, 160) };
 }
 
-export default async function EntryPage({
+/** Same shape as the trip route: params are passed down, not awaited here, so
+ *  the shell is instant and the entry streams in. */
+export default function EntryPage(props: {
+  params: Promise<{ slug: string; entry: string }>;
+}) {
+  return (
+    <main className="mx-auto max-w-2xl p-8">
+      <Suspense fallback={<EntrySkeleton />}>
+        <EntryContent params={props.params} />
+      </Suspense>
+    </main>
+  );
+}
+
+function EntrySkeleton() {
+  return (
+    <div aria-hidden className="animate-pulse">
+      <div className="h-8 w-3/4 rounded-sm bg-surface" />
+      <div className="mt-3 h-4 w-1/2 rounded-sm bg-surface" />
+      <div className="mt-6 space-y-2">
+        <div className="h-4 w-full rounded-sm bg-surface" />
+        <div className="h-4 w-full rounded-sm bg-surface" />
+        <div className="h-4 w-4/5 rounded-sm bg-surface" />
+      </div>
+    </div>
+  );
+}
+
+async function EntryContent({
   params,
 }: {
   params: Promise<{ slug: string; entry: string }>;
@@ -54,11 +68,7 @@ export default async function EntryPage({
 
   if (!e.ok) {
     if (e.error.kind === "http" && (e.error.status === 404 || e.error.status === 401)) notFound();
-    return (
-      <main className="mx-auto max-w-2xl p-8">
-        <p className="text-muted-foreground">{describe(e.error)}</p>
-      </main>
-    );
+    return <p className="text-muted-foreground">{describe(e.error)}</p>;
   }
 
   // A draft that is readable is still not published. The index would not list
@@ -66,7 +76,7 @@ export default async function EntryPage({
   if (e.value.status !== "published") notFound();
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <>
       <h1 className="text-2xl">{e.value.headline.value}</h1>
       {e.value.occurredAt && (
         <p className="mt-1 text-sm text-muted-foreground">
@@ -82,6 +92,6 @@ export default async function EntryPage({
           Back to the trip
         </a>
       </p>
-    </main>
+    </>
   );
 }
