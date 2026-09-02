@@ -56,8 +56,16 @@ list, verified against `create-next-app@16.3.4`, is: `.claude`, `.cursor`, `.DS_
 `.idea`, `.npmignore`, `.travis.yml`, `.vscode`, `.zed`, `LICENSE`, `Thumbs.db`, `docs`,
 `mkdocs.yml`, the npm/yarn debug logs, `yarnrc.yml` and `.yarn`.
 
-So `docs/` and `.claude/` may stay. `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and
-`scripts/` will block it.
+So `docs/`, `.claude/`, `.git` and `.gitignore` may stay. Everything else blocks it. In this
+repository that meant **eight** entries, not the five originally listed here: `CLAUDE.md`,
+`AGENTS.md`, `README.md`, `TODO.md`, `scripts/`, and also **`.nvmrc`, `.env.spike` and
+`where-i-go.zip`** — none of which are on the tolerated list. Enumerate the directory against the
+list above rather than trusting a remembered set.
+
+**`.gitignore` is tolerated but overwritten.** `create-next-app` replaces it wholesale with its
+own. Merge yours back afterwards — and note its generated `.env*` line would exclude the
+`.env.example` this phase requires you to commit, so the `!.env.example` negation has to be
+re-added.
 
 **`create-next-app` also generates `AGENTS.md` and `CLAUDE.md` itself**, programmatically
 rather than from a template. Pass `--no-agents-md` and there is nothing to merge at scaffold
@@ -65,16 +73,16 @@ time — `next dev` adds the managed block afterwards anyway.
 
 Do this:
 
-- [ ] Move `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and `scripts/` aside — into
+- [x] Move `CLAUDE.md`, `AGENTS.md`, `README.md`, `TODO.md` and `scripts/` aside — into
       `docs/`, which is tolerated, or one directory up. Leave `docs/`, `.git`, `.gitignore`
       and `LICENSE` in place.
-- [ ] Scaffold with `--no-agents-md` (next section).
-- [ ] Move the five back.
-- [ ] **Merge the two READMEs.** `create-next-app` writes its own with generic dev-server
+- [x] Scaffold with `--no-agents-md` (next section).
+- [x] Move the five back.
+- [x] **Merge the two READMEs.** `create-next-app` writes its own with generic dev-server
       boilerplate. The project README wins on structure and content; fold in only what is
       useful, realistically just the dev-server command, then delete the generated version.
       Do not keep both, and do not let boilerplate end up at the top of the file.
-- [ ] Confirm `AGENTS.md` is present before the first `next dev`. It is the designated host
+- [x] Confirm `AGENTS.md` is present before the first `next dev`. It is the designated host
       for the Next.js managed block, and if it is missing the block lands in `CLAUDE.md`
       instead.
 
@@ -138,13 +146,13 @@ cached-and-invalidated model expects.
 
 ### Prerequisites
 
-- [ ] **Node 22 LTS.** Write `.nvmrc` containing `22.23.2`. **Not 24, and not 20** — the two
+- [x] **Node 22 LTS.** Write `.nvmrc` containing `22.23.2`. **Not 24, and not 20** — the two
       Inrupt packages disagree: `@inrupt/solid-client@3.0.0` declares
       `^20.0.0 || ^22.0.0` and `@inrupt/solid-client-authn-core@5.0.0` (transitive, via
       `solid-client-authn-browser`) declares `^22.0.0 || ^24.0.0`. The 22 line is the only
       overlap, and `jsdom@30.0.1` (`^22.22.2`) sets the floor inside it. Verified against the
       registry in phase 0; full reasoning in `docs/versions.md`.
-- [ ] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
+- [x] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
       for everything in this checkout and commit its lockfile; never mix two. The commands below
       are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
       `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
@@ -152,7 +160,7 @@ cached-and-invalidated model expects.
 
 ### Scaffold
 
-- [ ] Create the app:
+- [x] Create the app:
 
       pnpm create next-app@16.3.4 . --ts --app --tailwind --eslint \
         --use-pnpm --no-src-dir --import-alias "@/*" --no-agents-md
@@ -160,7 +168,7 @@ cached-and-invalidated model expects.
       Swap `--use-pnpm` for `--use-npm`, `--use-yarn` or `--use-bun` to match your choice —
       the flag decides which lockfile the scaffold generates.
 
-- [ ] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
+- [x] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
       rescue. Verified in phase 0: `create-next-app@16.3.4` writes `"typescript": "^5"` into
       the generated `package.json` and installs 5.9.3 — already inside
       `typescript-eslint@8.69.0`'s peer range (`>=4.8.4 <6.1.0`), so nothing is broken on
@@ -171,24 +179,24 @@ cached-and-invalidated model expects.
       TypeScript's `latest` is 7.0.2, but nothing in this scaffold reaches for it. Do not
       install it — it falls outside the typescript-eslint peer range. See `docs/versions.md`.
 
-- [ ] Verify: the `typecheck` and `lint` scripts both run clean before adding anything else.
+- [x] Verify: the `typecheck` and `lint` scripts both run clean before adding anything else.
 
 ### Runtime dependencies
 
-- [ ] Install, exact versions:
+- [x] Install, exact versions:
 
       pnpm add maplibre-gl@6.6.0 react-map-gl@8.1.2 \
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
-- [ ] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
+- [x] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
       for it, that is stale training data — replace with `exifreader`.
-- [ ] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
+- [x] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
       the parser behind every Pod read. See `docs/decisions.md` §23.
 
 ### Dev dependencies
 
-- [ ] Install:
+- [x] Install:
 
       pnpm add -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
         @testing-library/react@16.3.3 @testing-library/jest-dom@7.0.1 jsdom@30.0.1 \
@@ -312,7 +320,7 @@ cached-and-invalidated model expects.
 
 ### Scripts and CI
 
-- [ ] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
+- [x] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
 - [ ] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
       written and already passes. It runs on `tsx` and `n3`, both already in the dependency

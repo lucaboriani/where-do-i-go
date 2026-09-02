@@ -1,21 +1,58 @@
-# Secrets and local config
-.env
-.env.*
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# ---------------------------------------------------------------------------
+# Project-specific. The block above is create-next-app's; this one is ours and
+# survives re-scaffolding. Keep them separate so the next `create-next-app`
+# overwrite is obvious in the diff.
+# ---------------------------------------------------------------------------
+
+# .env.example is committed on purpose — every variable documented, no values.
+# The generated `.env*` line above would otherwise exclude it.
 !.env.example
 
-# The original archive. Its contents are laid out in the repo; committing it
-# would duplicate every tracked document. Kept on disk, not in history.
+# The original hand-off archive. Its contents are laid out in the repo already;
+# committing it would duplicate every tracked document.
 where-i-go.zip
 
-# Phase-0 spike leftovers (throwaway; see TODO.md phase 0)
+# Local Community Solid Server data (pnpm/npm `pod:dev`). Disposable.
 .pod-data/
-.unzip-tmp/
-
-# Node / Next (present from phase 0.5 onward)
-node_modules/
-.next/
-out/
-*.tsbuildinfo
-
-# OS
-.DS_Store
