@@ -64,6 +64,64 @@ rather than starting a second one.
 For build failures where the error alone is not enough, `next build --debug-prerender` turns on
 server source maps and continues past the first failure.
 
+## How work is done here — mandatory
+
+**Test-driven, and delegated to subagents. Both, always.** This is not a style preference; it
+is how this repository is worked on, and it applies to features, bugfixes and refactors alike.
+
+### 1. Test first
+
+1. `test-specialist` writes a **failing** test and shows the failure. A test that passes the
+   first time it runs is suspect: either the behaviour already existed, or the test asserts
+   nothing.
+2. Only then does implementation start — `nextjs-specialist` for anything rendered,
+   `solid-specialist` for anything touching the Pod.
+3. `test-specialist` re-runs and confirms the test now passes for the right reason.
+4. `fullstack-solid-reviewer` reviews the diff before it is considered done. It is read-only,
+   so it cannot quietly fix what it finds — which is the point.
+
+Do not write implementation code before its test exists. If a test genuinely cannot be written
+before the implementation, say so and explain why rather than skipping the step silently.
+
+### 2. Use the subagents
+
+The four definitions live in `.claude/agents/`. They exist because each carries context that is
+expensive to reconstruct — the phase-0 findings, the import boundary, the datatype rules, the
+ways tests in this project have passed while verifying nothing. Working around them wastes that.
+
+| Agent | For |
+|---|---|
+| `test-specialist` | every test, and the failing test that opens the loop |
+| `nextjs-specialist` | App Router, React, Tailwind, shadcn, MapLibre |
+| `solid-specialist` | Pod reads and writes, RDF, ACLs, vocabulary |
+| `fullstack-solid-reviewer` | reviewing the diff — read-only, by design |
+
+### 3. Definition of done
+
+Work is **not done** until all of these pass. Run them, read the output, and only then say so:
+
+```
+npm test                  # vitest — unit, integration, guardrails
+npm run lint              # eslint, including the project guardrails
+npm run typecheck         # tsc --noEmit
+npm run validate:fixtures # the normative Turtle in docs/data-model.md
+npm run check:vocab       # lib/vocab.ts vs the data model, both directions
+npm run check:commands    # this file's commands vs package.json
+npm run build             # reads the Pod; needs one running
+npm run size:public       # what a public page actually ships
+```
+
+"It should pass" is not done. **Never report work as complete on the strength of a command you
+did not run, or a result you did not read.** If something fails, say which and why — a failure
+reported plainly is worth more than a green summary that is wrong.
+
+Two failure modes this project has already hit, so check for them specifically:
+
+- **A green run that verified nothing.** A skipped integration test reporting as passed; a
+  negative test whose fixture edit silently failed to apply; a lint rule exercised at a path it
+  does not cover.
+- **Half a check.** An HTTP status asserted without its body — that shipped a zero-byte 404.
+
 ## What this is
 
 A travel diary. A public, server-rendered Next.js site reads trips and entries from the
@@ -172,7 +230,11 @@ test:e2e             # playwright, login flow only
 lint                 # eslint
 typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
+check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
+check:commands       # the commands above vs package.json
+size:public          # gzip budget on what a public page ships
 pod:dev              # local Community Solid Server
+pod:seed             # seed it with the docs/data-model.md fixtures
 ```
 
 `validate:fixtures` must pass. It parses every Turtle block in `docs/data-model.md`,
