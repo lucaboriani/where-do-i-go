@@ -246,14 +246,29 @@ explicit in the data model, because it determines what may be written where.
 
 ### Intended state
 
-| Path | Read | Write |
-|---|---|---|
-| `/travel/` | public | owner |
-| `/travel/diary.ttl` | public | owner |
-| `/travel/trips/` and below | public | owner |
-| `/travel/media/` | public | owner |
-| any resource with `dy:status dy:Draft` | owner only | owner |
-| `/travel/media-private/`, if used | owner only | owner |
+**Containers and the documents inside them need different answers.** An earlier revision of
+this table said every path was publicly readable, which predates the phase-0 finding that a
+publicly *listable* container publishes every draft slug through `ldp:contains` — draft content
+stays protected, draft existence and title do not (§4, `docs/decisions.md` §20).
+
+| Path | Listable by the public | Documents inside readable by the public | Write |
+|---|---|---|---|
+| `/travel/` | **no** | yes | owner |
+| `/travel/diary.ttl` | n/a — a document | yes | owner |
+| `/travel/trips/` and below | **no** | yes | owner |
+| `/travel/media/` | **no** | yes | owner |
+| any resource with `dy:status dy:Draft` | n/a — a document | **no** | owner |
+| `/travel/media-private/`, if used | no | no | owner |
+
+In WAC terms that is the public getting `acl:default` on each container without `acl:accessTo`:
+children are readable, the listing is not. Verified on Community Solid Server; **no verified ACP
+equivalent exists**, so on an ACP Pod this shape is unproven and `lib/pod/access.ts` reports
+`accessUnverified` rather than granting something wider that nobody has measured.
+
+Each container needs its own ACL. Inheritance reaches arbitrary depth — an ACL on
+`/travel/trips/` alone makes a document three levels below it readable — but a container with no
+ACL of its own is listable if any ancestor grants `accessTo`. Granting on `/travel/` only leaves
+`/travel/trips/` enumerable.
 
 Containers carry the default; individual draft resources override it. Publishing an entry is
 therefore two operations: flip `dy:status` to `dy:Published`, and relax that resource's ACL.

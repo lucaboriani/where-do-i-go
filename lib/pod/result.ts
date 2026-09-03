@@ -15,7 +15,21 @@ export type PodError =
   | { kind: "shape"; url: string; issues: string[] }
   | { kind: "schemaVersion"; url: string; found: string | undefined; expected: number }
   | { kind: "datatype"; url: string; predicate: string; found: string | undefined; expected: string }
-  | { kind: "slugMismatch"; url: string; slug: string; segment: string };
+  | { kind: "slugMismatch"; url: string; slug: string; segment: string }
+  /**
+   * Access control was written, or read, and the result could not be confirmed.
+   *
+   * Distinct from `http` on purpose: the request may well have returned 2xx.
+   * "A 200 write response proves nothing — the only evidence that counts is the
+   * failed read" (docs/phase-0-spike.md, question 3), so lib/pod/access.ts
+   * reads the resulting access back and reports this when what came back is not
+   * what it asked for, or when the server says nothing it can act on.
+   *
+   * It is also the honest answer to "is this public?" when access could not be
+   * determined. Collapsing that into `read: false` tells the owner their entry
+   * is private on no evidence at all, and the owner acts on what is shown.
+   */
+  | { kind: "accessUnverified"; url: string; expected: string; found: string };
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: PodError };
 
@@ -39,5 +53,7 @@ export function describe(error: PodError): string {
       return `${error.url}: ${error.predicate} has datatype ${error.found ?? "(none)"}, expected ${error.expected}`;
     case "slugMismatch":
       return `${error.url}: dy:slug "${error.slug}" does not match container segment "${error.segment}"`;
+    case "accessUnverified":
+      return `could not verify access on ${error.url}: expected ${error.expected}, found ${error.found}`;
   }
 }

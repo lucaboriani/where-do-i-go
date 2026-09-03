@@ -21,6 +21,71 @@ const NO_RAW_IRIS = {
     "Import the IRI from lib/vocab.ts instead of writing it inline. Three spellings of the same predicate is how a Pod rots (docs/data-model.md §11).",
 };
 
+/**
+ * Every access-control primitive @inrupt/solid-client exposes, banned outside
+ * lib/pod/access.ts.
+ *
+ * The list IS the fence, so it has to be complete rather than representative:
+ * an unlisted primitive is a hole, and a hole here means lib/pod/read.ts can
+ * rewrite an ACL with no lint error at all. Nine names once covered the ones
+ * the module happened to use, which is a different thing.
+ *
+ * Re-derive it on an upgrade from node_modules/@inrupt/solid-client/dist/index.d.ts:
+ * everything exported from ./acl/acl, ./acl/agent, ./acl/group, ./acl/class and
+ * ./acl/mock, plus getEffectiveAccess from ./resource/resource (it reads the
+ * WAC-Allow header, i.e. it answers "is this public?" — that is getAccess's
+ * job), and the universalAccess and acp_ess_2 namespaces.
+ */
+const ACL_PRIMITIVES = [
+  // ./acl/acl
+  "hasAcl",
+  "hasAccessibleAcl",
+  "hasResourceAcl",
+  "hasFallbackAcl",
+  "getResourceAcl",
+  "getFallbackAcl",
+  "getSolidDatasetWithAcl",
+  "getFileWithAcl",
+  "getResourceInfoWithAcl",
+  "createAcl",
+  "createAclFromFallbackAcl",
+  "saveAclFor",
+  "deleteAclFor",
+  // ./acl/agent
+  "getAgentAccess",
+  "getAgentAccessAll",
+  "getAgentResourceAccess",
+  "getAgentResourceAccessAll",
+  "setAgentResourceAccess",
+  "getAgentDefaultAccess",
+  "getAgentDefaultAccessAll",
+  "setAgentDefaultAccess",
+  // ./acl/group
+  "getGroupAccess",
+  "getGroupAccessAll",
+  "getGroupResourceAccess",
+  "getGroupResourceAccessAll",
+  "setGroupResourceAccess",
+  "getGroupDefaultAccess",
+  "getGroupDefaultAccessAll",
+  "setGroupDefaultAccess",
+  // ./acl/class
+  "getPublicAccess",
+  "getPublicResourceAccess",
+  "getPublicDefaultAccess",
+  "setPublicResourceAccess",
+  "setPublicDefaultAccess",
+  // ./acl/mock — a test that mocks an ACL is testing the library's idea of one,
+  // not the Pod's. Fake at the HTTP layer instead (CLAUDE.md, Testing).
+  "addMockResourceAclTo",
+  "addMockFallbackAclTo",
+  // ./resource/resource
+  "getEffectiveAccess",
+  // namespaces
+  "universalAccess",
+  "acp_ess_2",
+];
+
 /** Tailwind arbitrary values, e.g. w-[137px]. Banned outside components/ui. */
 const NO_ARBITRARY_TAILWIND = {
   selector: "JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\\[[^\\]]+\\]/]",
@@ -45,17 +110,7 @@ const eslintConfig = defineConfig([
           paths: [
             {
               name: "@inrupt/solid-client",
-              importNames: [
-                "universalAccess",
-                "acp_ess_2",
-                "getSolidDatasetWithAcl",
-                "getAgentAccess",
-                "setAgentAccess",
-                "getPublicAccess",
-                "setPublicAccess",
-                "createAcl",
-                "saveAclFor",
-              ],
+              importNames: ACL_PRIMITIVES,
               message:
                 "Access control goes through lib/pod/access.ts only — the four-method interface in docs/data-model.md §5. Mechanisms differ per server (WAC vs ACP) and are not reliably detectable; see decisions.md §19.",
             },
@@ -90,6 +145,20 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
+          // ESLint flat config REPLACES a rule's options rather than merging
+          // them, so this block silences the ACL ban above unless it repeats
+          // it. Omitting it let a public route import setPublicDefaultAccess
+          // and rewrite an ACL directly — on the one path where invariant 3 and
+          // the bundle budget both say the Solid libraries must never appear.
+          // Caught by test/guardrails.test.ts; keep the two in step.
+          paths: [
+            {
+              name: "@inrupt/solid-client",
+              importNames: ACL_PRIMITIVES,
+              message:
+                "Access control goes through lib/pod/access.ts only — and a public route must not touch it at all.",
+            },
+          ],
           patterns: [
             {
               group: ["**/app/(studio)/**", "**/(studio)/**"],

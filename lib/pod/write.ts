@@ -29,8 +29,13 @@ export async function putGuarded(
   body: string,
   precondition: Precondition,
   contentType = "text/turtle",
+  /** Extra request headers — `Link: <ldp:BasicContainer>; rel="type"` when
+   *  creating a container. Optional so that every guarded PUT in the project,
+   *  container creation included, still goes through this one function: a
+   *  second hand-rolled PUT elsewhere is a blind PUT waiting to happen. */
+  extraHeaders?: Record<string, string>,
 ): Promise<Result<{ etag: string | null }>> {
-  const headers: Record<string, string> = { "content-type": contentType };
+  const headers: Record<string, string> = { ...extraHeaders, "content-type": contentType };
   if ("create" in precondition) headers["if-none-match"] = "*";
   else headers["if-match"] = precondition.etag;
 
