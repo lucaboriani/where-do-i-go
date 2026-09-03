@@ -294,7 +294,45 @@ cached-and-invalidated model expects.
             Verified all of it is React and the Next runtime by scanning every loaded chunk for
             radix / inrupt / maplibre / exifreader — none present.
       - [x] Verified the budget actually fails, by running it under the real size.
-      - [ ] Only ever lower this number. Raising it is how a budget stops being a budget.
+      - [x] **Ceiling raised to 190 (2026-09-03), and the "only ever lower it" rule replaced
+            rather than broken.** The worst public route had reached 176.3 kB, leaving 3.7 kB —
+            less than the framework has already moved on its own, since the streaming-routes
+            change cost +3.0 kB with no code of ours involved. All eight loaded chunks were
+            broken down and scanned again: still React 19 and the Next 16 runtime end to end.
+            A ceiling that fails on Next's growth rather than ours teaches people to raise it,
+            which is the actual way a budget dies.
+      - [x] **Composition check, which is what makes a generous ceiling safe.**
+            `findStudioDeps` scans the chunks a public page loads for studio-only dependencies
+            by NAME and fails on any hit, at any size. Weight was the wrong question: `cmdk` is
+            11.0 kB gzip and `sonner` 28.9, so neither would ever trip a ceiling.
+            - Markers are not package names. Grepping a real chunk for `n3` hits React's
+              minified DOM code (`n2={},n3={}` … `n3=document.createElement("div").style`), and
+              a guardrail that cries wolf on the framework gets switched off. Hence:
+              identifier-shaped markers ≥ 8 characters, markers containing `-` or `/` ≥ 6, and
+              never the bare lowercase package name. The floor is measured, not guessed — of
+              every mangled identifier in this project's chunks, 7483 are 1 character, 1839
+              are 2, 14 are 3, 546 are 4, and nothing mangled is longer.
+            - Markers must survive bundling. Every `@radix-ui/...` occurrence in the primitives
+              is an import specifier a bundler resolves away, so radix is caught by
+              `--radix-` / `data-radix-` instead.
+            - `test/public-bundle.test.ts` checks every marker in both directions against the
+              real builds in `node_modules`, so a library upgrade that changes its output turns
+              the suite red rather than leaving the list silently matching nothing.
+            - [x] Verified it fails: 512 bytes of the real `exifreader` build appended to a
+                  public chunk → exit 1, naming the dep, the chunk and the marker. The size
+                  moved 176.3 → 176.5 kB, i.e. the ceiling would never have seen it.
+      - [x] **`_not-found` and `_global-error` are measured too.** They were excluded, and
+            should not have been: `app/not-found.tsx` is a page every 404 renders, and a review
+            found it fenced by neither this budget nor the import boundary. Adding them changed
+            the worst route not at all (173.3 and 169.7 kB against 176.3). `app/not-found.tsx`
+            and `app/global-error.tsx` are now in the eslint public-boundary block as well —
+            they sit outside `app/(public)/**` because Next requires them at the app root.
+      - [ ] The ceiling may still only rise for **framework** cost, and only with the per-chunk
+            breakdown to prove that is what it is. Never for our own code: anything of ours on
+            a public route is a boundary failure, and the fix is the import. Lowering is always
+            allowed. Re-derive `BANNED_DEPS` and the eslint public block together whenever a
+            studio dependency is added — a dependency on neither list is invisible to every
+            check in this repository.
 
 ### Local Pod
 

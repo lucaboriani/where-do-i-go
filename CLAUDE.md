@@ -106,7 +106,9 @@ ways tests in this project have passed while verifying nothing. Working around t
 
 ### 3. Definition of done
 
-Work is **not done** until all of these pass. Run them, read the output, and only then say so:
+Work is **not done** until all of these pass. Run them, read the output, and only then say so.
+**Check `node -v` prints v22.x first** — see the Node version note under Commands; these all run
+and pass on an unsupported runtime, so a green result on the wrong Node proves less than it looks.
 
 ```
 npm test                  # vitest — unit, integration, guardrails
@@ -225,6 +227,35 @@ disposable. Ask before proceeding past this if it is still unset.
 - Fixed dark theme. Palette lives at `:root`, not under a `.dark` class. No theme toggle.
 
 ## Commands
+
+**The Node version IS dictated. Select it before running anything.** `.nvmrc` pins `22.23.2`
+and `package.json` declares `engines: ^22.22.2`. Not 24, and not 20 — the two Inrupt packages
+disagree, and the 22 line is their only overlap, with `jsdom@30.0.1` setting the floor inside
+it. Full reasoning in `docs/versions.md`.
+
+```sh
+nvm use            # reads .nvmrc
+node -v            # must print v22.x — check, do not assume
+```
+
+A shell whose default `node` is something else is the normal case, not an exotic one: this has
+already happened on the maintainer's machine, where the default is 20.20.0 with 22.23.2 sitting
+installed alongside it. **npm will not stop you** — `engine-strict` is not set, so a wrong
+runtime warns at most, and every check below then runs and passes on an unsupported Node.
+
+If `nvm` is not on `PATH` (a non-interactive shell, or an agent's shell that does not source the
+profile), select the binary directly rather than giving up and using the default:
+
+```sh
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+```
+
+Node 20 does not obviously break anything today — the suite gives identical results on both, as
+of 2026-09-03. That is exactly why this is worth writing down: nothing will tell you. But
+`@inrupt/solid-client-authn-core@5.0.0` declares `^22.0.0 || ^24.0.0`, so from phase 2 onward —
+the first code that actually loads the auth library — a Node 20 run is unverified rather than
+merely untidy. **Reporting "the checks pass" from an unsupported runtime is a half-check**, in
+the specific sense the definition of done above means it.
 
 **The package manager is not dictated** — see `docs/decisions.md` §21. Run these with whichever
 one the checkout uses: `pnpm <script>`, `npm run <script>`, `yarn <script>`, `bun run <script>`.
