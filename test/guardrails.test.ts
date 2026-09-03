@@ -165,25 +165,25 @@ describe("guardrails actually fire", () => {
   });
 
   /**
-   * FAILING ON PURPOSE — a hole in the fence, not a broken test.
+   * A HOLE THAT IS NOW CLOSED. This test is what keeps it closed — it passes,
+   * and it passes because of a fix, not because it stopped firing.
    *
-   * `no-restricted-imports` is configured twice: once for `**` with `paths`
-   * (the ACL ban list) and once for `app/(public)/**` and `components/public/**`
-   * with `patterns` (the import boundary). ESLint flat config REPLACES a rule's
-   * options rather than merging them, so the second block switches the first one
-   * off for exactly those paths. Verified by linting a real file:
-   * `app/(public)/__hole/page.tsx` importing `universalAccess`,
-   * `setPublicDefaultAccess` and `getResourceInfoWithAcl` exits 0.
+   * What the hole was: `no-restricted-imports` is configured twice, once for
+   * `**` with `paths` (the ACL ban list) and once for `app/(public)/**` and
+   * `components/public/**` with `patterns` (the import boundary). ESLint flat
+   * config REPLACES a rule's options rather than merging them, so the second
+   * block switched the first one off for exactly those paths. Measured, not
+   * reasoned: `app/(public)/__hole/page.tsx` importing `universalAccess`,
+   * `setPublicDefaultAccess` and `getResourceInfoWithAcl` exited 0. The boundary
+   * patterns did block `@/lib/pod/access`, so a public route could not reach OUR
+   * module — but it could import the raw primitives from @inrupt/solid-client
+   * and rewrite an ACL directly, on the one path where the bundle budget and
+   * architecture invariant 3 both say the Solid libraries must never appear.
    *
-   * The boundary patterns block `@/lib/pod/access`, so a public route cannot
-   * reach OUR module — but it can import the raw primitives from
-   * @inrupt/solid-client and rewrite an ACL directly, on the one path where the
-   * bundle budget and architecture invariant 3 both say the Solid libraries must
-   * never appear.
-   *
-   * The fix belongs in eslint.config.mjs, not here: the `app/(public)` block has
-   * to carry the ACL `paths` entry as well as its `patterns`, or the two rules
-   * have to be split so one cannot silence the other.
+   * The fence that closes it: the `app/(public)` block in eslint.config.mjs now
+   * repeats the ACL `paths` entry alongside its `patterns`. It looks like a
+   * duplicate of the `**` block and is not one; delete it, or "tidy" it away,
+   * and these two cases go red. Checked by removing it: 2 failed, 27 passed.
    */
   it.each(["app/(public)/thing.tsx", "components/public/thing.tsx"])(
     "bans the ACL primitives at %s as well — the public bundle is where it matters most",
@@ -214,6 +214,116 @@ describe("guardrails actually fire", () => {
     const msgs = await lint(
       "app/(studio)/thing.tsx",
       `import { login } from "@inrupt/solid-client-authn-browser";\nexport default function T() { return <div onClick={() => login({})} />; }\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * lib/studio/** is the studio's session and owner check. It wraps
+   * @inrupt/solid-client-authn-browser, so a public route that imports it drags
+   * the auth library into the public bundle indirectly — the exact thing
+   * invariant 3 and the size budget both forbid. The library itself is already
+   * banned on public paths; this closes the route around that ban.
+   *
+   * ANOTHER CLOSED HOLE, and again this test is the thing holding it shut.
+   * eslint.config.mjs listed lib/pod/write and lib/pod/access in the public
+   * boundary patterns and not lib/studio, so a public route could import the
+   * session module and pull the auth library in one step removed. Closed in the
+   * same change that introduced lib/studio/session.ts: that block now carries a
+   * two-element pattern group for lib/studio — the bare directory, and the
+   * directory-with-children glob. It had to go in THAT block and not the
+   * everywhere one; the flat-config note above applies here too, the public
+   * block replaces the rule's options rather than merging with them.
+   */
+  it.each([
+    ["app/(public)/thing.tsx", "@/lib/studio/session"],
+    ["components/public/thing.tsx", "@/lib/studio/session"],
+    // The fence is the directory, not one filename: a pattern naming only
+    // `session` leaves every other studio module reachable from a public page.
+    ["app/(public)/thing.tsx", "@/lib/studio/autosave"],
+    // The bare directory specifier. `**/lib/studio/**` alone does NOT match it,
+    // which is why the pattern has two halves; drop the bare `**/lib/studio`
+    // and this is the only case that notices. It reads as redundant only
+    // because nothing resolves there today — the moment someone adds
+    // lib/studio/index.ts, `import x from "@/lib/studio"` is a working import
+    // on a public page and the whole fence is bypassed by dropping a filename.
+    ["app/(public)/thing.tsx", "@/lib/studio"],
+  ])("rejects %s importing %s", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import { restoreSession } from "${moduleSpecifier}";\nexport default function T() { return <div>{String(restoreSession)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    // Naming the offending specifier is what makes the CI output actionable.
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /**
+   * The allow-cases for the block above. A rule that rejected lib/studio
+   * everywhere would stop the studio importing its own session module — a fence
+   * that rejects everything proves nothing and blocks the work.
+   */
+  it.each(["app/(studio)/studio/page.tsx", "lib/studio/autosave.ts"])(
+    "allows %s to import the studio session module",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { restoreSession } from "@/lib/studio/session";\nexport default restoreSession;\n`,
+      );
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
+
+  /**
+   * FAILING ON PURPOSE — an open hole, at the time of writing. Unlike the two
+   * blocks above, this one has not been fixed yet: the fix is a change to
+   * eslint.config.mjs. When it lands, delete this paragraph rather than leaving
+   * a "FAILING ON PURPOSE" note on a passing test.
+   *
+   * `app/not-found.tsx` is a public page that is not inside `app/(public)`. It
+   * cannot be: it is the 404 for paths matching no route group at all, which is
+   * why it renders its own <html> — there is no shared root layout to wrap it.
+   * The boundary block's `files` is ["app/(public)/**", "components/public/**"]
+   * and this path is in neither, so NONE of the public/studio patterns apply to
+   * the one page every mistyped URL on the site is served.
+   *
+   * Verified against the real config, not inferred: linting these two imports at
+   * app/not-found.tsx today produces no no-restricted-imports message at all —
+   * ESLint returns an empty message list, so these cases fail on the assertion
+   * below and not on a parse or resolution error.
+   *
+   * It is served unauthenticated to anyone who mistypes a URL, so invariant 3
+   * ("two access paths, one app" — the public path never touches the auth
+   * library) applies to it exactly as it does to app/(public).
+   */
+  it.each(["@/lib/studio/session", "@inrupt/solid-client-authn-browser"])(
+    "rejects app/not-found.tsx importing %s — it is a public page outside app/(public)",
+    async (moduleSpecifier) => {
+      const msgs = await lint(
+        "app/not-found.tsx",
+        `import * as mod from "${moduleSpecifier}";\n` +
+          `export default function NotFound() { return <div>{String(mod)}</div>; }\n`,
+      );
+      expect(ruleIds(msgs)).toContain("no-restricted-imports");
+      expect(
+        msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+      ).toContain(moduleSpecifier);
+    },
+  );
+
+  /**
+   * The allow-case for the pair above, written now so the fix cannot be "add
+   * app/not-found.tsx to a block that rejects everything". The 404 page has to
+   * keep importing what a public page legitimately imports — the shared
+   * unauthenticated read module and next/link, which is what it actually uses.
+   */
+  it("still allows app/not-found.tsx to import next/link and lib/pod/read", async () => {
+    const msgs = await lint(
+      "app/not-found.tsx",
+      `import Link from "next/link";\nimport { readDiary } from "@/lib/pod/read";\n` +
+        `export default function NotFound() { return <Link href="/">{String(readDiary)}</Link>; }\n`,
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });

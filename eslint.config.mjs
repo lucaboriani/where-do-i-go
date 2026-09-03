@@ -140,7 +140,20 @@ const eslintConfig = defineConfig([
 
   // --------------------------------------------------- the public/studio boundary
   {
-    files: ["app/(public)/**", "components/public/**"],
+    // app/not-found.tsx and app/global-error.tsx are listed individually
+    // because they are public-facing pages that sit OUTSIDE app/(public)/**.
+    // Next requires them at the app root; not-found.tsx renders its own <html>
+    // precisely because there is no shared root layout to inherit. A read-only
+    // review found not-found.tsx could import the Solid auth library with no
+    // error at all, on a page every 404 renders. global-error.tsx does not
+    // exist yet and a files entry for an absent file is inert — it is here so
+    // that the day someone adds one, it is not another unfenced public page.
+    files: [
+      "app/(public)/**",
+      "components/public/**",
+      "app/not-found.tsx",
+      "app/global-error.tsx",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -179,6 +192,13 @@ const eslintConfig = defineConfig([
               group: ["**/lib/pod/write", "**/lib/pod/write.*", "**/lib/pod/access", "**/lib/pod/access.*"],
               message:
                 "lib/pod/write.ts and lib/pod/access.ts are studio-only. Public routes read through lib/pod/read.ts.",
+            },
+            {
+              // The directory, not one filename: naming `session` alone would
+              // leave every other studio module reachable from a public page.
+              group: ["**/lib/studio", "**/lib/studio/**"],
+              message:
+                "lib/studio is studio-only. It wraps @inrupt/solid-client-authn-browser, so importing it from a public route drags the auth library into the public bundle indirectly — the ban on the library itself, one step removed.",
             },
             {
               group: ["exifreader", "**/lib/media/**"],
