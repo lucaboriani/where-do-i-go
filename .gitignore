@@ -54,5 +54,13 @@ next-env.d.ts
 # committing it would duplicate every tracked document.
 where-i-go.zip
 
+# Playwright output. `test:e2e` writes both; neither is worth committing, and
+# test-results/ appears the moment the command is run even when it finds no
+# tests to run.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # Local Community Solid Server data (pnpm/npm `pod:dev`). Disposable.
 .pod-data/

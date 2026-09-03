@@ -96,6 +96,13 @@ Routing is: `AGENTS.md` if present, else `CLAUDE.md` if present, else both are c
 
 - [ ] After the first `next dev`, confirm the block landed in `AGENTS.md` and that `CLAUDE.md`
       is untouched apart from its `@AGENTS.md` first line.
+      **Checked 2026-09-03: it has NOT landed.** `AGENTS.md` contains neither marker, though
+      its closing paragraph already promises "the Next.js managed block below". `CLAUDE.md`
+      does contain the marker text, but inside a backtick span in its own prose describing the
+      mechanism — not as a real block. So `CLAUDE.md`'s claim that "the managed block lives
+      there and never touches this file" is currently aspirational rather than observed.
+      Likely cause: the block is written by `next dev`, and this session only ran `next build`.
+      Run `next dev` once and re-check both files before ticking this.
 - [ ] Commit the block with the work that triggered it. Stripping it from a diff only
       recreates it as an uncommitted change next run.
 - [ ] Do not set `agentRules: false`. Next's benchmarks show agents perform better with the
@@ -109,8 +116,10 @@ where server logs cannot see them.
 - [ ] Confirm version-matched docs are present at `node_modules/next/dist/docs/` after install.
       This is what replaces guessing from training data; Next 16 differs substantially from
       most of it.
-- [ ] Enable `logging.browserToTerminal` in `next.config.ts` so browser console errors and
+- [x] Enable `logging.browserToTerminal` in `next.config.ts` so browser console errors and
       warnings reach the terminal. MapLibre and Solid-OIDC failures are client-side.
+      Verified present in `next.config.ts` alongside `cacheComponents` and
+      `partialPrefetching`.
 - [ ] Confirm the Next.js MCP server responds at `/_next/mcp` on the running dev server, and
       use `get_compilation_issues` / `compile_route` instead of a full `next build` when the
       question is only whether something compiles.
@@ -152,6 +161,12 @@ cached-and-invalidated model expects.
       `solid-client-authn-browser`) declares `^22.0.0 || ^24.0.0`. The 22 line is the only
       overlap, and `jsdom@30.0.1` (`^22.22.2`) sets the floor inside it. Verified against the
       registry in phase 0; full reasoning in `docs/versions.md`.
+- [x] **`.npmrc` sets `engine-strict=true`** so a wrong runtime is refused rather than warned
+      about. Measured on npm 10.8.2: `npm install` exits 1 on Node 20.20.0 with "Unsupported
+      engine" naming required and actual, and exits 0 on 22.23.2. **It does not gate
+      `npm run`** — a script ran happily on v20.20.0 with the flag set — so `node -v` before
+      the definition-of-done commands stays a manual step. CI is already safe: the workflow
+      pins via `node-version-file: .nvmrc`.
 - [x] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
       for everything in this checkout and commit its lockfile; never mix two. The commands below
       are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
@@ -204,7 +219,9 @@ cached-and-invalidated model expects.
         typescript-eslint@8.69.0 prettier@3.9.6 tsx@4.23.13 \
         size-limit@13.0.3 @size-limit/preset-app@13.0.3
 
-- [ ] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
+- [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
+      Verified installed (`chromium-1223` in the Playwright cache). The *config* and the spec
+      are still missing, so `test:e2e` does not yet run — see phase 2.
 
 ### shadcn/ui — studio only
 
@@ -441,12 +458,47 @@ nowhere and leak nothing; revisit with the publish flow.
 
 ## Phase 2 — studio
 
-- [ ] Solid login, static client ID document, session restore across reload
-- [ ] Owner check with the "signed in as X, this diary belongs to Y" message
-- [ ] Entry create and edit, index maintenance, revalidation hook
-- [ ] First-run `initialiseContainers()`, idempotent, verifying resulting access rather than
-      assuming writes took effect
+In progress on branch `phase-2-studio`.
+
+- [x] **`lib/pod/access.ts` — the §5 access-control interface.** Four methods, never branching
+      on WAC vs ACP (decisions.md §19). Verifies resulting access by reading it back, because a
+      2xx on an ACL write proves nothing (phase-0 question 3).
+- [x] **First-run `initialiseContainers()`**, idempotent, verifying resulting access rather
+      than assuming writes took effect. Integration-tested against a real Community Solid
+      Server, including a re-run after access was tightened. Each container gets its OWN ACL:
+      with an ACL on `travel/` alone, an anonymous GET of `travel/trips/` returned 200 and
+      listed its children.
+- [x] **Static client ID document** at `app/(public)/client-id.jsonld/route.ts`, generated from
+      config rather than hardcoded. Still cannot be exercised end to end from localhost — the
+      identity provider has to fetch it, so a deployed origin is needed (phase-0 question 2).
+- [x] **Session restore across reload**, in `lib/studio/session.ts`. `restoreSession` installs
+      its memo synchronously and reads `session.info` after the await, because under React 19
+      StrictMode the effect runs twice and the FIRST invocation returned `isLoggedIn: false`.
+      A rejection resolves to signed-out and is never memoised.
+- [x] **Owner check with the "signed in as X, this diary belongs to Y" message.** `studioState`
+      carries both WebIDs; `sameWebId` compares IRIs properly and fails closed, so a mistyped
+      `OWNER_WEBID` makes nobody the owner. A courtesy message, not a boundary (decisions.md
+      §3, invariant 5).
+- [ ] **`login()` / `logout()`, and the studio client shell.** Deliberately deferred out of the
+      session module: they redirect the browser and no test covered them, so they land with the
+      shell where a component test can assert the `clientId` actually passed. Two things found
+      while building the session module that this step needs —
+      - `SolidSessionLike` does not model `session.events`. Without an
+        `EVENTS.SESSION_EXPIRED` subscription the studio keeps rendering `owner` after the
+        session lapses while every write 401s.
+      - `config.ownerWebId` reads a non-`NEXT_PUBLIC_` env var, so the owner WebID must arrive
+        at `studioState` as a **prop from the thin server component**. Reaching for `config`
+        inside the client shell throws "OWNER_WEBID is not set" in the browser.
+- [ ] Entry create and edit, index maintenance, revalidation hook. `rebuildIndex` and
+      `putGuarded` already exist in `lib/pod/write.ts` from phase 1; this is the UI and the
+      §10 write sequence on top of them.
 - [ ] `localStorage` autosave of in-progress text
+- [ ] **`npm run test:e2e` is broken and needs fixing here**, since the Solid login redirect is
+      the one thing Playwright exists in this project for. There is no `playwright.config.*`,
+      so Playwright falls back to scanning and tries to load the Vitest suites — it exits 1
+      with "No tests found" after choking on `test/session.test.ts`. Chromium is installed;
+      the config and the login-redirect spec are what is missing. Not caught by the definition
+      of done, because `test:e2e` is not in it.
 
 ## Phase 3 — media
 

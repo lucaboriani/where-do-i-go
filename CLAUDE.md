@@ -240,8 +240,13 @@ node -v            # must print v22.x — check, do not assume
 
 A shell whose default `node` is something else is the normal case, not an exotic one: this has
 already happened on the maintainer's machine, where the default is 20.20.0 with 22.23.2 sitting
-installed alongside it. **npm will not stop you** — `engine-strict` is not set, so a wrong
-runtime warns at most, and every check below then runs and passes on an unsupported Node.
+installed alongside it.
+
+`.npmrc` sets `engine-strict=true`, so **`npm install` and `npm ci` refuse** on a wrong runtime
+rather than warning — verified on npm 10.8.2, which fails with "Unsupported engine" naming
+required and actual. **`npm run` is not gated by it.** Also verified: a script ran happily on
+v20.20.0 with the flag set. So every command below will still execute, and pass, on an
+unsupported Node, and `node -v` remains a step you do rather than one the tooling does for you.
 
 If `nvm` is not on `PATH` (a non-interactive shell, or an agent's shell that does not source the
 profile), select the binary directly rather than giving up and using the default:

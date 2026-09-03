@@ -1,14 +1,36 @@
 # Travel diary
 
+> ## 🚧 Development in progress
+>
+> **This is not finished software, and it is not ready to be pointed at a Pod you care
+> about.** It is being built in phases, in the open. Things work, then change shape.
+>
+> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is still
+> `https://example.org/ns/traveldiary#`, a placeholder. That URL is a permanent identifier
+> baked into every triple this app writes, and it has to be replaced with a real project
+> domain before anything is written anywhere that matters. Local development against
+> Community Solid Server is fine — that data is disposable and meant to be thrown away.
+>
+> See `TODO.md` for the phase order and what is ticked, and the status note below for where
+> it has actually got to.
+
 A travel diary that stores its own data in your Solid Pod.
 
 Trips, entries and photographs live in storage you control. The site reads them and renders
 them; it never holds a copy. Delete the app and every word and photograph is still yours,
 where it always was.
 
-> **Status: scaffolded, not implemented.** Phase 0 (the platform spike) is answered against
-> two Solid servers; phase 0.5 (installation and setup) is in progress. The Next.js app exists
-> but has no behaviour yet — no reading, no writing, no map. Start at `TODO.md`.
+> **Status, as of 2026-09-03.** Phase 0 (the platform spike, answered against two Solid
+> servers), phase 0.5 (installation and setup) and phase 1 (the public read path) are complete
+> and merged. The site reads a Pod and renders it: home, trip and entry pages, sitemap, RSS,
+> metadata, and a 404 that works.
+>
+> Phase 2 — the studio, where the owner writes — is **in progress**: the access-control
+> interface, first-run container setup, Solid login and the owner check are in; entry
+> create/edit, index maintenance and autosave are not.
+>
+> Not started: media and photographs (phase 3), the map and timeline (phase 4), and the visual
+> design (phase 7 — the layout is deliberately plain until then). Start at `TODO.md`.
 
 ## What makes it unusual
 
