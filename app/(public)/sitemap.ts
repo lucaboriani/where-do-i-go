@@ -7,7 +7,9 @@ import { getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
  * entries and nothing else, so a draft cannot be advertised even by accident.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = config.siteUrl.replace(/\/$/, "");
+  // config.siteUrl is normalised at the source: it never ends with a slash,
+  // so the strip this line used to carry has moved to lib/config.ts.
+  const base = config.siteUrl;
   // A sitemap that 500s is worse than a short one: fall back to just the home
   // page rather than throwing out of the render path.
   const published = await publishedTripSlugs();
