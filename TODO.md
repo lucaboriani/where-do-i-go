@@ -410,6 +410,18 @@ cached-and-invalidated model expects.
               vite 8 bundles with rolldown. Under pnpm's isolated layout the import would not
               resolve and the file would fail to load, silently taking the marker guardrail with
               it. Now a pinned devDependency.
+      - [ ] **`test/setup.ts`'s network guard does not guard.** Its comment says "An accidental
+            real network call must fail the test, not quietly succeed." It does not: MSW's
+            `onUnhandledRequest` handler calls `print.error()`, which writes to stderr, and
+            vitest does not fail on stderr. Measured twice on 2026-09-04 — once by a test agent
+            (`REACHED THE REAL NETWORK: status=200 bytes=777`) and once directly, with a
+            throwaway spec that fetches `https://example.com/` and reports `1 passed`. So every
+            test in this suite relying on that guard to catch a stray fetch is relying on
+            nothing, and a unit test can silently depend on the live internet. Fix by throwing
+            from `onUnhandledRequest` rather than printing — keeping the deliberate localhost
+            exemption the Pod integration tests need — and pin it with a test that asserts an
+            unhandled request FAILS. Expect the fix to expose tests that were quietly reaching
+            the network; those are findings, not breakage.
       - [ ] The ceiling may still only rise for **framework** cost, and only with the per-chunk
             breakdown to prove that is what it is. Never for our own code: anything of ours on
             a public route is a boundary failure, and the fix is the import. Lowering is always
