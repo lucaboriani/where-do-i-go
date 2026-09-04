@@ -171,3 +171,13 @@ Training data skews old. Expect and reject all of the following:
   `maplibre-gl`. Any Mapbox reference is a hallucination from v1-era examples.
 - `map.setProjection()` called before `style.load` — throws. Always inside the event handler.
 - `zod` v3 syntax — the project is on v4.
+- `print.error()` in a custom MSW `onUnhandledRequest` callback, believed to fail the test. It
+  does not, on msw 2.15: the `print` defaults were downgraded to printing only and, in the
+  library's own words, "do not affect the frame resolution"
+  (`node_modules/msw/lib/core/experimental/on-unhandled-frame.js`). Vitest does not fail on
+  stderr, so the request goes to the live internet and the test passes. `test/setup.ts` throws
+  instead, and `test/network-guard.test.ts` pins it. Two further details, measured rather than
+  assumed: a thrown plain `Error` becomes a 500 "Unhandled Exception" *response*, not a rejected
+  fetch — only msw's own unexported `InternalError` produces a network error — and since
+  `lib/pod/read.ts` turns every non-2xx into a structured error and never throws, a test can
+  receive that 500 and still pass. That is why the guard also sweeps in `afterEach`.
