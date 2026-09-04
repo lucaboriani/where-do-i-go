@@ -344,6 +344,72 @@ cached-and-invalidated model expects.
             the worst route not at all (173.3 and 169.7 kB against 176.3). `app/not-found.tsx`
             and `app/global-error.tsx` are now in the eslint public-boundary block as well —
             they sit outside `app/(public)/**` because Next requires them at the app root.
+      - [x] **The public lint fence was banning a spelling this project does not use.** The
+            group listed `@radix-ui/*`, but `package.json` depends on `radix-ui` ^1.6.7 — the
+            unified package — and all seven Radix imports under `components/ui/**` are
+            `from "radix-ui"`. The spelling the repo actually writes lint-passed on every public
+            path. `test/guardrails.test.ts` had only ever exercised the scoped form, so the
+            suite was green on a fence with a hole in it. Group is now
+            `["radix-ui", "radix-ui/*", "@radix-ui/*", "vaul", "sonner", "cmdk"]`.
+            Worth knowing for the next person who edits these: `no-restricted-imports` matches
+            `group` with **gitignore semantics, not minimatch**, so the bare name is a superset
+            of the subpath glob — `["radix-ui"]` blocks `radix-ui/dialog`, while `["radix-ui/*"]`
+            does *not* block bare `radix-ui`. The subpath entry is deliberate redundancy, not
+            load-bearing.
+      - [x] **`next-themes` added to the fence.** `components/ui/sonner.tsx` is its only
+            importer, there is no `ThemeProvider` in the tree, and the theme is fixed dark at
+            `:root` with no toggle — nothing public can legitimately want it.
+      - [x] **The `(studio)` route-group and `exifreader`/`lib/media` groups are now pinned.**
+            Both were correct and both untested; the `(studio)` globs contain literal
+            parentheses that nothing else would notice breaking.
+      - [x] **Both guardrail scripts were mutation-reviewed, 2026-09-04, and ten findings fixed.**
+            They had shipped without independent review. Every defect was found by applying a
+            wrong implementation and watching the check stay green — none by reading.
+            - **The studio exclusion was an unanchored substring test on the absolute path.** A
+              trip titled "Studio Ghibli Museum" was dropped from both the ceiling and the leak
+              scan — slugs derive from titles — and a checkout under any directory named
+              `studio` excluded every page. Now matched against the route-relative path, and
+              every exclusion is printed with its reason instead of happening silently.
+            - **The enforcement path had no test at all.** Six one-line sabotages — CLI guard
+              disabled, exit code removed, ceiling raised to 100000 kB, `href=` preloads dropped,
+              zero-bytes guard removed, studio exclusion removed — all left the suite green. CI
+              would have stayed green with the check switched off. `test/public-bundle-cli.test.ts`
+              and `test/check-commands.test.ts` are child-process harnesses against synthesised
+              `.next` fixtures; all six now turn them red.
+            - **The CLI entry guard failed open** under a symlinked absolute path and an
+              extensionless invocation — zero output, exit 0. Both sides are canonicalised now,
+              and a mismatch is loud. Its comment was wrong too: `import.meta.main` IS available
+              on Node 22; `tsx` leaving it `undefined` is the real reason it cannot be used.
+            - **A referenced chunk missing on disk was dropped silently** while the report still
+              printed the original file count, so "2 files, 93.3 kB" described one file. Fatal
+              now, and it names the reference. Same for a page the extraction found no scripts
+              on at all — the zero-bytes guard was global and never fired while one other page
+              had scripts.
+            - **`check:commands` graded whatever untagged fence came first** and its sentinel did
+              not close the hole its own comment claimed: a decoy naming `test` and `build`
+              passed while nine of twelve commands went ungraded. More than one untagged fence in
+              the section is now fatal — there is no reliable way to tell a decoy from the list,
+              so it refuses to guess. It also runs **both directions** now: `npm run size`, which
+              CI invokes, and `start`, which `netlify.toml` and the `Dockerfile` name, were both
+              invisible to the contract.
+            - **`"solid-client-authn"` never survived bundling**, violating the file's own
+              "markers must survive bundling" rule — it lives only in an import specifier and a
+              sourcemap comment. Dropped; `handleIncomingRedirect` covers the dep. The
+              survives-bundling test now runs against every dep, not just Radix.
+            - **The measurements justifying the whole second guardrail were wrong.** The gzip
+              figures had been taken as the sum of ESM + CJS + dev builds: cmdk 11.0 is really
+              17.1, sonner 28.9 is 9.6, vaul 33.9 is 21.4, maplibre 777.9 is 252.8. That inverts
+              the conclusion — with 13.7 kB of headroom sonner is the one that slips through, and
+              cmdk and vaul both trip. The identifier histogram was not reproducible either; the
+              real number is 54 distinct one-character names, the base-54 mangler alphabet
+              exhausted, and 2,107 distinct tokens of eight characters or more. The `>= 8` floor
+              survives, but because long tokens are *preserved* names a mangler cannot
+              synthesise — not because "8 is double the longest observed", which was false.
+            - **`esbuild` was imported by the test suite and declared nowhere.** It resolved only
+              as `tsx`'s transitive at an unpinned range — the comment blaming vite was wrong,
+              vite 8 bundles with rolldown. Under pnpm's isolated layout the import would not
+              resolve and the file would fail to load, silently taking the marker guardrail with
+              it. Now a pinned devDependency.
       - [ ] The ceiling may still only rise for **framework** cost, and only with the per-chunk
             breakdown to prove that is what it is. Never for our own code: anything of ours on
             a public route is a boundary failure, and the fix is the import. Lowering is always
@@ -479,26 +545,72 @@ In progress on branch `phase-2-studio`.
       carries both WebIDs; `sameWebId` compares IRIs properly and fails closed, so a mistyped
       `OWNER_WEBID` makes nobody the owner. A courtesy message, not a boundary (decisions.md
       §3, invariant 5).
+- [x] **Corrected the studio-shell rule, which did not compile.** `CLAUDE.md` said "thin server
+      components rendering a dynamically imported client shell with SSR disabled". Next 16
+      rejects that: "`ssr: false` is not allowed with `next/dynamic` in Server Components"
+      (`node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md`, and a probe build). The
+      shape is **server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`**. Fixed in
+      all four places it was written down: `CLAUDE.md`, `app/(studio)/studio/page.tsx` and both
+      `.claude/agents/` definitions — the agent files matter most, since leaving them stale
+      would have had `nextjs-specialist` build the broken shape and `fullstack-solid-reviewer`
+      reject the working one.
 - [ ] **`login()` / `logout()`, and the studio client shell.** Deliberately deferred out of the
       session module: they redirect the browser and no test covered them, so they land with the
-      shell where a component test can assert the `clientId` actually passed. Two things found
-      while building the session module that this step needs —
+      shell where a component test can assert the `clientId` actually passed. Build it as the
+      three-file shape above. Things found while building the session module and while
+      preparing this step —
       - `SolidSessionLike` does not model `session.events`. Without an
         `EVENTS.SESSION_EXPIRED` subscription the studio keeps rendering `owner` after the
         session lapses while every write 401s.
       - `config.ownerWebId` reads a non-`NEXT_PUBLIC_` env var, so the owner WebID must arrive
         at `studioState` as a **prop from the thin server component**. Reaching for `config`
         inside the client shell throws "OWNER_WEBID is not set" in the browser.
+      - The same applies to the whole `login()` argument list, not just the owner WebID.
+        `app/(public)/client-id.jsonld/route.ts` builds `clientId` as `${SITE_URL}/client-id.jsonld`
+        and the redirect as `${SITE_URL}/studio`; `SITE_URL` is not `NEXT_PUBLIC_` either. Pass
+        both down as props rather than recomputing from `window.location.origin`, which would
+        drift from the client ID document the identity provider actually fetches.
+      - A component test needs config work first: `vitest.config.ts` includes only
+        `**/*.test.ts`, so a `.tsx` test file is silently never run — this project's known
+        "green run that verified nothing" failure mode. `environment` is `node`, and
+        `test/setup.ts` does not load `@testing-library/jest-dom`. Fix all three with the test.
+      - **`login()` needs an `oidcIssuer` and nothing supplies one.** The library makes
+        `oidcIssuer` and `redirectUrl` mandatory (`ILoginInputOptions`, and Session.d.ts says so
+        outright), but there is no `OIDC_ISSUER` env var and there should not be: §7.5 already
+        says the WebID reliably carries `solid:oidcIssuer`, and `PROFILE.oidcIssuer` is already
+        in `lib/vocab.ts` waiting to be used. So the thin server component reads the owner's
+        WebID document — a public, unauthenticated read — and passes the issuer down with the
+        rest. **`readOwnerProfile` now exists** in `lib/pod/read.ts` (2026-09-04): it follows
+        `readDiary` in every respect but three, each pinned by a test because each looks like an
+        omission a cleanup would "fix" — the graph subject is the whole WebID rather than
+        `<#it>`, there is no `dy:schemaVersion` check because the WebID document is not ours,
+        and there is no `rdf:type` gate. `pim:storage` is optional: login needs only the issuer,
+        and `POD_ROOT` is an env var today.
+      - `logout()` takes a mandatory discriminator, `{ logoutType: "app" }` or
+        `{ logoutType: "idp", postLogoutUrl }`. App logout is the right default: IDP logout
+        signs the owner out of their identity provider entirely, and its `postLogoutUrl` has to
+        already be listed in `post_logout_redirect_uris` in the client ID document, which
+        currently names only `${SITE_URL}/`.
 - [ ] Entry create and edit, index maintenance, revalidation hook. `rebuildIndex` and
       `putGuarded` already exist in `lib/pod/write.ts` from phase 1; this is the UI and the
       §10 write sequence on top of them.
 - [ ] `localStorage` autosave of in-progress text
 - [ ] **`npm run test:e2e` is broken and needs fixing here**, since the Solid login redirect is
       the one thing Playwright exists in this project for. There is no `playwright.config.*`,
-      so Playwright falls back to scanning and tries to load the Vitest suites — it exits 1
-      with "No tests found" after choking on `test/session.test.ts`. Chromium is installed;
-      the config and the login-redirect spec are what is missing. Not caught by the definition
-      of done, because `test:e2e` is not in it.
+      so Playwright falls back to scanning and tries to load the Vitest suites. Re-confirmed
+      2026-09-04: it dies on `test/access.test.ts:103` with "Cannot read properties of undefined
+      (reading 'config')" before it ever reports on tests. Chromium is installed; the config and
+      the login-redirect spec are what is missing. Not caught by the definition of done, because
+      `test:e2e` is not in it.
+
+      **Do this AFTER the shell, not before.** Playwright exists here for exactly one thing —
+      the Solid login redirect — and there is no sign-in button to drive until the shell lands.
+      A `playwright.config.ts` added now would make `test:e2e` exit 0 while running nothing,
+      which is the "green run that verified nothing" failure mode `CLAUDE.md` names, dressed up
+      as progress. When it is written: point `testDir` at a new `e2e/` so Playwright never
+      scans `test/` again, and drive it against the local Community Solid Server — phase 0
+      found the real flow cannot be validated from localhost against a hosted Pod, because the
+      identity provider has to be able to fetch `client-id.jsonld`.
 
 ## Phase 3 — media
 

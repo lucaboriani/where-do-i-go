@@ -184,9 +184,45 @@ const eslintConfig = defineConfig([
                 "The public path is unauthenticated by design and uses plain fetch. No Solid auth library on public routes.",
             },
             {
-              group: ["@radix-ui/*", "vaul", "sonner", "cmdk"],
+              // All three Radix spellings, because the one this project
+              // actually writes was the one missing. package.json depends on
+              // `radix-ui` ^1.6.7 — the unified package — and on no
+              // `@radix-ui/react-*` package directly; all seven Radix imports
+              // under components/ui/** are `from "radix-ui"`. So the group used
+              // to fence a scoped spelling that appears nowhere in the repo
+              // while the spelling someone would actually produce — copying a
+              // line out of components/ui/dialog.tsx — sailed through.
+              //
+              // On `radix-ui/*`, measured rather than assumed: ESLint matches
+              // these groups with gitignore-style semantics, not minimatch, so
+              // the bare `radix-ui` entry ALREADY covers `radix-ui/dialog` and
+              // deeper. The subpath entry is redundant today and kept anyway,
+              // because the subpath is genuinely reachable (the exports map has
+              // "./*" and dist/dialog.mjs exists) and this is the entry that
+              // would still fence it if that matcher ever changed. Do not read
+              // it as the thing doing the work — the bare name is.
+              //
+              // The scoped form stays on its own account: radix-ui depends on
+              // the scoped packages, so they sit in node_modules and a
+              // deliberate import, or one copied out of Radix's own docs,
+              // resolves today.
+              group: ["radix-ui", "radix-ui/*", "@radix-ui/*", "vaul", "sonner", "cmdk"],
               message:
                 "shadcn/Radix is studio-only (decisions.md §11). Nothing from it may reach a public reading page.",
+            },
+            {
+              // next-themes arrives as a transitive concern of shadcn's sonner
+              // component (components/ui/sonner.tsx imports useTheme from it),
+              // so it is on disk and importable. Nothing public may want it:
+              // CLAUDE.md fixes the theme to dark, puts the palette at :root
+              // rather than under a .dark class, and rules out a theme toggle.
+              // A next-themes import on a public route is therefore either dead
+              // weight in the bundle or the start of a toggle that the design
+              // has already declined. Studio and components/ui keep it.
+              // Bare name only: per the note above it covers subpaths too.
+              group: ["next-themes"],
+              message:
+                "The theme is fixed dark, with the palette at :root and no toggle (CLAUDE.md, Styling). next-themes is studio-only, where it arrives via shadcn's sonner.",
             },
             {
               group: ["**/lib/pod/write", "**/lib/pod/write.*", "**/lib/pod/access", "**/lib/pod/access.*"],

@@ -34,7 +34,7 @@ Default to the current diff: `git diff` for uncommitted work, `git diff <base>..
 **High — the change erodes a structural boundary:**
 
 - `app/(public)` importing from `(studio)`, or importing the Solid auth library, Radix, write-only Zod schemas, or image-processing code. Also check the reverse direction of leakage: a "shared" module that transitively pulls any of those into the public graph.
-- A shared provider tree across the two root layouts, or a studio page that is not a thin server component rendering a dynamically imported client shell with SSR disabled.
+- A shared provider tree across the two root layouts, or a studio page that is not a thin server component. The shell is dynamically imported with `ssr: false` from inside a `"use client"` wrapper — `ssr: false` in the server page itself does not compile on Next 16, so a page spelling it that way is broken rather than merely non-conforming. Equally, a studio page that reaches for `lib/config.ts` client-side instead of taking config as props.
 - `lib/pod/write.ts` or `lib/pod/access.ts` reachable from a public route.
 - A change that grows the public bundle past its CI budget, or that plausibly does — say which import you believe carries the weight.
 - Predicate string literals outside `lib/vocab.ts`; blank nodes instead of fragments (`#it`, `#place`, `#geo`, `#photo-1`).

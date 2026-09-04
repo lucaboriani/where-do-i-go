@@ -111,6 +111,7 @@ Work is **not done** until all of these pass. Run them, read the output, and onl
 and pass on an unsupported runtime, so a green result on the wrong Node proves less than it looks.
 
 ```
+npm run pod:dev &           # FIRST — see below. `npm test` silently skips 23 tests without it
 npm test                  # vitest — unit, integration, guardrails
 npm run lint              # eslint, including the project guardrails
 npm run typecheck         # tsc --noEmit
@@ -120,6 +121,14 @@ npm run check:commands    # this file's commands vs package.json
 npm run build             # reads the Pod; needs one running
 npm run size:public       # what a public page actually ships
 ```
+
+**Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
+integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
+skips rather than vacuous passes. But `npm test` then reports green having never run 23 of them,
+and the list above put the Pod requirement only against `build`, six lines too late. Verified
+2026-09-04: with a Pod up, those same 23 pass in about 3 seconds. They are real tests, not rot —
+which is precisely why a run that quietly omits them is the "half a check" this section warns
+about.
 
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
@@ -198,8 +207,15 @@ disposable. Ask before proceeding past this if it is still unset.
 - `(public)` must never import from `(studio)`, and must never import the Solid auth library,
   Radix, Zod schemas used only for writes, or image-processing code.
 - A bundle-size budget on public routes fails CI. This is the real enforcement.
-- Studio pages are thin server components rendering a dynamically imported client shell with
-  SSR disabled.
+- Studio pages are thin server components, but the `dynamic(…, { ssr: false })` import of the
+  client shell lives **inside a `"use client"` wrapper, not in the page**. Next 16 rejects the
+  shorter spelling outright: "`ssr: false` is not allowed with `next/dynamic` in Server
+  Components. Please move it into a Client Component" — see
+  `node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md`, confirmed by building a probe
+  page. So the shape is **server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`**,
+  three files rather than two. The page stays a server component because that is what may read
+  `OWNER_WEBID`, `SITE_URL` and `SITE_NAME`: none of them are `NEXT_PUBLIC_`, so `lib/config.ts`
+  throws in the browser and the shell has to receive them as props.
 - `lib/pod/read.ts` is unauthenticated and shared. `lib/pod/write.ts` and
   `lib/pod/access.ts` are studio-only.
 
@@ -269,6 +285,7 @@ The script *names* are the contract; the runner is not.
 ```
 dev                  # Next dev server
 build                # production build
+start                # serve the production build (`next start`); smoke-testing a build locally
 test                 # vitest
 test:e2e             # playwright, login flow only
 lint                 # eslint
@@ -277,6 +294,7 @@ validate:fixtures    # tsx scripts/validate-fixtures.ts
 check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
 check:commands       # the commands above vs package.json
 size:public          # gzip budget on what a public page ships
+size                 # size-limit over every built chunk; the coarse total, CI runs it
 pod:dev              # local Community Solid Server
 pod:seed             # seed it with the docs/data-model.md fixtures
 ```

@@ -44,7 +44,7 @@ This is the structural rule most likely to be violated by an otherwise reasonabl
 - Separate root layouts: `app/(public)/layout.tsx` and `app/(studio)/layout.tsx`. **No shared provider tree.**
 - `(public)` must never import from `(studio)`, and must never import the Solid auth library, Radix, Zod schemas used only for writes, or image-processing code.
 - A **bundle-size budget on public routes fails CI**. That budget is the real enforcement — if your change grows the public bundle, you have probably crossed the boundary.
-- Studio pages are thin server components rendering a dynamically imported client shell with **SSR disabled**.
+- Studio pages are thin server components, and `dynamic(…, { ssr: false })` goes **inside a `"use client"` wrapper, never in the page** — Next 16 errors with "`ssr: false` is not allowed with `next/dynamic` in Server Components. Please move it into a Client Component." The shape is server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`. Keeping the page a server component is what lets it read the non-`NEXT_PUBLIC_` config (`OWNER_WEBID`, `SITE_URL`, `SITE_NAME`) and pass it down as props; `lib/config.ts` throws if reached in the browser.
 - `lib/pod/read.ts` is unauthenticated and shared. `lib/pod/write.ts` and `lib/pod/access.ts` are studio-only.
 
 When you add a component, decide which side it belongs to before writing it. Shared-by-default is how the boundary erodes.
