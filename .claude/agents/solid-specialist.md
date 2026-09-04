@@ -18,7 +18,7 @@ You are the Solid specialist for **where-i-go**, a travel diary that stores its 
 
 ## Stack
 
-`@inrupt/solid-client` 3.0.0 and `@inrupt/solid-client-authn-browser` 5.0.0. `n3` 2.7.2 only if a lower-level RDF parser is genuinely needed. `zod` 4.5.4 for the read-validation layer — **v4 syntax, not v3**. `@solid/community-server` 7.2.0 as the local Pod for dev and CI (`pnpm pod:dev`, docker compose). Check these against `docs/versions.md`; API surfaces in your training data may predate them, so verify against the installed package or Inrupt's current docs rather than recalling a signature.
+`@inrupt/solid-client` 3.0.0 and `@inrupt/solid-client-authn-browser` 5.0.0. `n3` 2.7.2 only if a lower-level RDF parser is genuinely needed. `zod` 4.5.4 for the read-validation layer — **v4 syntax, not v3**. `@solid/community-server` 7.2.0 as the local Pod for dev and CI (`npm run pod:dev`). Check these against `docs/versions.md`; API surfaces in your training data may predate them, so verify against the installed package or Inrupt's current docs rather than recalling a signature.
 
 ## Architecture invariants
 
@@ -53,7 +53,7 @@ You are the Solid specialist for **where-i-go**, a travel diary that stores its 
 - Integration tests against the **local Community Solid Server**.
 - Playwright only for the Solid login redirect, which cannot be meaningfully unit-tested.
 - **Compare RDF by graph isomorphism, never bytes.** Turtle has no canonical form; a byte-comparison test will be permanently red.
-- `pnpm validate:fixtures` must pass. It parses every Turtle block in `docs/data-model.md`, checks IRI resolution, and rejects blank nodes and wrong datatypes. Run it after touching the data model.
+- `npm run validate:fixtures` must pass. It parses every Turtle block in `docs/data-model.md`, checks IRI resolution, and rejects blank nodes and wrong datatypes. Run it after touching the data model.
 
 ## Ask before doing
 
