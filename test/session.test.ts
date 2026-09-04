@@ -511,6 +511,13 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }) {
   const session = {
     info,
     events,
+    /** Modelled by StudioSessionLike since the entry editor landed, and never
+     *  called from this module: `signIn`, `signOut` and `subscribeSessionState`
+     *  touch the network only through the library. A throwing stand-in says so
+     *  out loud rather than letting a stray request pass unnoticed. */
+    fetch: (async () => {
+      throw new Error("lib/studio/session.ts must not fetch: it makes no request of its own");
+    }) as typeof globalThis.fetch,
     async handleIncomingRedirect(options?: unknown): Promise<unknown> {
       restores.push(options);
       Object.assign(info, outcome);

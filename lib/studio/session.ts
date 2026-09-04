@@ -67,12 +67,23 @@ export interface SolidSessionLike {
 
 /**
  * The studio half: what `signIn`, `signOut` and `subscribeSessionState` need on
- * top of a restorable session.
+ * top of a restorable session — plus the authenticated `fetch` every Pod write
+ * goes through.
  *
- * All three are indexed straight off `Session` rather than retyped, for the same
+ * All four are indexed straight off `Session` rather than retyped, for the same
  * reason `info` is a Pick: hand-writing `login(options: { oidcIssuer,
  * redirectUrl, clientId, clientName })` would compile happily against a library
  * that had renamed one of them.
+ *
+ * `fetch` IS THE CREDENTIAL, and it is the reason it is on this interface at
+ * all. `saveEntry` takes `fetch: PodFetch` and its docblock forbids the
+ * fallback — "Never defaulted to the ambient one: that is a silent downgrade to
+ * anonymous, which reads as 'not found' on a hosted Pod" — so the studio needs
+ * something typed to hand it, and this is the only object in the browser that
+ * has one. `Session["fetch"]` is `typeof fetch` today; writing that out by hand
+ * would compile against a library that changed the signature, and the failure
+ * would be a 401 at runtime rather than a red build. Nothing here ever leaves
+ * the browser (invariant 4).
  *
  * WHY `events` IS THE LIBRARY'S TYPE AND NOT `{ on, off }`. Measured with tsc,
  * not assumed: `Session["events"]` is `ISessionEventListener`, which extends
@@ -86,6 +97,7 @@ export interface SolidSessionLike {
 export interface StudioSessionLike extends SolidSessionLike {
   login: Session["login"];
   logout: Session["logout"];
+  fetch: Session["fetch"];
   readonly events: Session["events"];
 }
 

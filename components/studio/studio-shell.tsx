@@ -38,6 +38,8 @@ import {
   studioState,
   subscribeSessionState,
 } from "@/lib/studio/session";
+import EntryEditor from "./entry-editor";
+import type { EditorTrip } from "./entry-editor";
 import type { SessionState, StudioSessionLike, StudioState } from "@/lib/studio/session";
 
 export interface StudioShellProps {
@@ -54,6 +56,17 @@ export interface StudioShellProps {
   siteUrl: string;
   /** Shown on the consent screen in the dynamic-registration fallback. */
   siteName: string;
+  /**
+   * The trips the owner can write an entry into, resolved server-side where the
+   * Pod's layout is known — this component reads no config either.
+   *
+   * OPTIONAL, and empty by default, because the editor is the only thing that
+   * uses it and a studio with no trips is a real state rather than a broken
+   * one: entries live inside a trip (§4), and creating a trip is not in this
+   * phase. With none, the owner is told so instead of being shown a form whose
+   * every save would have nowhere to go.
+   */
+  trips?: EditorTrip[];
 }
 
 export default function StudioShell({
@@ -62,6 +75,7 @@ export default function StudioShell({
   oidcIssuer,
   siteUrl,
   siteName,
+  trips = [],
 }: StudioShellProps) {
   const [state, setState] = useState<SessionState>({ status: "restoring" });
   const [failure, setFailure] = useState<string | null>(null);
@@ -116,6 +130,8 @@ export default function StudioShell({
       <Body
         view={view}
         oidcIssuer={oidcIssuer}
+        session={session}
+        trips={trips}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -131,11 +147,15 @@ export default function StudioShell({
 function Body({
   view,
   oidcIssuer,
+  session,
+  trips,
   onSignIn,
   onSignOut,
 }: {
   view: StudioState;
   oidcIssuer: string;
+  session: StudioSessionLike;
+  trips: EditorTrip[];
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -177,13 +197,36 @@ function Body({
         </>
       );
 
-    /** The owner UI is a sign-out control and no more at this increment. The
-     *  editor lands with the next one. */
+    /**
+     * The owner UI: the sign-out control, and the editor.
+     *
+     * The `Signed in as …` line is load-bearing beyond courtesy —
+     * e2e/solid-login.spec.ts asserts on it as the thing that distinguishes
+     * this branch from `not-owner` after a real login round trip, and its
+     * argument is that the absence of the not-owner wording alone would be a
+     * weak assertion.
+     *
+     * INVARIANT 5 STILL APPLIES to everything below it. Rendering the editor is
+     * not permission to write: the session's own fetch carries the credential,
+     * and the Pod is what accepts or refuses every request it makes.
+     */
     case "owner":
       return (
         <>
           <p className="mt-2 text-muted-foreground">{`Signed in as ${view.webId}.`}</p>
           <Action onClick={onSignOut}>{"Sign out"}</Action>
+          {/* The empty-trip note is worded around the phrase "belongs to":
+              that is the not-owner courtesy message's contract phrase, and
+              test/studio-shell.test.tsx queries it to prove the owner is never
+              shown it. */}
+          {trips.length === 0 ? (
+            <p className="mt-8 text-muted-foreground">
+              {"No trips to write into yet. Every entry sits inside a trip (§4), so one has to " +
+                "exist before there is anywhere to put an entry."}
+            </p>
+          ) : (
+            <EntryEditor session={session} trips={trips} />
+          )}
         </>
       );
   }

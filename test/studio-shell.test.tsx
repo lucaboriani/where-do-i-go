@@ -39,6 +39,7 @@
 import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { StrictMode } from "react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { EVENTS } from "@inrupt/solid-client-authn-browser";
@@ -162,6 +163,15 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }, gate?: Pro
   const session = {
     info,
     events,
+    /** The session's authenticated fetch, which StudioSessionLike now models
+     *  because the entry editor needs one to hand `saveEntry`. It is never
+     *  called on any path this file drives — the shell makes no request of its
+     *  own, and the assertion at the end of section 4 pins exactly that — so it
+     *  is here to satisfy the interface and to prove the interface is still
+     *  satisfiable by a plain object. */
+    fetch: (async () => {
+      throw new Error("the shell must not fetch: nothing here goes to the Pod");
+    }) as typeof globalThis.fetch,
     async handleIncomingRedirect(options?: unknown): Promise<unknown> {
       restores.push(options);
       await (gate ?? Promise.resolve());
@@ -246,9 +256,36 @@ async function loadShell() {
  * document via getOwnerProfile() on the server (§7.5) — there is deliberately
  * no OIDC_ISSUER env var.
  */
+/**
+ * The trips prop, DERIVED FROM THE SHELL'S OWN SIGNATURE rather than declared
+ * here. Same reason the props above are not a local type: a hand-written
+ * `{ iri, slug, name, indexUrl, entriesContainer }` would compile forever
+ * against a component whose EditorTrip had gained or renamed a member, and this
+ * file would go on testing its own idea of the prop. `ComponentProps` makes
+ * tsc check the fixture below against whatever the shell actually accepts.
+ */
+type ShellProps = ComponentProps<ShellModule["default"]>;
+type ShellTrip = NonNullable<ShellProps["trips"]>[number];
+
+/** One writable trip, on the owner's own Pod. §4's layout, resolved server-side
+ *  in real life — this component reads no config, so it arrives as a prop. */
+const TRIP: ShellTrip = {
+  iri: "https://alice.example/travel/trips/2026-japan/trip.ttl#it",
+  slug: "2026-japan",
+  name: "Japan, spring 2026",
+  indexUrl: "https://alice.example/travel/trips/2026-japan/entries.ttl",
+  entriesContainer: "https://alice.example/travel/trips/2026-japan/entries/",
+};
+
 async function renderShell(
   session: StudioSessionLike,
-  props: { ownerWebId?: string; oidcIssuer?: string; siteUrl?: string; siteName?: string } = {},
+  props: {
+    ownerWebId?: string;
+    oidcIssuer?: string;
+    siteUrl?: string;
+    siteName?: string;
+    trips?: ShellTrip[];
+  } = {},
 ) {
   const Shell = await loadShell();
   return render(
@@ -259,6 +296,7 @@ async function renderShell(
         oidcIssuer={props.oidcIssuer ?? ISSUER}
         siteUrl={props.siteUrl ?? SITE}
         siteName={props.siteName ?? SITE_NAME}
+        trips={props.trips}
       />
     </StrictMode>,
   );
@@ -279,6 +317,17 @@ const signInControl = () => screen.queryAllByRole("button", { name: /sign in/i }
 const signOutControl = () => screen.queryAllByRole("button", { name: /sign out/i });
 /** The courtesy message's contract phrase — "…this diary belongs to Y". */
 const courtesyMessage = () => screen.queryAllByText(/belongs to/i);
+/**
+ * THE EDITOR, in two independent accessible queries.
+ *
+ * Two rather than one because each covers the other's blind spot: a form whose
+ * fields lost their labels still has a submit button, and a heading with no
+ * form under it still reads as an editor to a query looking for text. Neither
+ * matches anything the other three states render — "Sign in" and "Sign out" do
+ * not contain "save", and no other screen has a headline field.
+ */
+const editorHeadlineField = () => screen.queryAllByLabelText(/headline|title/i);
+const editorSaveControl = () => screen.queryAllByRole("button", { name: /save/i });
 
 beforeEach(() => {
   // The restore memo is MODULE-level and outlives a test file. Without this the
@@ -417,6 +466,96 @@ describe("studio shell — owner", () => {
     const anonymous = fakeStudioSession();
     await renderShell(anonymous.session);
     await waitFor(() => expect(signInControl()).toHaveLength(1));
+  });
+});
+
+/* --------------------------------------------------------------------------
+ * The `trips` prop, and the branch that renders the editor at all.
+ *
+ * `trips` is optional and defaults to `[]`, and until now NO TEST PASSED ANY —
+ * so the owner case was only ever exercised on the empty side, and the branch
+ * that mounts the editor was unreached by the whole suite. An untested branch
+ * that renders a form is not a small gap: it is the entire write path's front
+ * door.
+ *
+ * Both sides are covered here, and the third test is the one that matters for
+ * invariant 5's neighbours: the editor must not appear for a visitor who is not
+ * the owner, whatever props the server component happened to hand down.
+ * ------------------------------------------------------------------------ */
+describe("studio shell — the trips it can write into", () => {
+  it("renders the editor for the owner when there is somewhere to write", async () => {
+    const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
+
+    await renderShell(fake.session, { trips: [TRIP] });
+
+    await waitFor(() => expect(signOutControl()).toHaveLength(1));
+    expect(editorHeadlineField()).toHaveLength(1);
+    expect(editorSaveControl()).toHaveLength(1);
+    // The trip is offered by NAME — the owner picks a trip, not an IRI.
+    expect(screen.getAllByRole("option", { name: TRIP.name })).toHaveLength(1);
+    // And nothing about there being nowhere to write.
+    expect(screen.queryAllByText(/no trips/i)).toHaveLength(0);
+  });
+
+  /**
+   * The other side. A studio with no trips is a real state, not a broken one:
+   * entries live inside a trip (§4) and creating a trip is not in this phase.
+   * The owner must be told that, not shown a form whose every save has nowhere
+   * to go — and must NOT be shown the not-owner courtesy message, which is why
+   * the empty-state wording avoids "belongs to".
+   */
+  it("explains itself, rather than rendering a form with nowhere to save to, when there are none", async () => {
+    const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
+
+    const { container } = await renderShell(fake.session, { trips: [] });
+
+    await waitFor(() => expect(signOutControl()).toHaveLength(1));
+    expect(editorHeadlineField()).toHaveLength(0);
+    expect(editorSaveControl()).toHaveLength(0);
+    // Something is said about trips — a blank panel would leave the owner with
+    // no idea why the editor is missing.
+    expect(container.textContent ?? "").toMatch(/trip/i);
+    expect(courtesyMessage()).toHaveLength(0);
+  });
+
+  /**
+   * THE BOUNDARY. `trips` comes from the server component, which resolves it
+   * before it knows who is at the keyboard; the editor is owner-only, and the
+   * verdict — not the prop — decides.
+   *
+   * Invariant 5 still says the Pod is what enforces this, so a leak here is not
+   * a security hole. It is worse in a quieter way: a visitor handed a form that
+   * writes to someone else's Pod gets a 401 they cannot act on, having typed a
+   * whole entry into it first.
+   *
+   * THE ALLOW-CASE IS THE THIRD RENDER, through the same queries and the same
+   * trips — without it, a shell that had simply stopped rendering the editor at
+   * all would pass this.
+   */
+  it("renders the editor for nobody but the owner, whatever trips it is handed", async () => {
+    const visitor = fakeStudioSession({ isLoggedIn: true, webId: VISITOR });
+    const first = await renderShell(visitor.session, { ownerWebId: OWNER, trips: [TRIP] });
+    await waitFor(() => expect(courtesyMessage().length).toBeGreaterThan(0));
+    expect(editorHeadlineField()).toHaveLength(0);
+    expect(editorSaveControl()).toHaveLength(0);
+    first.unmount();
+
+    cleanup();
+    resetSessionRestore();
+    const anonymous = fakeStudioSession();
+    const second = await renderShell(anonymous.session, { trips: [TRIP] });
+    await waitFor(() => expect(signInControl()).toHaveLength(1));
+    expect(editorHeadlineField()).toHaveLength(0);
+    expect(editorSaveControl()).toHaveLength(0);
+    second.unmount();
+
+    cleanup();
+    resetSessionRestore();
+    const owner = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
+    await renderShell(owner.session, { trips: [TRIP] });
+    await waitFor(() => expect(signOutControl()).toHaveLength(1));
+    expect(editorHeadlineField()).toHaveLength(1);
+    expect(editorSaveControl()).toHaveLength(1);
   });
 });
 
