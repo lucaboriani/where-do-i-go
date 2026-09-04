@@ -566,7 +566,10 @@ In progress on branch `phase-2-studio`.
       `.claude/agents/` definitions — the agent files matter most, since leaving them stale
       would have had `nextjs-specialist` build the broken shape and `fullstack-solid-reviewer`
       reject the working one.
-- [ ] **`login()` / `logout()`, and the studio client shell.** Deliberately deferred out of the
+- [x] **`login()` / `logout()`, and the studio client shell.** Landed 2026-09-04 as
+      `signIn`/`signOut` plus `subscribeSessionState` in `lib/studio/session.ts`, and the
+      three-file shape below. 23 component tests; `/studio` still builds `○ (Static)`.
+      What follows is the original note, kept because each bullet turned into a test. Deliberately deferred out of the
       session module: they redirect the browser and no test covered them, so they land with the
       shell where a component test can assert the `clientId` actually passed. Build it as the
       three-file shape above. Things found while building the session module and while
@@ -623,6 +626,23 @@ In progress on branch `phase-2-studio`.
       scans `test/` again, and drive it against the local Community Solid Server — phase 0
       found the real flow cannot be validated from localhost against a hosted Pod, because the
       identity provider has to be able to fetch `client-id.jsonld`.
+
+      **The local recipe, worked out and verified 2026-09-04.** A real login IS exercisable
+      against CSS, credentials and all:
+      - `scripts/seed-dev-pod.ts` randomises the pod name per run, but honours `SEED_NAME`. So
+        `SEED_NAME=e2e npm run pod:seed` gives a deterministic pod at
+        `http://localhost:3001/e2e/`, WebID `…/e2e/profile/card#me`.
+      - the seeder creates a password account alongside it: `e2e@localhost.test` / `dev`. That
+        is a real credential CSS's login form accepts, so the spec can go past the redirect
+        rather than only asserting it.
+      - both the app and CSS are on localhost, so CSS *can* fetch `client-id.jsonld` — which is
+        exactly what a hosted provider cannot do from a dev machine, and is why the static
+        client ID path is testable here and nowhere else locally.
+      - **a CSS-created profile card carries `solid:oidcIssuer` but NOT `pim:storage`.**
+        Verified against a live seeded pod, and `readOwnerProfile` returns
+        `{ ok: true, value: { oidcIssuer: "http://localhost:3001/" } }` against it. This is the
+        empirical case for `storage` being optional in `OwnerProfile`: had it been required,
+        the read would fail on every CSS pod and the studio could never offer sign-in.
 
 ## Phase 3 — media
 

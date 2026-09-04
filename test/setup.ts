@@ -1,4 +1,18 @@
 import { afterAll, afterEach, beforeAll } from "vitest";
+/**
+ * jest-dom's matchers, registered on vitest's `expect`. A side-effect import,
+ * and the `/vitest` entry point rather than the bare package: that one calls
+ * `expect.extend` against vitest's expect and ships the type augmentation, so
+ * `toBeInTheDocument()` typechecks as well as runs.
+ *
+ * Loaded here rather than in a second setup file so it cannot be added to one
+ * config and forgotten in test/fixtures/vitest.config.ts, which mirrors this
+ * one. It costs the node-environment tests an import and nothing else; the
+ * matchers are only ever reached from a jsdom file. test/studio-shell.test.tsx
+ * pins that they are really loaded, positively and negatively — an unloaded
+ * matcher and a matcher that always passes are different failures.
+ */
+import "@testing-library/jest-dom/vitest";
 import { server } from "./msw";
 import {
   isLoopback,

@@ -171,6 +171,16 @@ Training data skews old. Expect and reject all of the following:
   `maplibre-gl`. Any Mapbox reference is a hallucination from v1-era examples.
 - `map.setProjection()` called before `style.load` — throws. Always inside the event handler.
 - `zod` v3 syntax — the project is on v4.
+- **An unquoted fragment IRI in a `.env` file.** Next's env loader reads an unquoted `#` as the
+  start of a comment, so `OWNER_WEBID=https://you.example/profile/card#me` is stored as
+  `https://you.example/profile/card`. Measured 2026-09-04 with `@next/env`: quoted keeps the
+  fragment, unquoted does not, and nothing warns. This bites every WebID, because a WebID is
+  usually a fragment IRI — and it is worse than a crash. The read finds the profile document's
+  own subject rather than the person, so it fails as "oidcIssuer: expected string, received
+  undefined" with nothing pointing at a missing fragment; and where the issuer does sit on the
+  document subject it does not fail at all — the studio comes up and `sameWebId` locks the owner
+  out of their own diary over three characters. Quote the value. `.env.example` says so at
+  `OWNER_WEBID`, which is where anyone configuring will actually look.
 - `print.error()` in a custom MSW `onUnhandledRequest` callback, believed to fail the test. It
   does not, on msw 2.15: the `print` defaults were downgraded to printing only and, in the
   library's own words, "do not affect the frame resolution"
