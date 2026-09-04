@@ -130,6 +130,32 @@ and the list above put the Pod requirement only against `build`, six lines too l
 which is precisely why a run that quietly omits them is the "half a check" this section warns
 about.
 
+**A ninth command, path-scoped rather than unconditional.** If the diff touches any of
+
+```
+lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
+```
+
+then `npm run test:e2e` must pass too. That is the auth seam, and it is where this test's
+failures live: it drives a real Solid login round trip through the local Community Solid Server
+— redirect, consent, authorization code, `handleIncomingRedirect`, owner studio.
+
+It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
+this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
+infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
+reading the diff.
+
+Two things it needs, both of which fail loudly rather than skipping: `npm run pod:dev`, and
+`npx playwright install chromium`. A browser already in the Playwright cache is not enough —
+a cached revision only counts for the Playwright version that asks for it, and this repo has
+stale 1208 and 1223 alongside the 1234 that `@playwright/test@1.62.1` actually wants.
+
+It runs against `next dev` on purpose. React only double-invokes effects under StrictMode in a
+development build, and that double invocation is the whole reason `restoreSession` memoises
+synchronously (phase-0 question 2: the first `handleIncomingRedirect` returned
+`isLoggedIn: false`). Under `next start` the effect runs once and the spec would pass with the
+memo deleted.
+
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
 reported plainly is worth more than a green summary that is wrong.
