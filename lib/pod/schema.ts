@@ -84,6 +84,26 @@ export const Entry = z.object({
   place: Place.optional(),
   photos: z.array(Photo),
   tags: z.array(z.string()),
+  /**
+   * NOT redundant with `datePublished`, and §7.3 says so in as many words:
+   * "created is when the record came into being and datePublished is when it
+   * became public. They differ by however long the draft sat."
+   *
+   * These two were missing from this schema until 2026-09-04, so `readEntry`
+   * dropped them and the first read-modify-write in the studio would have
+   * destroyed both, permanently and silently. `readTrip` has always read
+   * `created`, so it was an inconsistency rather than a policy.
+   *
+   * OPTIONAL, both of them, for the same reason every other field here is:
+   * "a Pod contains whatever was written to it, including data from an older
+   * version of this app". Requiring `created` would make every entry written
+   * before this change unreadable — including by `rebuildIndex`, which is the
+   * one tool that could repair them — and nothing rendered depends on either
+   * value. `saveEntry` sets `created` on a create and carries it forward on an
+   * update, so entries this app writes always have one.
+   */
+  created: z.iso.datetime({ offset: true }).optional(),
+  creator: z.url().optional(),
   modified: z.iso.datetime({ offset: true }).optional(),
 });
 export type Entry = z.infer<typeof Entry>;

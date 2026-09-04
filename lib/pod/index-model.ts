@@ -9,10 +9,10 @@
  */
 import { DataFactory, Writer } from "n3";
 import {
-  DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE, XSD,
+  DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE,
 } from "@/lib/vocab";
-import { config } from "@/lib/config";
-import type { Entry } from "./schema";
+import { dec, dt, int, text } from "./literals";
+import type { Entry, IndexEntry } from "./schema";
 
 const { namedNode, literal, quad } = DataFactory;
 
@@ -38,6 +38,55 @@ export type ComputedIndex = {
 };
 
 /**
+ * A row before the two derived fields are assigned.
+ *
+ * `fragment` and `sortOrder` are NOT inputs: both are recomputed from the whole
+ * set every time, which is what stops an incremental update from leaving
+ * `dy:sortOrder` describing an order the set no longer has.
+ */
+export type IndexRowInput = Omit<IndexRow, "fragment" | "sortOrder">;
+
+/** The row an entry contributes. No status check here — the caller decides what
+ *  reaches the index, because `saveEntry` also has to REMOVE the row for an
+ *  entry it has just unpublished, which is not something a filter can express. */
+export function rowOfEntry(entry: Entry): IndexRowInput {
+  return {
+    entryResource: entry.iri,
+    title: entry.headline,
+    slug: entry.slug,
+    occurredAt: entry.occurredAt,
+    lat: entry.place?.geo?.lat,
+    long: entry.place?.geo?.long,
+    precisionMeters: entry.place?.geo?.precisionMeters,
+    travelModeFrom: entry.travelModeFrom,
+    thumbnail: entry.photos[0]?.thumbnailUrl,
+  };
+}
+
+/**
+ * A row already in the index, back as an input.
+ *
+ * `saveEntry` reads `entries.ttl` and writes it back with one row inserted; the
+ * rows it did not touch have to survive that round trip. Reading them through
+ * the validated `IndexEntry` model rather than out of the raw triples is what
+ * §11 guardrail 2 asks for, and it means a row this version cannot understand
+ * fails the read loudly instead of being dropped on the next save.
+ */
+export function rowOfIndexEntry(row: IndexEntry): IndexRowInput {
+  return {
+    entryResource: row.entryResource,
+    title: row.title,
+    slug: row.slug,
+    occurredAt: row.occurredAt,
+    lat: row.lat,
+    long: row.long,
+    precisionMeters: row.precisionMeters,
+    travelModeFrom: row.travelModeFrom,
+    thumbnail: row.thumbnail,
+  };
+}
+
+/**
  * Only published entries reach the index. This is what makes the boundary hold:
  * the public site reads the index and therefore cannot leak a draft title, even
  * by accident, because the data is not there (§4).
@@ -47,22 +96,20 @@ export type ComputedIndex = {
  * problem, not an index problem, and `initialiseContainers` owns it.
  */
 export function computeIndex(entries: readonly Entry[]): ComputedIndex {
-  const published = entries.filter((e) => e.status === "published");
+  return computeIndexFromRows(entries.filter((e) => e.status === "published").map(rowOfEntry));
+}
 
-  const rows: IndexRow[] = published
-    .map((e, i) => ({
-      fragment: `e-${e.slug}`,
-      entryResource: e.iri,
-      title: e.headline,
-      slug: e.slug,
-      occurredAt: e.occurredAt,
-      lat: e.place?.geo?.lat,
-      long: e.place?.geo?.long,
-      precisionMeters: e.place?.geo?.precisionMeters,
-      travelModeFrom: e.travelModeFrom,
-      thumbnail: e.photos[0]?.thumbnailUrl,
-      sortOrder: i + 1,
-    }))
+/**
+ * The derived half of the index — ordering, numbering, count, bbox, centre —
+ * computed from the row set and nothing else.
+ *
+ * `computeIndex` above is this function fed from entries; `saveEntry` feeds it
+ * the surviving rows plus the one it is inserting. Both go through here so
+ * there is exactly one implementation of "what the derived values are", which
+ * is the difference between recomputing them and incrementing them.
+ */
+export function computeIndexFromRows(inputs: readonly IndexRowInput[]): ComputedIndex {
+  const rows: IndexRow[] = [...inputs]
     // Sort on the INSTANT, not the text. dy:occurredAt carries the local offset
     // of the place (§7.3), so lexical order is not chronological order and a
     // trip that crosses a time zone — the normal case here — would be ordered
@@ -74,7 +121,10 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
         (a.occurredAt ? Date.parse(a.occurredAt) : -Infinity) -
         (b.occurredAt ? Date.parse(b.occurredAt) : -Infinity),
     )
-    .map((row, i) => ({ ...row, sortOrder: i + 1 }));
+    // Both derived fields are assigned here and nowhere else. The fragment is
+    // regenerated from the slug rather than carried over from whatever was in
+    // the index, so a row's identity in the document always follows its slug.
+    .map((row, i) => ({ ...row, fragment: `e-${row.slug}`, sortOrder: i + 1 }));
 
   const points = rows.filter(
     (r): r is IndexRow & { lat: number; long: number } => r.lat !== undefined && r.long !== undefined,
@@ -100,20 +150,6 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
       : undefined,
   };
 }
-
-/** xsd:decimal has no exponent form. String(1e-7) is "1e-7", which is reachable
- *  through the computed centre when a bbox straddles the equator or prime
- *  meridian narrowly, so format explicitly. */
-const decimalLexical = (n: number): string => {
-  if (Number.isInteger(n)) return n.toFixed(1);
-  const s = String(n);
-  if (!/e/i.test(s)) return s;
-  // 7 decimal places is ~1cm of latitude; coordinates here are fuzzed anyway.
-  return n.toFixed(7).replace(/0+$/, "").replace(/\.$/, ".0");
-};
-const dec = (n: number) => literal(decimalLexical(n), namedNode(XSD.decimal));
-const int = (n: number) => literal(String(n), namedNode(XSD.integer));
-const dt = (s: string) => literal(s, namedNode(XSD.dateTime));
 
 /** Serialise to Turtle. Byte-level formatting is not normative (§11) — compare
  *  these graphs by triple set, never by bytes. */
@@ -153,7 +189,7 @@ export async function serialiseIndex(
       quad(it, namedNode(DY.entry), node),
       quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
       quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
-      quad(node, namedNode(DCTERMS.title), literal(row.title.value, row.title.language ?? config.defaultLanguage)),
+      quad(node, namedNode(DCTERMS.title), text(row.title)),
       quad(node, namedNode(DY.slug), literal(row.slug)),
       quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
     );

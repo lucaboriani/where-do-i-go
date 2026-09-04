@@ -235,6 +235,11 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
         place: placeOf(quads, v.one(SCHEMA.contentLocation), url),
         photos,
         tags: v.all(DY.tag),
+        // Read even though nothing renders them: an edit that rewrites this
+        // resource without carrying them forward destroys them (§7.3, and the
+        // note on Entry in schema.ts). readTrip has always read `created`.
+        created: take(offsetDateTime(v, DCTERMS.created, url)),
+        creator: v.one(DCTERMS.creator),
         modified: take(offsetDateTime(v, DCTERMS.modified, url)),
       },
       url,
@@ -242,12 +247,29 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
   });
 }
 
-export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Result<TripIndex>> {
+/**
+ * The index, plus the ETag of the response it was parsed from.
+ *
+ * §10 step 3 is "read `entries.ttl`, insert the index entry, recompute … write
+ * back with `If-Match`", and the ETag that makes that safe is the one from the
+ * read that produced the state being edited. Splitting it into a HEAD for the
+ * ETag and a GET for the body opens a window in which the two disagree: HEAD
+ * first and the write fails with 412 for no reason, GET first and a concurrent
+ * change is silently overwritten by a precondition that has already been
+ * satisfied. So one request returns both.
+ *
+ * `readTripIndex` is this function with the ETag dropped, rather than a second
+ * copy of the extraction — there is one parser for this resource.
+ */
+export async function readTripIndexWithEtag(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<{ index: TripIndex; etag: string | null }>> {
   const fetched = await fetchTurtle(url, opts);
   if (!fetched.ok) return fetched;
-  const { quads } = fetched.value;
+  const { quads, etag } = fetched.value;
 
-  return guard(() => {
+  const parsed = guard(() => {
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
 
@@ -309,6 +331,13 @@ export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Re
       url,
     );
   });
+
+  return parsed.ok ? ok({ index: parsed.value, etag }) : parsed;
+}
+
+export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Result<TripIndex>> {
+  const read = await readTripIndexWithEtag(url, opts);
+  return read.ok ? ok(read.value.index) : read;
 }
 
 export async function readDiary(url: string, opts?: ReadOptions): Promise<Result<Diary>> {

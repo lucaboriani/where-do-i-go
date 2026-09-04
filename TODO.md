@@ -429,6 +429,18 @@ cached-and-invalidated model expects.
             exemption the Pod integration tests need — and pin it with a test that asserts an
             unhandled request FAILS. Expect the fix to expose tests that were quietly reaching
             the network; those are findings, not breakage.
+      - [ ] **Nothing checks that the Zod schemas cover the normative shapes**, and that gap has
+            already cost something. `lib/pod/schema.ts`'s `Entry` has neither `dcterms:created`
+            nor `dcterms:creator`, both of which §7.3 carries and describes as deliberately
+            non-redundant — "created is when the record came into being and datePublished is
+            when it became public". So `readEntry` silently drops them, and the first
+            read-modify-write in the studio would have destroyed them permanently. `readTrip`
+            reads `created`, so it is an inconsistency, not a policy.
+            Neither existing guardrail could see it: `check:vocab` compares `lib/vocab.ts`
+            against the data model and both terms ARE in vocab, and `validate:fixtures` parses
+            the §7 Turtle without asking whether any schema covers it. The missing check is the
+            third edge of that triangle — every predicate in a §7 block should appear in the Zod
+            schema for that resource, or be listed as a deliberate omission with a reason.
       - [ ] The ceiling may still only rise for **framework** cost, and only with the per-chunk
             breakdown to prove that is what it is. Never for our own code: anything of ours on
             a public route is a boundary failure, and the fix is the import. Lowering is always

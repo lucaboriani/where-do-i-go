@@ -225,9 +225,20 @@ const eslintConfig = defineConfig([
                 "The theme is fixed dark, with the palette at :root and no toggle (CLAUDE.md, Styling). next-themes is studio-only, where it arrives via shadcn's sonner.",
             },
             {
-              group: ["**/lib/pod/write", "**/lib/pod/write.*", "**/lib/pod/access", "**/lib/pod/access.*"],
+              // save-entry.ts is the §10 write sequence and imports access.ts,
+              // so a public page importing it pulls @inrupt/solid-client in one
+              // step removed — the same shape as the lib/studio hole below.
+              // entry-model.ts is pure and drags nothing in, and is fenced
+              // anyway: nothing public has any business serialising an entry,
+              // and a module on neither list is invisible to every check here.
+              group: [
+                "**/lib/pod/write", "**/lib/pod/write.*",
+                "**/lib/pod/access", "**/lib/pod/access.*",
+                "**/lib/pod/save-entry", "**/lib/pod/save-entry.*",
+                "**/lib/pod/entry-model", "**/lib/pod/entry-model.*",
+              ],
               message:
-                "lib/pod/write.ts and lib/pod/access.ts are studio-only. Public routes read through lib/pod/read.ts.",
+                "lib/pod/write.ts, lib/pod/access.ts, lib/pod/save-entry.ts and lib/pod/entry-model.ts are studio-only. Public routes read through lib/pod/read.ts.",
             },
             {
               // The directory, not one filename: naming `session` alone would

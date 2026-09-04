@@ -256,6 +256,98 @@ describe("guardrails actually fire", () => {
     expect(ruleIds(msgs)).toContain("no-restricted-imports");
   });
 
+  /**
+   * THE SAME GROUP, WALKED PROPERLY — including the two globs the §10 write
+   * sequence added: `lib/pod/save-entry` and `lib/pod/entry-model`.
+   *
+   * The case above lints ONE member of a four-member pattern group and does not
+   * check the message, so it would pass with `save-entry` and `entry-model`
+   * missing from the config entirely. That matters most for `save-entry`: it
+   * imports `lib/pod/access.ts`, so a public page importing it pulls
+   * @inrupt/solid-client into the public bundle one step removed — the same
+   * shape as the lib/studio hole this repo closed, and the one thing invariant 3
+   * and the size budget both forbid. `entry-model` drags nothing in and is
+   * fenced anyway: nothing public has any business serialising an entry, and a
+   * module on neither list is invisible to every check here.
+   *
+   * THE SPELLINGS ARE THE MEASURED ONES, not the plausible ones. This file's own
+   * radix-ui lesson is that a fence tested at a specifier the project does not
+   * write proves nothing: the alias form is what a page would be written with,
+   * the relative form is what an agent editing inside app/(public) produces, and
+   * both were probed against the real config before being pinned here.
+   *
+   * These cases passed on their first run, and that is expected rather than the
+   * "a test that passes first time is suspect" smell — the fence was already
+   * correct by inspection and by probe; what was missing was anything that would
+   * notice it breaking. Mutation-checked all the same: with the two new globs
+   * deleted from eslint.config.mjs, the save-entry and entry-model rows below go
+   * red and the rest of the file stays green.
+   */
+  it.each([
+    // the two new globs, at all three fenced public paths
+    ["app/(public)/thing.tsx", "@/lib/pod/save-entry"],
+    ["components/public/thing.tsx", "@/lib/pod/save-entry"],
+    ["app/not-found.tsx", "@/lib/pod/save-entry"],
+    ["app/(public)/thing.tsx", "@/lib/pod/entry-model"],
+    ["components/public/thing.tsx", "@/lib/pod/entry-model"],
+    ["app/not-found.tsx", "@/lib/pod/entry-model"],
+    // A relative specifier, no alias: the group is written `**/lib/pod/...`
+    // precisely so a path that never spells `@/` is still caught, and a file
+    // being edited inside app/(public) is where that spelling comes from.
+    ["components/public/thing.tsx", "../../lib/pod/save-entry"],
+    ["app/(public)/trips/[slug]/page.tsx", "../../../../lib/pod/save-entry"],
+    // The `**/lib/pod/save-entry.*` half of each pair, which is the only thing
+    // covering an extension-bearing specifier: gitignore semantics match whole
+    // segments, so the bare glob does NOT match `save-entry.ts`. Measured —
+    // delete the `.*` halves and these two rows are the only ones that notice.
+    ["app/(public)/thing.tsx", "@/lib/pod/save-entry.ts"],
+    ["app/(public)/thing.tsx", "@/lib/pod/entry-model.ts"],
+    // The two older members of the group, at the path they had no case at:
+    // app/not-found.tsx is fenced by a `files` entry rather than by being
+    // inside app/(public), so it is the entry most easily lost in a refactor.
+    ["app/not-found.tsx", "@/lib/pod/write"],
+    ["app/not-found.tsx", "@/lib/pod/access"],
+  ])("rejects %s importing %s — the write path is studio-only", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    // Naming the specifier is what makes the CI output actionable: "an import is
+    // restricted" without saying which one sends a deployer reading the message
+    // to the wrong line.
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /**
+   * The allow-cases, and they are not decoration: a fence that rejects
+   * everything is useless, and widening this group by one glob — `**\/lib/pod/**`
+   * would do it — makes `lib/pod/save-entry.ts` unable to import its own
+   * serialiser and the studio unable to save an entry at all.
+   *
+   * The last two rows are the specifiers the repository ACTUALLY contains today
+   * (`lib/pod/save-entry.ts` imports `./entry-model` and `./access` relatively),
+   * plus the one the test suite itself uses. Everything above them is a path the
+   * studio will use as phase 2 lands.
+   */
+  it.each([
+    ["app/(studio)/studio/page.tsx", "@/lib/pod/save-entry"],
+    ["app/(studio)/studio/page.tsx", "@/lib/pod/entry-model"],
+    ["components/studio/entry-editor.tsx", "@/lib/pod/save-entry"],
+    ["test/entry-write.test.ts", "@/lib/pod/save-entry"],
+    // The real, present-tense imports inside lib/pod itself.
+    ["lib/pod/save-entry.ts", "./entry-model"],
+    ["lib/pod/save-entry.ts", "./access"],
+  ])("allows %s to import %s — the studio has to be able to write", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default String(mod);\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
   it("rejects ACL primitives outside lib/pod/access.ts", async () => {
     const msgs = await lint(
       "lib/pod/write.ts",
