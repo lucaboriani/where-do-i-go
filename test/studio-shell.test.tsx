@@ -111,6 +111,19 @@ const ISSUER = "https://login.example";
  *  and the sign-in assertions below would catch it. */
 const SITE = "https://diary.example";
 const SITE_NAME = "Luca's travel diary";
+/**
+ * The Pod root, a prop for the same reason the four values above are: POD_ROOT
+ * is not `NEXT_PUBLIC_` and lib/config.ts throws the moment it is reached in a
+ * browser.
+ *
+ * Nothing in THIS file ever reaches it. `renderShell` below always supplies
+ * `trips`, and a supplied list means the shell offers exactly those and
+ * enumerates nothing — so every case here stays what it was, a test of the
+ * shell's RENDERING given its trips, with no Pod in it. Where the trips come
+ * from is test/studio-trip-loading.test.tsx's subject, and it is the file that
+ * pins that seam in both directions.
+ */
+const POD = "https://pod.test.example/";
 
 /**
  * The two event names, tied to the library's own literals by their annotations.
@@ -163,12 +176,14 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }, gate?: Pro
   const session = {
     info,
     events,
-    /** The session's authenticated fetch, which StudioSessionLike now models
+    /** The session's authenticated fetch, which StudioSessionLike models
      *  because the entry editor needs one to hand `saveEntry`. It is never
-     *  called on any path this file drives — the shell makes no request of its
-     *  own, and the assertion at the end of section 4 pins exactly that — so it
-     *  is here to satisfy the interface and to prove the interface is still
-     *  satisfiable by a plain object. */
+     *  called on any path THIS file drives, because every case here supplies
+     *  `trips` and a supplied list means the shell enumerates nothing — the
+     *  assertion at the end of section 4 pins exactly that. Throwing is the
+     *  point: if that ever stops being true, the case that broke it says so
+     *  with this message rather than reaching a live host. The listing path is
+     *  test/studio-trip-loading.test.tsx's, and its fake session's fetch works. */
     fetch: (async () => {
       throw new Error("the shell must not fetch: nothing here goes to the Pod");
     }) as typeof globalThis.fetch,
@@ -216,7 +231,7 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }, gate?: Pro
  * ever sees the file, and `tsc --noEmit` reporting "Cannot find module
  * '@/components/studio/studio-shell'" IS the correct red state. It is not a
  * locally-declared props type on purpose — once the component exists, tsc
- * checks the five props below against its REAL signature at every call site
+ * checks the six props below against its REAL signature at every call site
  * here, which a local guess would have replaced with the test's own opinion.
  * ======================================================================== */
 
@@ -250,11 +265,11 @@ async function loadShell() {
  * two invocations (docs/phase-0-spike.md, question 2). A shell tested outside
  * StrictMode is tested in a mode it never runs in.
  *
- * The four values are props because none of them can be read in a browser:
- * OWNER_WEBID, SITE_URL and SITE_NAME are not NEXT_PUBLIC_, and lib/config.ts
- * throws when the var is absent. `oidcIssuer` comes from the owner's WebID
- * document via getOwnerProfile() on the server (§7.5) — there is deliberately
- * no OIDC_ISSUER env var.
+ * The five values are props because none of them can be read in a browser:
+ * OWNER_WEBID, SITE_URL, SITE_NAME and POD_ROOT are not NEXT_PUBLIC_, and
+ * lib/config.ts throws when the var is absent. `oidcIssuer` comes from the
+ * owner's WebID document via getOwnerProfile() on the server (§7.5) — there is
+ * deliberately no OIDC_ISSUER env var.
  */
 /**
  * The trips prop, DERIVED FROM THE SHELL'S OWN SIGNATURE rather than declared
@@ -284,6 +299,7 @@ async function renderShell(
     oidcIssuer?: string;
     siteUrl?: string;
     siteName?: string;
+    podRoot?: string;
     trips?: ShellTrip[];
   } = {},
 ) {
@@ -296,7 +312,16 @@ async function renderShell(
         oidcIssuer={props.oidcIssuer ?? ISSUER}
         siteUrl={props.siteUrl ?? SITE}
         siteName={props.siteName ?? SITE_NAME}
-        trips={props.trips}
+        podRoot={props.podRoot ?? POD}
+        /* DEFAULTED TO [], never left undefined, and that is the load-bearing
+           half of this line. An absent `trips` is what makes the shell go and
+           enumerate the Pod; every case in this file is about what it RENDERS,
+           not about where the list came from, and none of them serves a Pod. So
+           they hand it an empty list and stay off the network — which is also
+           what keeps "makes no network request of its own" below a true
+           statement rather than an accident of the fake session's fetch
+           throwing. */
+        trips={props.trips ?? []}
       />
     </StrictMode>,
   );
@@ -778,19 +803,38 @@ describe("studio shell — the session lapsing mid-edit", () => {
   });
 
   /**
-   * The shell talks to the Pod through nothing at all at this increment: every
-   * value it needs is a prop, and the session is injected. test/setup.ts already
-   * fails an unhandled request, but a spy says what is meant and would still
-   * catch a request to a URL some handler happened to cover.
+   * A SHELL THAT HAS BEEN HANDED ITS TRIPS ASKS THE POD NOTHING — not through
+   * the ambient fetch, and not through the session's either.
+   *
+   * This used to read "makes no network request of its own", and it was true of
+   * a shell that could not fetch at all. It can now (test/studio-trip-loading
+   * .test.tsx), so the claim has to be the narrower one that is still true, or
+   * it becomes a green assertion about a path this file never takes. Both
+   * fetches are checked, because only one of them is the ambient one and the
+   * ambient spy alone would miss the whole listing.
+   *
+   * test/setup.ts already fails an unhandled request, but a spy says what is
+   * meant and would still catch a request to a URL some handler happened to
+   * cover.
    */
-  it("makes no network request of its own", async () => {
+  it("makes no network request of its own when it is handed its trips", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const sessionFetch = vi.fn(async () => {
+      throw new Error("the shell must not fetch: this case supplies the trips");
+    });
     const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
+    // Replaces the throwing stand-in with a countable one, so "it did not
+    // fetch" is an observation rather than the absence of an exception.
+    Object.defineProperty(fake.session, "fetch", { value: sessionFetch, configurable: true });
 
-    await renderShell(fake.session);
+    await renderShell(fake.session, { trips: [TRIP] });
     await waitFor(() => expect(signOutControl()).toHaveLength(1));
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sessionFetch).not.toHaveBeenCalled();
+    // Non-vacuous: the owner UI really did render, so this is not "nothing
+    // happened at all".
+    expect(editorSaveControl()).toHaveLength(1);
   });
 });
 
@@ -871,7 +915,7 @@ describe("components/studio/studio-shell.tsx, as source", () => {
   it("does not import lib/config, which throws in a browser", () => {
     // OWNER_WEBID, SITE_URL and SITE_NAME are not NEXT_PUBLIC_. config's
     // `required()` throws on an absent var, and in the browser they are all
-    // absent. The four values arrive as props; there is no other way.
+    // absent. The five values arrive as props; there is no other way.
     const imported = specifiers(code());
     expect(imported.filter((s) => /(^|\/)lib\/config$/.test(s))).toEqual([]);
     expect(imported.filter((s) => s.includes("lib/config"))).toEqual([]);

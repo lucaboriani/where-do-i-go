@@ -6,10 +6,10 @@ import { describe } from "@/lib/pod/result";
 /**
  * Studio entry point: a thin server component, and thin on purpose.
  *
- * It exists to read the three values a browser cannot — OWNER_WEBID, SITE_URL
- * and SITE_NAME are not `NEXT_PUBLIC_`, and lib/config.ts throws if it is
- * reached from the client — plus the owner's identity provider, and to hand all
- * four down as props. The `ssr: false` that keeps the Solid session out of the
+ * It exists to read the four values a browser cannot — OWNER_WEBID, SITE_URL,
+ * SITE_NAME and POD_ROOT are not `NEXT_PUBLIC_`, and lib/config.ts throws if it
+ * is reached from the client — plus the owner's identity provider, and to hand
+ * all five down as props. The `ssr: false` that keeps the Solid session out of the
  * server lives one file down, in components/studio/studio-client.tsx: Next 16
  * rejects it here ("`ssr: false` is not allowed with `next/dynamic` in Server
  * Components").
@@ -54,6 +54,22 @@ export default async function StudioPage() {
       oidcIssuer={profile.value.oidcIssuer}
       siteUrl={config.siteUrl}
       siteName={config.siteName}
+      /**
+       * `config.podRoot`, never `process.env.POD_ROOT`: the getter is the only
+       * thing that appends the trailing slash, and every URL in
+       * lib/studio/trips.ts is built with `new URL("travel/trips/", podRoot)`,
+       * which without it resolves against the PARENT.
+       *
+       * It travels as a prop for the reason the three config values above do —
+       * POD_ROOT is not `NEXT_PUBLIC_` and `required()` throws the moment it is
+       * reached in a browser. Everything below this page runs inside
+       * `ssr: false`, so if this page does not pass it, nothing can, and the
+       * owner is shown the "no trips" note on a Pod full of trips.
+       *
+       * It is NOT the owner's WebID: on ESS identity and storage are different
+       * hosts entirely (§7.5).
+       */
+      podRoot={config.podRoot}
     />
   );
 }

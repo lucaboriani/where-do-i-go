@@ -73,6 +73,21 @@ export interface EditorTrip {
   indexUrl: string;
   /** `<…/entries/>`, where the entry resource goes. */
   entriesContainer: string;
+  /**
+   * `dy:status` of the TRIP — not of the entry, which is the control below.
+   *
+   * Optional because a caller that knows only where a trip is can still offer
+   * it, and because the whole point of the marker is to say something extra
+   * about a draft rather than to withhold a trip nobody labelled.
+   *
+   * It is rendered, and that is why it is here. `listStudioTrips` carries it
+   * for one stated reason — "a picker that shows a draft trip and a published
+   * trip identically invites the one mistake that cannot be undone from the
+   * editor: writing a PUBLISHED entry into a DRAFT trip yields a public entry
+   * whose trip is not public". The marker is what makes that visible before the
+   * click rather than after it.
+   */
+  status?: EntryStatus;
 }
 
 export interface EntryEditorProps {
@@ -540,9 +555,13 @@ export default function EntryEditor({ session, trips, initial }: EntryEditorProp
             onChange={(event) => setTripIri(event.target.value)}
           >
             <option value="">{"Choose a trip"}</option>
+            {/* IN TEXT, NOT IN A COLOUR. An `<option>` carries no styling a
+                screen reader announces and no styling a colour-blind reader
+                can rely on, so the one thing that distinguishes a draft trip
+                from a published one has to be part of its name here. */}
             {trips.map((choice) => (
               <option key={choice.iri} value={choice.iri}>
-                {choice.name}
+                {choice.status === "draft" ? `${choice.name} (draft)` : choice.name}
               </option>
             ))}
           </select>
