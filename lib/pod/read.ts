@@ -7,7 +7,7 @@
  */
 import * as z from "zod";
 import {
-  DCTERMS, DY, DY_CLASS, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
+  DCTERMS, DY, DY_CLASS, PROFILE, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
 } from "@/lib/vocab";
 import {
   date, decimal, fetchTurtle, integer, itOf, offsetDateTime, viewOf,
@@ -15,7 +15,7 @@ import {
 } from "./rdf";
 import { describe, err, ok, type PodError, type Result } from "./result";
 import {
-  Diary, Entry, IndexEntry, Place, Trip, TripIndex, type LangText,
+  Diary, Entry, IndexEntry, OwnerProfile, Place, Trip, TripIndex, type LangText,
 } from "./schema";
 import type { Quad } from "n3";
 
@@ -334,6 +334,83 @@ export async function readDiary(url: string, opts?: ReadOptions): Promise<Result
         modified: take(offsetDateTime(v, DCTERMS.modified, url)),
       },
       url,
+    );
+  });
+}
+
+/**
+ * The owner's WebID profile, read unauthenticated (§7.5).
+ *
+ * The studio's server component calls this to discover `solid:oidcIssuer` and
+ * hand it to the client shell, because `session.login()` takes `oidcIssuer` as
+ * a mandatory option and there is deliberately no OIDC_ISSUER env var: the
+ * WebID document is the one place that reliably carries it.
+ *
+ * THREE THINGS HERE ARE DELIBERATELY UNLIKE EVERY OTHER READ IN THIS FILE.
+ * Each looks like an omission. Each is load-bearing, and each is pinned by a
+ * test in test/owner-profile.test.ts — do not "tidy" them away.
+ *
+ * 1. The subject is the WHOLE WebID, fragment included — `viewOf(quads, webId)`
+ *    rather than `itOf(url)`. A WebID is a fragment IRI: the document fetched
+ *    is the WebID with its fragment stripped, and the subject described inside
+ *    it is the WebID in full. The fragment is not always `#me` (CSS and ESS
+ *    both allow any), and it is never our `#it` convention — a profile may well
+ *    carry an unrelated `<#it>` subject, and reading that hands `login()` the
+ *    wrong identity provider.
+ *
+ * 2. NO `dy:schemaVersion` CHECK, though CLAUDE.md requires one on every
+ *    top-level read. That rule is about *our* resources. The WebID document is
+ *    not ours — on ESS the identity provider serves it and answers `PATCH` with
+ *    405 — so it will never carry our version, and a version gate here would
+ *    reject every real Pod. A profile declaring a version we would otherwise
+ *    refuse is still read straight past.
+ *
+ * 3. NO `rdf:type` GATE. §7.5 types the subject `foaf:Agent`, but nothing here
+ *    depends on it and plenty of real profiles omit it. What matters is the
+ *    issuer, and its absence is caught by the schema.
+ */
+export async function readOwnerProfile(
+  webId: string,
+  opts?: ReadOptions,
+): Promise<Result<OwnerProfile>> {
+  let doc: string;
+  let subject: string;
+  try {
+    const u = new URL(webId);
+    subject = u.href;
+    // Fetch the document, not the fragment. Servers ignore fragments, but the
+    // caller-supplied fetch is observable and the base IRI used for parsing has
+    // to be the document, or every relative IRI in the profile resolves wrong.
+    u.hash = "";
+    doc = u.href;
+  } catch {
+    // A WebID reaches this from configuration, so a malformed one is a value to
+    // report, not a throw escaping a read that promises never to throw.
+    return err({ kind: "shape", url: webId, issues: [`webId is not an absolute IRI: ${webId}`] });
+  }
+
+  const fetched = await fetchTurtle(doc, opts);
+  if (!fetched.ok) return fetched;
+  const { quads } = fetched.value;
+
+  return guard(() => {
+    const v = viewOf(quads, subject);
+    if (!v.exists) {
+      // Mirrors readDiary's "no <#it> subject": the document parsed, it just
+      // does not describe the WebID it was reached through. `url` is the
+      // document, as it is for every other error on this path.
+      throw new Bail({ kind: "shape", url: doc, issues: [`no <${subject}> subject`] });
+    }
+    return validate(
+      OwnerProfile,
+      {
+        oidcIssuer: v.one(PROFILE.oidcIssuer),
+        // §7.5: the Pod root comes from pim:storage and never from the WebID's
+        // origin — on ESS identity and storage are different hosts entirely.
+        storage: v.one(PROFILE.storage),
+        seeAlso: v.one(PROFILE.seeAlso),
+      },
+      doc,
     );
   });
 }
