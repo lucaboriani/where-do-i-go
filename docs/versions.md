@@ -171,6 +171,15 @@ Training data skews old. Expect and reject all of the following:
   `maplibre-gl`. Any Mapbox reference is a hallucination from v1-era examples.
 - `map.setProjection()` called before `style.load` — throws. Always inside the event handler.
 - `zod` v3 syntax — the project is on v4.
+- **A source file containing a literal NUL byte reads as clean to shell `grep`.** An agent
+  writing `\u0000` into a file as a real NUL rather than an escape produces something `file(1)`
+  calls `data`; `grep` then reports NO MATCH — not an error, and `grep -c` prints nothing at all
+  — while `sed` and `cat` display it as ordinary text. Hit for real on 2026-09-04 while writing
+  `app/(public)/api/revalidate/route.ts`. Scope, measured rather than assumed: this blinds
+  **shell** inspection only. Node's `readFileSync(f, "utf8")` finds the matches, so the
+  source-text guardrails that run inside vitest — the `"use cache"` directive scan, the
+  studio-shell import bans, the marker scan in `check-public-bundle.ts` — are unaffected. The
+  hazard is a human or agent grepping from a shell and believing the silence.
 - **An unquoted fragment IRI in a `.env` file.** Next's env loader reads an unquoted `#` as the
   start of a comment, so `OWNER_WEBID=https://you.example/profile/card#me` is stored as
   `https://you.example/profile/card`. Measured 2026-09-04 with `@next/env`: quoted keeps the

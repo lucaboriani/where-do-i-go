@@ -511,13 +511,16 @@ cached-and-invalidated model expects.
 
 Against hand-written Turtle placed in the Pod manually. No editor yet.
 
-- [ ] `lib/vocab.ts` complete and CI-checked against the data model
-- [ ] `lib/pod/read.ts` with Zod validation returning typed results or structured errors
-- [ ] `rebuildIndex(trip)` — build it now, not when it is first needed. It is also the
-      migration tool and the recovery path.
-- [ ] Trip index page and entry page, server-rendered
-- [ ] Slug resolution plus the slug-equals-container-segment invariant asserted
-- [ ] Sitemap, RSS, metadata
+- [x] `lib/vocab.ts` complete and CI-checked against the data model
+- [x] `lib/pod/read.ts` with Zod validation returning typed results or structured errors
+- [x] `rebuildIndex(trip)` — build it now, not when it is first needed. It is also the
+      migration tool and the recovery path. **Built, but four of §10's five clauses only**: it
+      does not verify each kept entry's ACL matches its status, which is the clause that
+      recovers "published but unreadable". See the guardrail section — fixing it needs the
+      `write.ts` <-> `access.ts` import cycle broken first.
+- [x] Trip index page and entry page, server-rendered
+- [x] Slug resolution plus the slug-equals-container-segment invariant asserted
+- [x] Sitemap, RSS, metadata
 
 **Cache Components consequence — handle this deliberately, it is a build-breaker.**
 
@@ -525,14 +528,15 @@ Against hand-written Turtle placed in the Pod manually. No editor yet.
 `empty-generate-static-params`, and `dynamicParams` is not supported (`docs/decisions.md` §22).
 Trip slugs come from the Pod, so:
 
-- [ ] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
-      This couples every deploy to Pod availability — accept it knowingly.
-- [ ] Decide and implement the empty-Pod case. A deployer who has not written a trip yet
+- [x] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
+      This couples every deploy to Pod availability — accept it knowingly. Present on both
+      `/trips/[slug]` and `/trips/[slug]/[entry]`.
+- [ ] **STILL OPEN (not stale).** Decide and implement the empty-Pod case. A deployer who has not written a trip yet
       currently gets a **failed build, not an empty site**, which is a terrible first run for the
       "fork it and deploy" promise. Either seed a placeholder param, or fail with an explicit
       message naming the fix ("create your diary root and one trip, then redeploy") rather than
       Next's raw error. Record which in `docs/decisions.md`.
-- [ ] Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
+- [ ] **STILL OPEN (not stale).** Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
       defensible; failing with an unreadable stack trace is not.
 - [x] Confirm the App Shell path: a trip published after the build should be served the shell and
       upgraded in the background, with no redeploy. **Verified** — the build's route table shows
