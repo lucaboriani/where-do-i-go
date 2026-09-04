@@ -220,8 +220,15 @@ cached-and-invalidated model expects.
         size-limit@13.0.3 @size-limit/preset-app@13.0.3
 
 - [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
-      Verified installed (`chromium-1223` in the Playwright cache). The *config* and the spec
-      are still missing, so `test:e2e` does not yet run — see phase 2.
+
+      **The earlier "verified installed (`chromium-1223`)" here was wrong, and it is the
+      reason this looked done for two days.** A browser in the Playwright cache is only
+      installed *for the Playwright that wants it*: 1223 and 1208 were left behind by older
+      versions, and `@playwright/test@1.62.1` asks for **chromium-1234**
+      (`node_modules/playwright-core/browsers.json`). The first real launch failed with
+      "Executable doesn't exist at …/chromium_headless_shell-1234/…". Re-running
+      `playwright install chromium` fetched 1234 and it works. On an upgrade, check the
+      revision rather than the presence of a directory.
 
 ### shadcn/ui — studio only
 
@@ -610,13 +617,40 @@ In progress on branch `phase-2-studio`.
       `putGuarded` already exist in `lib/pod/write.ts` from phase 1; this is the UI and the
       §10 write sequence on top of them.
 - [ ] `localStorage` autosave of in-progress text
-- [ ] **`npm run test:e2e` is broken and needs fixing here**, since the Solid login redirect is
-      the one thing Playwright exists in this project for. There is no `playwright.config.*`,
-      so Playwright falls back to scanning and tries to load the Vitest suites. Re-confirmed
-      2026-09-04: it dies on `test/access.test.ts:103` with "Cannot read properties of undefined
-      (reading 'config')" before it ever reports on tests. Chromium is installed; the config and
-      the login-redirect spec are what is missing. Not caught by the definition of done, because
-      `test:e2e` is not in it.
+- [x] **`npm run test:e2e` — fixed 2026-09-04.** `playwright.config.ts`, `e2e/environment.ts`,
+      `e2e/global-setup.ts` and `e2e/solid-login.spec.ts`. Two tests, 11 seconds, both green:
+      the authorization redirect carries the `client_id` and `redirect_uri` that
+      `client-id.jsonld` publishes, and the full round trip logs in with the seeded credential
+      and returns to a studio showing the owner UI.
+
+      It was broken because there was no `playwright.config.*`, so Playwright scanned the
+      repository, tried to load the Vitest suites and died on `test/access.test.ts:103` with
+      "Cannot read properties of undefined (reading 'config')". `testDir: "./e2e"` is what
+      stops that. Still not in the definition of done — see the note at the end of this item.
+
+      **Both tests were killed to prove they were not vacuous.** Changing `clientId` in
+      `lib/studio/session.ts` to `${origin}/client-id.json` fails test 1 on the exact value
+      and leaves test 2 on CSS's "Server error" page. Deleting the `clientId` argument
+      altogether — the real dynamic-registration fallback — fails both.
+
+      **What that second mutation corrected, and it is worth keeping.** Phase 0 recorded the
+      fallback as "a bare UUID instead of the app name". Against CSS 7.2 that is not what
+      happens. Measured consent screen under dynamic registration:
+
+          Name  Where I Go e2e        ID  FruZ8UCqY2QwZdac1kd0b
+
+      The **name survives** — `@inrupt/solid-client-authn-browser` forwards `clientName` into
+      the registration — and the ID is a 21-character opaque handle, not a dashed UUID. So an
+      assertion on the name discriminates nothing, and a UUID regex matches nothing. The first
+      draft of the spec asserted both and would have passed while the app fell back. The
+      assertion that earns its keep is an exact match on the ID cell.
+
+      **Also fixed on the way:** Chromium was not actually installed for Playwright 1.62.1 —
+      see the phase 0.5 note above.
+
+      ---
+
+      *Original plan, kept because its findings are still the recipe:*
 
       **Do this AFTER the shell, not before.** Playwright exists here for exactly one thing —
       the Solid login redirect — and there is no sign-in button to drive until the shell lands.
@@ -643,6 +677,20 @@ In progress on branch `phase-2-studio`.
         `{ ok: true, value: { oidcIssuer: "http://localhost:3001/" } }` against it. This is the
         empirical case for `storage` being optional in `OwnerProfile`: had it been required,
         the read would fail on every CSS pod and the studio could never offer sign-in.
+
+      **Should `test:e2e` join the definition of done?** Recommendation: **no, not as a ninth
+      line in that list — but yes as a named gate on any change to the auth seam.** The
+      argument for is that this is the only check covering the login flow, and its absence is
+      exactly why the command stayed broken. The argument against is what the list is *for*:
+      the other eight run anywhere with a checkout and Node 22, and `npm run build` already
+      needs a Pod, but this one needs a Pod **and** a 180 MB browser **and** port 3000 free,
+      and it fails loudly on all three. Put it in the unconditional list and the predictable
+      result is that the list stops being run — which costs more than this test is worth.
+      A workable middle: the definition of done gains a line saying that a diff touching
+      `lib/studio/**`, `app/(studio)/**`, `components/studio/**` or
+      `app/(public)/client-id.jsonld/**` must also run `npm run test:e2e`. That is where its
+      failures actually live, and it is checkable by reading the diff.
+      **Changing CLAUDE.md is the maintainer's call — this is a recommendation, not a change.**
 
 ## Phase 3 — media
 

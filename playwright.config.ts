@@ -1,0 +1,133 @@
+import { defineConfig } from "@playwright/test";
+import { E2E, appEnv } from "./e2e/environment";
+
+/**
+ * Playwright, for one flow only.
+ *
+ * CLAUDE.md, Testing: "Playwright only for the Solid login redirect, which
+ * cannot be meaningfully unit-tested." That is the whole remit. The studio's
+ * states — restoring, signed-out, owner, not-owner, the expiry subscription —
+ * are covered by 23 component tests in test/studio-shell.test.tsx that run in
+ * about a second. Re-driving them in a browser would be a slow duplicate of a
+ * fast test, which is worse than no test: it costs minutes per run and finds
+ * nothing the fast one does not.
+ *
+ * WHY THIS FILE HAD TO EXIST AT ALL. Without a config, Playwright falls back to
+ * scanning the repository, finds test/*.test.ts, tries to load the Vitest
+ * suites as Playwright specs and dies inside @vitest/runner:
+ * "TypeError: Cannot read properties of undefined (reading 'config')" at
+ * test/access.test.ts:103, before reporting on anything. `testDir` below is
+ * what stops that: Playwright only ever looks in e2e/, and vitest.config.ts
+ * only ever looks in test/ and lib/, so neither runner can collect the other's
+ * files. (vitest's include is `test/**\/*.test.{ts,tsx}` and
+ * `lib/**\/*.test.{ts,tsx}`; `e2e/*.spec.ts` matches neither, and
+ * test/vitest-collection.test.ts pins that no .spec.ts is ever collected.)
+ */
+export default defineConfig({
+  testDir: "./e2e",
+
+  /**
+   * One worker, no parallelism, no retries.
+   *
+   * The spec drives a real OIDC round trip against one Community Solid Server
+   * account. Two workers would race over the same session cookie and the same
+   * "remember this client" state on the server, and a retry would quietly turn
+   * "the login flow is flaky against a real provider" — the single most
+   * valuable thing this spec can tell us — into a green tick on the second go.
+   */
+  workers: 1,
+  fullyParallel: false,
+  retries: 0,
+
+  forbidOnly: !!process.env.CI,
+  reporter: [["list"]],
+  globalSetup: "./e2e/global-setup.ts",
+
+  /**
+   * Generous, because the first request to `next dev` compiles the route — but
+   * not so generous that a broken flow takes two minutes to say so. The happy
+   * path runs in about ten seconds end to end; every wait inside the spec is a
+   * web-first assertion bounded by `expect.timeout`, so a failure surfaces at
+   * twenty seconds with the URL the browser is stuck on rather than at the test
+   * timeout with "waiting for navigation".
+   */
+  timeout: 60_000,
+  expect: { timeout: 20_000 },
+
+  use: {
+    baseURL: E2E.siteUrl,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "off",
+  },
+
+  /**
+   * Chromium only, and the bundled build rather than `devices["Desktop Chrome"]`.
+   * TODO.md phase 0.5 installs Chromium alone; the descriptor adds a spoofed
+   * Windows user agent this flow has no use for. Install it with
+   * `npx playwright install chromium` — and check the revision matches, because
+   * a cache left over from an older Playwright does not count.
+   */
+  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+
+  webServer: {
+    /**
+     * `next dev`, not `next build && next start`, and the reason is the thing
+     * this spec is for.
+     *
+     * React only double-invokes effects under StrictMode in a DEVELOPMENT
+     * build. docs/phase-0-spike.md question 2 found that the two invocations
+     * disagree — the first `handleIncomingRedirect` returns `isLoggedIn: false`
+     * and the second returns `true` — which is the entire reason
+     * `restoreSession` installs its memo synchronously. A production build
+     * invokes the effect once, so `next start` would run the round trip without
+     * ever exercising the bug the memo exists for, and would report green if
+     * the memo were deleted. Strict Mode is on by default with the App Router
+     * (node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/reactStrictMode.md),
+     * so nothing needs configuring for this.
+     *
+     * Secondary, but real: with Cache Components on, the production build reads
+     * the Pod during prerender, so `build && start` would need the Pod seeded
+     * before the build as well as before the tests, and would bake a `/studio`
+     * prerendered from build-time Pod state. And it costs minutes in front of
+     * one spec.
+     *
+     * What this gives up is that dev is not what ships. That gap is covered:
+     * `npm run build` is in CLAUDE.md's definition of done and reads the same
+     * Pod, so a production-only failure is caught there rather than here.
+     */
+    command: `npx next dev --port ${E2E.port}`,
+
+    /**
+     * `/client-id.jsonld` and NOT `/`, deliberately. See the ordering note at
+     * the top of e2e/global-setup.ts: this probe runs BEFORE globalSetup, so it
+     * must not be a route that reads the Pod — `/` would render the diary
+     * against a possibly-unseeded Pod and cache the failure. This route reads
+     * only SITE_URL and SITE_NAME, and answers 500 if SITE_URL is unset, which
+     * Playwright treats as not-available rather than ready.
+     */
+    url: `${E2E.siteUrl}/client-id.jsonld`,
+
+    /**
+     * NEVER reuse. A dev server someone already has open is running with their
+     * `.env.local` — POD_ROOT pointed at whatever pod they were last working
+     * on — and reusing it would run the whole spec against the wrong Pod while
+     * reporting green. Playwright throws "…is already used" instead, which is
+     * the right answer: stop the other server, or set E2E_PORT.
+     */
+    reuseExistingServer: false,
+    timeout: 180_000,
+    stdout: "pipe",
+    stderr: "pipe",
+
+    /**
+     * Passed as real process variables, which is also how they beat
+     * `.env.local`: @next/env snapshots process.env before reading any .env
+     * file and never overwrites a key already present in that snapshot
+     * (node_modules/@next/env/dist/index.js, `processEnv`). And because nothing
+     * here goes through a dotenv parser, the `#` in OWNER_WEBID cannot be
+     * eaten as a comment — see the note in e2e/environment.ts.
+     */
+    env: appEnv,
+  },
+});
