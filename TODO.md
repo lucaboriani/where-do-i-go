@@ -219,6 +219,10 @@ cached-and-invalidated model expects.
         typescript-eslint@8.69.0 prettier@3.9.6 tsx@4.23.13 \
         size-limit@13.0.3 @size-limit/preset-app@13.0.3
 
+      **`size-limit` and `@size-limit/preset-app` were removed on 2026-09-05** — see the
+      bundle-budget item below. Left in this command as the historical record of what phase 0.5
+      installed; do not reinstall them.
+
 - [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
 
       **The earlier "verified installed (`chromium-1223`)" here was wrong, and it is the
@@ -429,8 +433,10 @@ cached-and-invalidated model expects.
               passed while nine of twelve commands went ungraded. More than one untagged fence in
               the section is now fatal — there is no reliable way to tell a decoy from the list,
               so it refuses to guess. It also runs **both directions** now: `npm run size`, which
-              CI invokes, and `start`, which `netlify.toml` and the `Dockerfile` name, were both
-              invisible to the contract.
+              CI invoked, and `start`, which `netlify.toml` and the `Dockerfile` name, were both
+              invisible to the contract. (`size` was deleted on 2026-09-05; `start` is named in
+              CLAUDE.md now. The both-directions check is what kept the pair honest through the
+              deletion — it went red until CLAUDE.md's Commands block dropped `size` too.)
             - **`"solid-client-authn"` never survived bundling**, violating the file's own
               "markers must survive bundling" rule — it lives only in an import specifier and a
               sourcemap comment. Dropped; `handleIncomingRedirect` covers the dep. The
@@ -515,7 +521,7 @@ cached-and-invalidated model expects.
 ### Scripts and CI
 
 - [x] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
-- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
+- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size:public`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
       written and already passes. It runs on `tsx` and `n3`, both already in the dependency
       list; there is no second language runtime to install.
@@ -533,24 +539,30 @@ cached-and-invalidated model expects.
       assume it. **Done for the lint guardrails**: `test/guardrails.test.ts` lints deliberate
       violations at the paths where each rule applies, and asserts the allow-cases too, since a
       rule that rejects everything is useless. 10 cases, all passing.
-      - [ ] **Not yet done for the size budget, and it is now failing CI.** See the size-limit
-            item above: `size-limit`'s glob is still `.next/static/chunks/**/*.js` — EVERY
-            chunk — under the name "public routes — first-load JS", which it stopped measuring
-            the moment the studio shipped a client bundle.
+      - [x] **Resolved 2026-09-05 by deleting the whole-app budget.** `size-limit`'s glob was
+            `.next/static/chunks/**/*.js` — EVERY chunk — under the name "public routes —
+            first-load JS", which it stopped measuring the moment the studio shipped a client
+            bundle. Measured against a clean `HEAD` worktree: **it was failing at 359.02 kB
+            against its own 200 kB limit on `ca80ec9` with nothing uncommitted**, because it was
+            summing the studio's 145 kB Inrupt auth chunk and React's 71 kB and calling them
+            public. So CI had a red step measuring something nobody had chosen.
 
-            Measured 2026-09-05 against a clean `HEAD` worktree: **`npm run size` fails at
-            359.02 kB against its 200 kB limit on `ca80ec9` with nothing uncommitted**, because
-            it is summing the studio's 145 kB Inrupt auth chunk and React's 71 kB and calling
-            them public. `npm run size:public`, the guardrail that actually replaced it, passes
-            at 176.4 kB against 190 kB with none of those dependencies present.
+            Deleted rather than renumbered, and the reasoning is worth keeping because the
+            obvious move is to raise the limit. A studio budget cannot be made useful here: the
+            studio is behind a login, loaded once, and phase 3 brings MapLibre (252.8 kB gzip
+            alone) plus image processing, so any number tight enough to catch a real regression
+            would be renegotiated every phase — which is how a budget becomes a step people
+            skip. `npm run size:public` already enforces the invariant that matters, and better:
+            it derives the script list from each prerendered public page's HTML rather than
+            globbing, and scans every loaded chunk for studio-only dependencies by name. CI's
+            own comment on the step below already said "the studio is allowed to be heavy".
 
-            So `npm run size` is a red CI step (this file's CI list names `size-limit`) that no
-            longer measures anything anyone decided. Three ways out, and it needs a decision
-            rather than a nudge to the number: point the glob at the public chunks and keep the
-            name honest; re-scope it as a whole-app ceiling with a limit someone actually chose
-            and a name that says so; or delete it and let `size:public` be the budget, which is
-            what `docs/decisions.md` §24 already treats as the enforcement. Deleting it means
-            `check:commands` and the CI list both need the same edit.
+            Removed: the `size` script, the `size-limit` config block, both devDependencies (62
+            packages), and the CI step. Updated: CLAUDE.md's Commands block, this file's CI
+            list, `docs/decisions.md` §24 (which said "the `size-limit` budget"), and
+            `docs/versions.md`, which cited `size-limit@13.0.3` as one of three packages setting
+            the Node floor — `jsdom@30.0.1` was and remains the binding one, so `engines` does
+            not move. `check:commands` verifies both directions and passes at 13 commands.
 
 ---
 

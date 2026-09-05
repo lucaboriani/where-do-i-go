@@ -76,9 +76,13 @@ Resolved against the registry, the two binding declarations point in opposite di
 declares no engines of its own, so nothing in the dependency you actually name warns you about
 this. The intersection of the two ranges is the 22 line and nothing else.
 
-Within 22.x, three packages set a floor — `jsdom@30.0.1` (`^22.22.2`), `size-limit@13.0.3`
-(`^22.18.0`) and `eslint@10.9.1` (`^22.13.0`). The highest wins: **>= 22.22.2, < 23**. The
-current 22.x LTS is 22.23.2.
+Within 22.x, two packages set a floor — `jsdom@30.0.1` (`^22.22.2`) and `eslint@10.9.1`
+(`^22.13.0`). The highest wins: **>= 22.22.2, < 23**. The current 22.x LTS is 22.23.2.
+
+`size-limit@13.0.3` (`^22.18.0`) used to be a third, and its removal on 2026-09-05 does not
+move the answer: `jsdom` was already the binding constraint and still is. Worth stating rather
+than silently dropping, because "the floor came from a package we no longer depend on" is the
+kind of thing that gets re-derived wrongly later.
 
 npm treats `engines` as advisory rather than a hard gate, so Node 24 installs with an
 `EBADENGINE` warning instead of failing. That makes this a supportedness decision, not a build

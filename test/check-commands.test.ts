@@ -325,8 +325,11 @@ describe("the sentinel: one untagged block that is not the scripts list", () => 
 
 describe("F10: the check must run in both directions", () => {
   it("reports a script package.json defines that CLAUDE.md never names", () => {
-    // `size` and `start` are the two this actually happens to: CI runs
-    // `npm run size`, and nothing in the Commands block mentions either.
+    // Synthetic names, and deliberately so. `size` and `start` were the two
+    // this really happened to; `size` was deleted on 2026-09-05 with the
+    // whole-app budget, and `start` is named in CLAUDE.md now. The fixture
+    // keeps them because the shape being tested is drift, not these scripts —
+    // this checkout is built here rather than read from disk.
     const list = ["dev", "build", "test", "size:public"];
     const run = runCli(
       checkout({ markdown: claudeMd({ list }), scripts: [...list, "size", "start"] }),

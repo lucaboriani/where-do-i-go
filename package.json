@@ -16,7 +16,6 @@
     "check:commands": "tsx scripts/check-commands.ts",
     "pod:dev": "npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data",
     "pod:seed": "tsx scripts/seed-dev-pod.ts",
-    "size": "size-limit",
     "size:public": "tsx scripts/check-public-bundle.ts"
   },
   "dependencies": {
@@ -44,7 +43,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@size-limit/preset-app": "13.0.3",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
@@ -59,7 +57,6 @@
     "jsdom": "30.0.1",
     "msw": "2.15.0",
     "prettier": "3.9.6",
-    "size-limit": "13.0.3",
     "tailwindcss": "^4",
     "tsx": "4.23.13",
     "typescript": "6.0.3",
@@ -69,15 +66,5 @@
   },
   "engines": {
     "node": "^22.22.2"
-  },
-  "size-limit": [
-    {
-      "name": "public routes \u2014 first-load JS",
-      "path": [
-        ".next/static/chunks/**/*.js"
-      ],
-      "limit": "200 kB",
-      "gzip": true
-    }
-  ]
+  }
 }
