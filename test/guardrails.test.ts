@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
+import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 
 /**
@@ -19,6 +20,18 @@ async function lint(filePath: string, code: string) {
 }
 
 const ruleIds = (msgs: Awaited<ReturnType<typeof lint>>) => msgs.map((m) => m.ruleId);
+
+/**
+ * Parse failures, spelled out. A snippet ESLint cannot parse yields ONE message
+ * with `fatal: true` and `ruleId: null`, and no rule messages at all — so every
+ * allow-case here would pass on a snippet that was never linted. That is this
+ * repository's "green run that verified nothing" in miniature, and it is one
+ * mistyped fixture away at all times. Reject-cases fail loudly on their own (a
+ * null ruleId is not "no-restricted-syntax"); the allow-cases are what this is
+ * for. Returns strings rather than a count so a failure names the line.
+ */
+const fatals = (msgs: Awaited<ReturnType<typeof lint>>) =>
+  msgs.filter((m) => m.fatal).map((m) => `${m.line}:${m.column} ${m.message}`);
 
 describe("guardrails actually fire", () => {
   it("rejects a raw vocabulary IRI outside lib/vocab.ts", async () => {
@@ -54,6 +67,223 @@ describe("guardrails actually fire", () => {
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-syntax");
   });
+
+  /**
+   * THE SAME GUARDRAIL, AT THE SPELLING THIS REPOSITORY ACTUALLY WRITES.
+   *
+   * The two cases above only ever exercise a string typed INSIDE the attribute,
+   * and that is the only shape the selector can see:
+   *
+   *     JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\[[^\]]+\]/]
+   *
+   * components/studio/entry-editor.tsx does not write its classes that way. Its
+   * nine controls share two module-level constants, CONTROL and BUTTON, spent as
+   * `className={CONTROL}` — an Identifier, not a Literal — so the rule never
+   * looks at the strings at all. Measured against the real config before this was
+   * written rather than reasoned: `disabled:hover:bg-[#222]` inside BUTTON
+   * produces ZERO no-restricted-syntax messages and the identical string inline
+   * produces one. Every class string in the studio editor is outside the fence,
+   * and the docblock above those two constants says so and asks for hand
+   * discipline instead. This is the test that replaces the hand discipline.
+   *
+   * THE INLINE CASES ABOVE STAY EXACTLY AS THEY ARE. They are the control that
+   * proves the rule fires at all; a widening that quietly stopped covering the
+   * inline form would otherwise read as a pass.
+   *
+   * THE FOUR SHAPES, and the third is the one that matters most:
+   *
+   *   1. inline `className="p-[3px]"`  — above, kept.
+   *   2. `const C = "…"`               — a single Literal initialiser.
+   *   3. `const B = "…" + "…"`         — what entry-editor.tsx's BUTTON actually
+   *                                      IS today. A rule that handles only a
+   *                                      single Literal initialiser passes this
+   *                                      one and misses the very file that
+   *                                      prompted the change. The three-operand
+   *                                      row is here because `"a" + "b" + "c"`
+   *                                      nests left, so the offending Literal is
+   *                                      a grandchild of the BinaryExpression,
+   *                                      not a child of it.
+   *   4. const C = backticks           — pinned DELIBERATELY. A TemplateLiteral's
+   *                                      static text is a TemplateElement, not a
+   *                                      Literal, so a Literal-only rule is
+   *                                      bypassed by one character, and quotes
+   *                                      and backticks are produced
+   *                                      interchangeably by both a formatter and
+   *                                      an agent. It costs one extra selector
+   *                                      arm; leaving it out leaves the fence
+   *                                      with a keyboard shortcut through it.
+   *
+   * Both public and studio paths, because a class constant on a public page is
+   * exactly as far outside the design tokens as one in the studio, and the
+   * scoping this rule needs is by NODE SHAPE, not by directory — see the
+   * allow-cases below for why that distinction is the whole design.
+   *
+   * lintText does not read from disk, so naming the real editor file here costs
+   * nothing and says which file the case is about.
+   */
+  it.each([
+    [
+      "components/studio/entry-editor.tsx",
+      "a direct string initialiser",
+      `const CONTROL = "w-full border border-hairline bg-[#222] px-3 py-2";\n` +
+        `export default function T() { return <input className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a concatenation of two literals — entry-editor.tsx's BUTTON, verbatim but for one value",
+      `const BUTTON =\n` +
+        `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
+        `  "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#222]";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a concatenation of three, where the offender is a grandchild",
+      `const BUTTON = "border " + "px-4 " + "p-[3px]";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a template literal initialiser",
+      "const CARD = `w-full p-[3px]`;\n" +
+        "export default function T() { return <div className={CARD} />; }\n",
+    ],
+    [
+      "app/(public)/thing.tsx",
+      "the same const form on a public page",
+      `const CARD = "w-full p-[3px]";\n` +
+        `export default function T() { return <div className={CARD} />; }\n`,
+    ],
+  ])(
+    "rejects an arbitrary Tailwind value held in a const at %s — %s",
+    async (path, _shape, code) => {
+      const msgs = await lint(path, code);
+      // A snippet that fails to PARSE produces one fatal message and no rule
+      // messages, so this would fail on the assertion below rather than on the
+      // thing it is about. Named explicitly so the failure output says which.
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).toContain("no-restricted-syntax");
+      // Which no-restricted-syntax message matters: NO_RAW_IRIS shares the rule
+      // id, so `toContain("no-restricted-syntax")` alone would pass on the wrong
+      // guardrail firing for the wrong reason.
+      expect(
+        msgs.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message).join("\n"),
+      ).toMatch(/Arbitrary Tailwind/);
+    },
+  );
+
+  /**
+   * THE ALLOW-CASES. A fence that rejects everything is not a fence, and this
+   * one has a specific, measured way of going wrong.
+   *
+   * The first two are the ordinary ones: the real CONTROL and BUTTON strings out
+   * of entry-editor.tsx, unmodified. They are token-only, and they carry
+   * `disabled:` and `hover:` variant prefixes — measured as passing today, and
+   * kept here so a widened selector cannot start rejecting variant prefixes on
+   * the way to catching arbitrary values. components/ui/** stays exempt in the
+   * const form too, not just inline; shadcn's copied source is full of both.
+   *
+   * THE LAST TWO ARE THE TRAP. eslint.config.mjs is the file that DEFINES this
+   * rule and test/guardrails.test.ts is the file that TESTS it. Both are
+   * ordinary files under the everywhere block, both are linted by `eslint .`,
+   * and both are necessarily full of strings that look exactly like what the
+   * rule bans — quoting the banned thing is what defining and testing it
+   * consists of. They are linted from DISK here, not as snippets, so this file's
+   * own fixtures above are inside the allow-case: a rule the test cannot
+   * tolerate turns its own test red.
+   *
+   * Probed against the real config before this was written:
+   *
+   *   VariableDeclarator Literal[…]      (descendant) — 2 errors, both in
+   *       test/guardrails.test.ts, at the two inline cases above. Their fixtures
+   *       sit inside `const msgs = await lint(…)`, which makes the fixture
+   *       string a descendant of a VariableDeclarator. The rule would make its
+   *       own test unlintable while looking correct on every snippet.
+   *
+   *   VariableDeclarator > Literal[…]    (child-anchored, plus a
+   *   BinaryExpression arm and a TemplateLiteral arm) — 0 errors repo-wide
+   *       outside components/ui/**, and all five reject cases above still fire.
+   *
+   * On eslint.config.mjs specifically, and this corrects a plausible reading of
+   * it: the `w-[137px]` in that file is on line 89, in a COMMENT. No AST node
+   * carries it, so neither shape flags it. The rule's own selector string on
+   * line 91 does not self-match either — its VALUE contains `-\[`, a real
+   * backslash between the `-` and the `[`, so `[a-z0-9]-\[` does not match. That
+   * safety lives in the REGEX, not in the selector: drop the `-` from it (a
+   * bare `\[[^\]]+\]` is the obvious way to try to catch more) and two literals
+   * in eslint.config.mjs match at once, one of them being line 91 itself.
+   */
+  it.each([
+    [
+      "components/studio/entry-editor.tsx",
+      "entry-editor.tsx's real CONTROL — tokens only, with disabled: variants",
+      `const CONTROL =\n` +
+        `  "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";\n` +
+        `export default function T() { return <input className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "entry-editor.tsx's real BUTTON — a concatenation, tokens only, hover: and disabled: variants",
+      `const BUTTON =\n` +
+        `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
+        `  "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/ui/thing.tsx",
+      "shadcn's copied source, const form — exempt inline, so exempt here too",
+      `const CONTROL = "w-full p-[3px]";\n` +
+        `export default function T() { return <div className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/ui/thing.tsx",
+      "shadcn's copied source, concatenated const form",
+      `const BUTTON = "inline-flex " + "data-[state=open]:bg-accent";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+  ])("allows %s — %s", async (path, _why, code) => {
+    const msgs = await lint(path, code);
+    // Without this, a snippet ESLint could not parse reports zero rule messages
+    // and this case passes having linted nothing. That is the exact vacuous pass
+    // this file exists to avoid.
+    expect(fatals(msgs)).toEqual([]);
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message),
+    ).toEqual([]);
+  });
+
+  /**
+   * Non-vacuity for the two on-disk cases below. If eslint.config.mjs and
+   * test/guardrails.test.ts were outside no-restricted-syntax's scope — a
+   * `files` change, a globalIgnores entry — they would lint clean forever and
+   * the allow-case would be proving nothing. NO_RAW_IRIS shares the rule id and
+   * is unrelated to this change, which is what makes it the right probe: it
+   * asks "is no-restricted-syntax alive at this path" without pinning anything
+   * about where the Tailwind arm is scoped.
+   */
+  it.each(["eslint.config.mjs", "test/guardrails.test.ts"])(
+    "no-restricted-syntax is alive at %s, so a clean lint there means something",
+    async (path) => {
+      const msgs = await lint(path, `const p = "https://schema.org/name";\nexport default p;\n`);
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).toContain("no-restricted-syntax");
+    },
+  );
+
+  it.each(["eslint.config.mjs", "test/guardrails.test.ts"])(
+    "%s on disk still lints clean — the rule must not break the file that defines it or the file that tests it",
+    async (path) => {
+      const [result] = await eslint.lintFiles([path]);
+      // An ignored or unmatched path yields NO result, and `result?.messages ??
+      // []` would then read as clean. Pin that the file was really linted.
+      expect(result?.filePath).toBe(resolve(process.cwd(), path));
+      // The whole message list, not a count: the failure output has to name the
+      // line, or "the config does not lint" is untraceable in CI.
+      expect(
+        result.messages.map((m) => `${path}:${m.line}:${m.column} ${m.ruleId ?? "FATAL"} ${m.message}`),
+      ).toEqual([]);
+    },
+  );
 
   it("rejects the Solid auth library on a public route", async () => {
     const msgs = await lint(

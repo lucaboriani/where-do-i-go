@@ -308,28 +308,38 @@ cached-and-invalidated model expects.
       Radix, or anything from `app/(studio)`.
 - [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
-      - [ ] **The rule does not reach a class string held in a const, and nothing says so.**
-            Found 2026-09-05 while adding `disabled:` variants to the entry editor. The selector
-            is `JSXAttribute[name.name='className'] Literal[…]`, so it only ever sees a literal
-            written INLINE in the attribute. `components/studio/entry-editor.tsx` keeps its two
-            shared class strings in module-level consts and renders them as `className={CONTROL}`
-            — an `Identifier`, not a `Literal` — and the rule is blind to both.
+      - [x] **Closed 2026-09-05. The rule reached only a class string written inline.** Its
+            selector was `JSXAttribute[name.name='className'] Literal[…]`, so a const
+            initialiser was invisible: `components/studio/entry-editor.tsx` keeps its two shared
+            class strings in module-level consts spent as `className={CONTROL}` — an
+            `Identifier`, not a `Literal`. Measured: `disabled:bg-[#222]` inside `CONTROL`
+            produced zero errors, the same string inline produced one.
 
-            Measured, not inferred: a const containing `disabled:bg-[#222]` rendered via
-            `className={…}` produced **zero** errors, while the same string written inline
-            produced one. So the rule discriminates correctly on the shape it can see, and the
-            hole is the shape it cannot. `test/guardrails.test.ts:41` only ever exercises the
-            inline form, which is why the gap is untested as well as unenforced — the guardrail
-            reads as covering this file and does not.
+            Now four arms, and the depths are deliberately asymmetric — child-anchored at the
+            `VariableDeclarator`, descendant *within* a `BinaryExpression`. Both halves are
+            load-bearing, and both were established by measurement rather than by reading:
+            - `VariableDeclarator Literal` (descendant) makes **`test/guardrails.test.ts` itself
+              unlintable** — its own fixtures live inside `const msgs = await lint(…)`, so every
+              deliberate violation is a descendant of a declarator. It flags that file twice
+              while still passing every snippet case, so the tests would look fine while the
+              guardrail broke the file that proves it works.
+            - `> BinaryExpression > Literal` (child) misses a three-part concatenation, because
+              `+` nests to the left and the offender is then a grandchild. Two-part passes,
+              three-part slips through.
+            - A `TemplateLiteral` arm is needed because static template text is a
+              `TemplateElement`, not a `Literal` — otherwise the rule is bypassed by swapping a
+              quote for a backtick, which both a formatter and an agent emit without thinking.
 
-            Extracting a class string to a const is the ordinary way to stop two controls
-            drifting apart, so this is not an exotic dodge; it is what the file already does, and
-            what anyone would do next. Both consts now carry a comment saying arbitrary values
-            must be kept out by hand, which is a note rather than a fence. Closing it properly
-            means widening the selector to reach a `VariableDeclarator` initialiser (and probably
-            a template literal too) and adding the deliberate violation at that shape to
-            `test/guardrails.test.ts` — the phase 0.5 rule is "test the enforcement, don't assume
-            it", and this is a case where the assumption was wrong.
+            Name-agnostic on purpose (a rule keyed to `CONTROL`/`BUTTON` dies at the first
+            rename) and not directory-scoped (a `files` list rots). Repo-wide it flags zero
+            places outside `components/ui/**`, which is already exempt. 13 new cases in
+            `test/guardrails.test.ts` — 5 reject shapes, 4 allow, 2 non-vacuity, and 2 that lint
+            `eslint.config.mjs` and `test/guardrails.test.ts` **on disk**, which is what would
+            have caught the descendant mistake.
+
+            Still not covered, and named rather than pretended away: a class string in an object
+            property or array element, `clsx`/`cva` argument positions, and the `lib/vocab.ts`
+            config block, which names the arm list explicitly and must be kept in step by hand.
 - [x] Bundle budget, failing CI. **Now measures public routes specifically.**
       `size-limit` globs files and cannot answer "what does a public page ship", so
       `scripts/check-public-bundle.ts` derives the script list from each prerendered public

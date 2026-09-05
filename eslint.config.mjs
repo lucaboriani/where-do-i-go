@@ -86,12 +86,70 @@ const ACL_PRIMITIVES = [
   "acp_ess_2",
 ];
 
-/** Tailwind arbitrary values, e.g. w-[137px]. Banned outside components/ui. */
-const NO_ARBITRARY_TAILWIND = {
-  selector: "JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\\[[^\\]]+\\]/]",
-  message:
-    "Arbitrary Tailwind values are banned outside components/ui/**. Use a design token from app/globals.css (docs/design-brief.md).",
-};
+/**
+ * Tailwind arbitrary values, e.g. w-[137px]. Banned outside components/ui.
+ *
+ * FOUR ARMS, BECAUSE ONE ONLY SAW HALF THE CODE. Until 2026-09-05 this was the
+ * `JSXAttribute` arm alone, so it read a class string written INLINE in the
+ * attribute and nothing else. `components/studio/entry-editor.tsx` keeps its
+ * two shared class strings in module-level consts spent as `className={CONTROL}`
+ * — an `Identifier`, not a `Literal` — and the rule was blind to both. Measured:
+ * `disabled:bg-[#222]` inside `CONTROL` produced zero errors, the same string
+ * inline produced one. Extracting a class string to a const is the ordinary way
+ * to stop two controls drifting apart, so this was not an exotic dodge; it is
+ * what the file already did.
+ *
+ * THE DEPTHS ARE DELIBERATELY ASYMMETRIC — child-anchored at the declarator,
+ * descendant inside the concatenation — and both halves are load-bearing:
+ *
+ * - `VariableDeclarator > Literal` rather than `VariableDeclarator Literal`.
+ *   The descendant form makes `test/guardrails.test.ts` UNLINTABLE: its own
+ *   fixtures live inside `const msgs = await lint(…)`, which makes every
+ *   deliberate violation a descendant of a declarator. Measured — the
+ *   descendant shape flags that file twice and still passes every snippet
+ *   case, so the tests would look fine while the guardrail broke the file that
+ *   proves it works.
+ * - ...but descendant WITHIN the `BinaryExpression`, because `+` nests to the
+ *   left: in `"a " + "b " + "p-[3px]"` the offender is a grandchild, not a
+ *   child, and a `> BinaryExpression > Literal` arm would pass a two-part
+ *   concatenation and miss a three-part one.
+ * - The `TemplateLiteral` arm exists because static template text is a
+ *   `TemplateElement`, not a `Literal`. Without it the rule is bypassed by
+ *   swapping a quote for a backtick, which is output both a formatter and an
+ *   agent produce without thinking about it.
+ *
+ * Name-agnostic on purpose: a rule keyed to `CONTROL`/`BUTTON` is defeated by a
+ * rename, and directory scoping would need a `files` list that rots. Repo-wide
+ * this flags zero places outside `components/ui/**`, which is already exempt.
+ *
+ * The `-` in the pattern is what keeps `eslint.config.mjs` itself clean, not
+ * the selector depth: this file holds two bare `[…]` strings, but none with an
+ * alphanumeric immediately before the bracket. Do not "simplify" it away.
+ *
+ * NOT covered, and kept in view rather than pretended away: a class string held
+ * in an object property or an array element, and `clsx`/`cva` argument
+ * positions. Also note the `lib/vocab.ts` block below names this list
+ * explicitly — new arms do not reach it unless that spread is kept in step.
+ */
+const TW_ARBITRARY = "[a-z0-9]-\\[[^\\]]+\\]";
+const TW_MESSAGE =
+  "Arbitrary Tailwind values are banned outside components/ui/**. Use a design token from app/globals.css (docs/design-brief.md).";
+
+const NO_ARBITRARY_TAILWIND = [
+  {
+    selector: `JSXAttribute[name.name='className'] Literal[value=/${TW_ARBITRARY}/]`,
+    message: TW_MESSAGE,
+  },
+  { selector: `VariableDeclarator > Literal[value=/${TW_ARBITRARY}/]`, message: TW_MESSAGE },
+  {
+    selector: `VariableDeclarator > BinaryExpression Literal[value=/${TW_ARBITRARY}/]`,
+    message: TW_MESSAGE,
+  },
+  {
+    selector: `VariableDeclarator > TemplateLiteral > TemplateElement[value.raw=/${TW_ARBITRARY}/]`,
+    message: TW_MESSAGE,
+  },
+];
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -103,7 +161,7 @@ const eslintConfig = defineConfig([
   {
     files: ["**/*.{ts,tsx,mjs}"],
     rules: {
-      "no-restricted-syntax": ["error", NO_RAW_IRIS, NO_ARBITRARY_TAILWIND],
+      "no-restricted-syntax": ["error", NO_RAW_IRIS, ...NO_ARBITRARY_TAILWIND],
       "no-restricted-imports": [
         "error",
         {
@@ -123,7 +181,7 @@ const eslintConfig = defineConfig([
   // ------------------------------------------------- lib/vocab.ts is the source
   {
     files: ["lib/vocab.ts"],
-    rules: { "no-restricted-syntax": ["error", NO_ARBITRARY_TAILWIND] },
+    rules: { "no-restricted-syntax": ["error", ...NO_ARBITRARY_TAILWIND] },
   },
 
   // ------------------------------- lib/pod/access.ts is the one ACL implementor
