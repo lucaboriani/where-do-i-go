@@ -308,6 +308,28 @@ cached-and-invalidated model expects.
       Radix, or anything from `app/(studio)`.
 - [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
+      - [ ] **The rule does not reach a class string held in a const, and nothing says so.**
+            Found 2026-09-05 while adding `disabled:` variants to the entry editor. The selector
+            is `JSXAttribute[name.name='className'] Literal[…]`, so it only ever sees a literal
+            written INLINE in the attribute. `components/studio/entry-editor.tsx` keeps its two
+            shared class strings in module-level consts and renders them as `className={CONTROL}`
+            — an `Identifier`, not a `Literal` — and the rule is blind to both.
+
+            Measured, not inferred: a const containing `disabled:bg-[#222]` rendered via
+            `className={…}` produced **zero** errors, while the same string written inline
+            produced one. So the rule discriminates correctly on the shape it can see, and the
+            hole is the shape it cannot. `test/guardrails.test.ts:41` only ever exercises the
+            inline form, which is why the gap is untested as well as unenforced — the guardrail
+            reads as covering this file and does not.
+
+            Extracting a class string to a const is the ordinary way to stop two controls
+            drifting apart, so this is not an exotic dodge; it is what the file already does, and
+            what anyone would do next. Both consts now carry a comment saying arbitrary values
+            must be kept out by hand, which is a note rather than a fence. Closing it properly
+            means widening the selector to reach a `VariableDeclarator` initialiser (and probably
+            a template literal too) and adding the deliberate violation at that shape to
+            `test/guardrails.test.ts` — the phase 0.5 rule is "test the enforcement, don't assume
+            it", and this is a case where the assumption was wrong.
 - [x] Bundle budget, failing CI. **Now measures public routes specifically.**
       `size-limit` globs files and cannot answer "what does a public page ship", so
       `scripts/check-public-bundle.ts` derives the script list from each prerendered public
@@ -501,9 +523,24 @@ cached-and-invalidated model expects.
       assume it. **Done for the lint guardrails**: `test/guardrails.test.ts` lints deliberate
       violations at the paths where each rule applies, and asserts the allow-cases too, since a
       rule that rejects everything is useless. 10 cases, all passing.
-      - [ ] **Not yet done for the size budget.** See the size-limit item above: the glob still
-            measures every chunk, so there is nothing meaningful to violate yet. Do it when the
-            budget is narrowed to public routes in phase 1.
+      - [ ] **Not yet done for the size budget, and it is now failing CI.** See the size-limit
+            item above: `size-limit`'s glob is still `.next/static/chunks/**/*.js` — EVERY
+            chunk — under the name "public routes — first-load JS", which it stopped measuring
+            the moment the studio shipped a client bundle.
+
+            Measured 2026-09-05 against a clean `HEAD` worktree: **`npm run size` fails at
+            359.02 kB against its 200 kB limit on `ca80ec9` with nothing uncommitted**, because
+            it is summing the studio's 145 kB Inrupt auth chunk and React's 71 kB and calling
+            them public. `npm run size:public`, the guardrail that actually replaced it, passes
+            at 176.4 kB against 190 kB with none of those dependencies present.
+
+            So `npm run size` is a red CI step (this file's CI list names `size-limit`) that no
+            longer measures anything anyone decided. Three ways out, and it needs a decision
+            rather than a nudge to the number: point the glob at the public chunks and keep the
+            name honest; re-scope it as a whole-app ceiling with a limit someone actually chose
+            and a name that says so; or delete it and let `size:public` be the budget, which is
+            what `docs/decisions.md` §24 already treats as the enforcement. Deleting it means
+            `check:commands` and the CI list both need the same edit.
 
 ---
 
@@ -629,10 +666,102 @@ In progress on branch `phase-2-studio`.
         signs the owner out of their identity provider entirely, and its `postLogoutUrl` has to
         already be listed in `post_logout_redirect_uris` in the client ID document, which
         currently names only `${SITE_URL}/`.
-- [ ] Entry create and edit, index maintenance, revalidation hook. `rebuildIndex` and
-      `putGuarded` already exist in `lib/pod/write.ts` from phase 1; this is the UI and the
-      §10 write sequence on top of them.
-- [ ] `localStorage` autosave of in-progress text
+- [x] **Entry create and edit, index maintenance, revalidation hook.** Landed 2026-09-04 as
+      `serialiseEntry` + `saveEntry` (`lib/pod/save-entry.ts`), the revalidation route at
+      `app/(public)/api/revalidate/route.ts`, `listStudioTrips` (`lib/studio/trips.ts`) and the
+      editor itself (`components/studio/entry-editor.tsx`). `rebuildIndex` and `putGuarded`
+      already existed in `lib/pod/write.ts` from phase 1; this was the UI and the §10 write
+      sequence on top of them. **Seen working against a real Pod**, not only tested: the picker
+      lists a seeded draft trip, marked as a draft, in three requests with no StrictMode
+      duplicates.
+
+      Two things it exposed, both worth keeping in view:
+      - **A data-loss bug the tests found first.** On the SECOND save of an entry this editor
+        had just created, `initial` is still absent, so a form supplying neither `created` nor
+        `datePublished` left them undefined on an update and the serialiser dropped the triples
+        — §7.3's "when the record came into being" vs "when it became public" destroyed
+        silently and permanently. The editor now holds both in `provenance` state. Measured
+        with a throwaway probe before that state existed: the second PUT carried no
+        `dcterms:created` at all.
+      - **`rebuildIndex` still implements only four of §10's five clauses** — it does not
+        verify each kept entry's ACL matches its status, which is the clause that recovers
+        "published but unreadable". Marked `it.todo`; fixing it needs the
+        `write.ts` ↔ `access.ts` import cycle broken first.
+- [x] **`localStorage` autosave of in-progress text.** Landed 2026-09-05.
+      `lib/studio/drafts.ts` is the storage half — `draftKey` / `readDraft` / `writeDraft` /
+      `clearDraft` over an INJECTED `StorageLike`, Zod-validated, and **nothing in it throws**:
+      it is called from the editor's mount effect, so anything it threw would turn "we kept a
+      backup of your text" into "you cannot open the editor at all". The key is
+      `wig.draft.v1.<webId>.<scope>` — versioned so a future shape makes this one invisible
+      rather than half-restorable, per-webId so a shared machine does not hand one person
+      another's unfinished text, per-scope so a create and an edit are different drafts.
+      `components/studio/entry-editor.tsx` is the wiring: `DRAFT_DEBOUNCE_MS = 800`, a mount
+      read, the banner, and clearing after the entry reaches the Pod.
+
+      **The ETag, `dcterms:created` and `schema:datePublished` are never persisted.** They come
+      from the read that produced the editor's state (§10) and a draft outlives that read by
+      however long the browser was closed. `writeDraft` stores `checked.data` rather than its
+      argument, so the schema is the fence in both directions — a caller spreading the editor's
+      state cannot leak one in. A restored ETag would be a blind PUT wearing a helpful hat.
+
+      **Offered, never applied**, and the form is HELD while the offer stands. The banner is
+      `<section role="region" title="Unsaved draft">` with Restore and Discard, and the nine
+      controls — Save included — sit in a `<fieldset disabled={offered !== null}>`.
+      - `title`, not `aria-label`, and it is load-bearing: `@testing-library`'s
+        `queryAllByLabelText` matches `aria-label` on ANY element, so an `aria-label` naming
+        the banner "Unsaved draft" shadows the Status control and six tests fail with "found
+        multiple elements" rather than anything legible. Measured, and now pinned directly.
+      - The hold exists because the banner and the autosave share one storage slot. Without it,
+        typing past an unanswered banner lets the 800 ms window overwrite the very draft being
+        offered — losing the long entry that decisions.md §10 names as the whole reason for the
+        feature. Two other designs were weighed and declined: dismissing the banner on
+        overwrite (honest, still loses the draft) and a second key promoted on answer (preserves
+        both, but two unanswered drafts on the next mount have no clean rule for which to offer).
+      - Save is held for the same reason. Left free, one unprompted click on an EDIT writes the
+        entry and settles the draft with the banner never read. jsdom gates a submit button's
+        activation behaviour on "actually disabled", which walks up to the fieldset, so the hold
+        dispatches no `submit` at all rather than merely looking inert.
+
+      **Four defects a read-only review and a mutation pass found after it first went green**,
+      each of which had passed all eight checks:
+      - the banner kept offering a draft the autosave had already destroyed (above);
+      - unmount dropped up to 800 ms of typing — routine, not exotic: the shell flips
+        `view.status` on session expiry and stops rendering the editor, so an expiring Solid
+        token took the typing with it. Fixed with an unmount-only effect reading a ref, NOT the
+        debounce cleanup, which React runs on every keystroke and which would defeat the
+        debounce;
+      - after a successful create the scope stayed `new`, so further typing was autosaved under
+        `new` carrying the created entry's slug — restore it on a fresh create form tomorrow and
+        Save sends `If-None-Match: *` to a URL that now exists, and the 412 tells the owner the
+        resource "changed elsewhere", which is not what happened;
+      - the draft was cleared for text typed DURING the round trip, which was then in neither
+        the Pod nor storage.
+
+      **Mutation testing is what earned the confidence**, again. Ten mutants; eight went red
+      immediately, and the two survivors were both worth the trouble: one was a genuinely
+      uncovered invariant (a `settleDraft` that leaves the debounce armed) and one was a
+      near-equivalent mutant whose survival showed the component's own docblock was **wrong** —
+      it claimed keying the scope on `target` "would clear a key nothing was ever stored under",
+      when on an edit `target.url` IS `documentUrlOf(initial.entry.iri)`. The justification was
+      corrected rather than left in the file to mislead.
+
+      Also found, and fixed, in tests written the same day: a byte-identity assertion racing a
+      live 800 ms timer, two docblocks specifying a spelling the implementation deliberately did
+      not use, and a cross-test leak where a failed save's outstanding window was flushed into
+      jsdom's file-wide `localStorage` by `cleanup()`, putting a banner on screen for four of the
+      six §10 outcome comparisons.
+
+      **Left open, deliberately:**
+      - **A tab close still loses up to 800 ms of typing.** Closing a tab does not unmount a
+        React tree, and nothing listens on `pagehide`/`visibilitychange`. Unmount covers the
+        session-expiry path, which is the routine one here; a tab close costs a few words, not
+        the long entry §10 is about. Which event to listen on — `pagehide` is unreliable on iOS,
+        `visibilitychange` fires on tab switches too — is a decision nobody has taken.
+      - **A draft restored in a different time zone from the one it was written in** gets this
+        machine's offset on `dy:occurredAt`. Write in Kyoto, restore in Rome, and the entry
+        claims `+02:00` for something that happened at `+09:00` — §7.3 says that is most of the
+        meaning. Pre-existing (a create has always used `offsetHere()` because there is no place
+        input until phase 3), but drafts widen the window from minutes to weeks. Revisit with §9.
 - [x] **`npm run test:e2e` — fixed 2026-09-04.** `playwright.config.ts`, `e2e/environment.ts`,
       `e2e/global-setup.ts` and `e2e/solid-login.spec.ts`. Two tests, 11 seconds, both green:
       the authorization redirect carries the `client_id` and `redirect_uri` that
