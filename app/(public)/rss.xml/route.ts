@@ -9,7 +9,8 @@ const escape = (s: string) =>
  * so the feed cannot contain something the site would not show.
  */
 export async function GET() {
-  const base = config.siteUrl.replace(/\/$/, "");
+  // Normalised in lib/config.ts; see the note in sitemap.ts.
+  const base = config.siteUrl;
   const diary = await getDiary();
   const title = diary.ok ? (diary.value.title?.value ?? config.siteName) : config.siteName;
 

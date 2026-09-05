@@ -31,7 +31,22 @@ export const config = {
   get defaultLanguage() {
     return process.env.SITE_LANGUAGE ?? "en";
   },
+  /**
+   * The site's public origin, always WITHOUT a trailing slash — the mirror of
+   * podRoot above, which always adds one. Both normalise here so that no
+   * consumer has to remember which way round it is.
+   *
+   * Every consumer joins a path onto this, so a pasted `https://diary.example/`
+   * would otherwise produce `https://diary.example//studio`. That is cosmetic
+   * in a sitemap and is not cosmetic at all in the Solid-OIDC client ID
+   * document: the identity provider fetches the client_id URL it is given, and
+   * a doubled slash is a different URL, so it cannot match the document and
+   * falls back to dynamic client registration — a login that still works while
+   * showing a bare UUID on the consent screen (phase 0). .env.example does not
+   * say to omit the slash, and a human pasting an origin includes it.
+   */
   get siteUrl() {
-    return process.env.SITE_URL ?? "http://localhost:3000";
+    const url = process.env.SITE_URL ?? "http://localhost:3000";
+    return url.replace(/\/+$/, "");
   },
 };

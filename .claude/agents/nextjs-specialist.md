@@ -44,7 +44,7 @@ This is the structural rule most likely to be violated by an otherwise reasonabl
 - Separate root layouts: `app/(public)/layout.tsx` and `app/(studio)/layout.tsx`. **No shared provider tree.**
 - `(public)` must never import from `(studio)`, and must never import the Solid auth library, Radix, Zod schemas used only for writes, or image-processing code.
 - A **bundle-size budget on public routes fails CI**. That budget is the real enforcement — if your change grows the public bundle, you have probably crossed the boundary.
-- Studio pages are thin server components rendering a dynamically imported client shell with **SSR disabled**.
+- Studio pages are thin server components, and `dynamic(…, { ssr: false })` goes **inside a `"use client"` wrapper, never in the page** — Next 16 errors with "`ssr: false` is not allowed with `next/dynamic` in Server Components. Please move it into a Client Component." The shape is server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`. Keeping the page a server component is what lets it read the non-`NEXT_PUBLIC_` config (`OWNER_WEBID`, `SITE_URL`, `SITE_NAME`) and pass it down as props; `lib/config.ts` throws if reached in the browser.
 - `lib/pod/read.ts` is unauthenticated and shared. `lib/pod/write.ts` and `lib/pod/access.ts` are studio-only.
 
 When you add a component, decide which side it belongs to before writing it. Shared-by-default is how the boundary erodes.
@@ -58,7 +58,9 @@ This app is map- and browser-heavy, and its most confusing failures are invisibl
 - **Use the Next.js MCP server** at `/_next/mcp` on the running dev server: `get_compilation_issues` and `compile_route` answer "does this compile" without a full `next build`.
 - For build failures where the error alone is not enough, `next build --debug-prerender` enables server source maps and continues past the first failure.
 
-Commands: `pnpm dev`, `pnpm build`, `pnpm test` (vitest), `pnpm test:e2e` (playwright — login redirect only), `pnpm lint`, `pnpm typecheck`, `pnpm validate:fixtures`, `pnpm pod:dev`.
+Commands: `npm run dev`, `npm run build`, `npm test` (vitest), `npm run test:e2e` (playwright — the Solid login round trip, and the only thing Playwright is for here), `npm run lint`, `npm run typecheck`, `npm run validate:fixtures`, `npm run pod:dev`.
+
+The script *names* are the contract, not the runner (`docs/decisions.md` §21) — but **this checkout is npm**: `package-lock.json`, and `.npmrc` sets `engine-strict`. Use `npm`, not `pnpm`.
 
 ## Styling
 
@@ -79,7 +81,7 @@ Commands: `pnpm dev`, `pnpm build`, `pnpm test` (vitest), `pnpm test:e2e` (playw
 
 Your first instinct on several of these will be wrong. Reject them in your own output and flag them in code you read:
 
-- `npx shadcn-ui@latest` — dead package name. It is `shadcn` (`pnpm dlx shadcn@latest`, CLI 4.19.1).
+- `npx shadcn-ui@latest` — dead package name. It is `shadcn` (`npx shadcn@latest`, CLI 4.19.1).
 - `npx tailwindcss init -p` plus a `tailwind.config.js` `theme.extend` block — Tailwind v4 is CSS-first.
 - `forwardRef` wrappers in shadcn components — removed; current components use `data-slot` attributes as the styling hook.
 - shadcn's `toast` — deprecated in favour of `sonner` 2.0.8.
@@ -90,7 +92,7 @@ Your first instinct on several of these will be wrong. Reject them in your own o
 
 ## Versions are pinned deliberately
 
-`docs/versions.md` records resolved versions and the reasoning. Notably **TypeScript is 6.0.3, not 7.x**, because `typescript-eslint@8.69.0` peer-declares `>=4.8.4 <6.1.0` and no stable release admits 7.x. Do not "upgrade" TypeScript, and do not force a peer override. Node 24 LTS, pnpm, committed `pnpm-lock.yaml`.
+`docs/versions.md` records resolved versions and the reasoning. Notably **TypeScript is 6.0.3, not 7.x**, because `typescript-eslint@8.69.0` peer-declares `>=4.8.4 <6.1.0` and no stable release admits 7.x. Do not "upgrade" TypeScript, and do not force a peer override. Node **22.23.2** — pinned by `.nvmrc`, and `package.json` declares `engines: ^22.22.2`. Not 24: the two Inrupt packages disagree and the 22 line is their only overlap. npm, committed `package-lock.json`.
 
 ## How to work
 

@@ -10,20 +10,47 @@
  * Suspense around every Pod read, streams instead of caching and puts a Pod
  * round-trip on every view — giving up the edge-cached public site the whole
  * architecture is arranged around.
+ *
+ * ONE DELIBERATE EXCEPTION TO "A TYPED VALUE OR A STRUCTURED ERROR, NEVER A
+ * THROW". The getters these functions read — `config.podRoot`,
+ * `config.ownerWebId` — throw when their env var is unset, so a misconfigured
+ * deployment makes them reject rather than return a `PodError`.
+ *
+ * That is the intended behaviour, not an oversight to tidy away. A missing
+ * POD_ROOT is a deployment fault, not a runtime condition to render a fallback
+ * for: `lib/config.ts` says as much in the error itself — "the site reads its
+ * content from a Solid Pod and cannot start without knowing which one". With
+ * Cache Components on, these run at build time, so the throw fails the BUILD,
+ * which is where a missing env var should fail. Catching it here would instead
+ * produce a site that deploys green and serves an error fallback on every page.
+ *
+ * So: structured errors are for what the Pod does — 404, a bad shape, an
+ * unreachable host. A throw here means the deployment is wrong.
  */
 import { cacheTag } from "next/cache";
 import { config } from "@/lib/config";
-import { diaryUrl, readDiary, readEntry, readTrip, readTripIndex, tripIndexUrl, tripUrl } from "./read";
+import {
+  diaryUrl,
+  readDiary,
+  readEntry,
+  readOwnerProfile,
+  readTrip,
+  readTripIndex,
+  tripIndexUrl,
+  tripUrl,
+} from "./read";
+import { TAGS } from "./tags";
 import type { Result } from "./result";
-import type { Diary, Entry, Trip, TripIndex } from "./schema";
+import type { Diary, Entry, OwnerProfile, Trip, TripIndex } from "./schema";
 
-/** Tags the studio revalidates. Keep them coarse: the Pod cannot tell us what
- *  changed, so precision here would be a guess. */
-export const TAGS = {
-  diary: "diary",
-  trip: (slug: string) => `trip:${slug}`,
-  entry: (slug: string, entry: string) => `entry:${slug}/${entry}`,
-};
+/**
+ * Re-exported, not defined here. The tags moved to `./tags` because `saveEntry`
+ * needs them in the browser and this module is server-only — it imports
+ * `next/cache` and carries `"use cache"` functions. One definition, reachable
+ * from both sides, and every existing `import { TAGS } from "@/lib/pod/cached"`
+ * keeps working.
+ */
+export { TAGS };
 
 export async function getDiary(): Promise<Result<Diary>> {
   "use cache";
@@ -52,6 +79,28 @@ export async function getEntry(slug: string, entrySlug: string): Promise<Result<
       config.podRoot,
     ).toString(),
   );
+}
+
+/**
+ * The owner's WebID profile (§7.5) — issuer, storage, extended profile.
+ *
+ * Cached for the reason at the top of this file rather than because the studio
+ * needs it fast: `/studio` prerenders as `○ (Static)`, and a bare
+ * `readOwnerProfile` in the page is an uncached data access outside a Suspense
+ * boundary, which silently demotes it. Only the route table would show it.
+ *
+ * Reads `config.ownerWebId`, never `config.podRoot`. They are different things
+ * — on ESS identity and storage are different hosts entirely — and where the
+ * Pod is comes from `pim:storage` inside the document, not from configuration.
+ *
+ * `config.ownerWebId` throws when OWNER_WEBID is unset, which sits oddly beside
+ * "never a throw" — see the note on that at the top of this file. Deliberate,
+ * and the same for `getDiary` through `config.podRoot`.
+ */
+export async function getOwnerProfile(): Promise<Result<OwnerProfile>> {
+  "use cache";
+  cacheTag(TAGS.ownerProfile);
+  return readOwnerProfile(config.ownerWebId);
 }
 
 /**

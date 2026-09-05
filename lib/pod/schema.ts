@@ -84,6 +84,26 @@ export const Entry = z.object({
   place: Place.optional(),
   photos: z.array(Photo),
   tags: z.array(z.string()),
+  /**
+   * NOT redundant with `datePublished`, and §7.3 says so in as many words:
+   * "created is when the record came into being and datePublished is when it
+   * became public. They differ by however long the draft sat."
+   *
+   * These two were missing from this schema until 2026-09-04, so `readEntry`
+   * dropped them and the first read-modify-write in the studio would have
+   * destroyed both, permanently and silently. `readTrip` has always read
+   * `created`, so it was an inconsistency rather than a policy.
+   *
+   * OPTIONAL, both of them, for the same reason every other field here is:
+   * "a Pod contains whatever was written to it, including data from an older
+   * version of this app". Requiring `created` would make every entry written
+   * before this change unreadable — including by `rebuildIndex`, which is the
+   * one tool that could repair them — and nothing rendered depends on either
+   * value. `saveEntry` sets `created` on a create and carries it forward on an
+   * update, so entries this app writes always have one.
+   */
+  created: z.iso.datetime({ offset: true }).optional(),
+  creator: z.url().optional(),
   modified: z.iso.datetime({ offset: true }).optional(),
 });
 export type Entry = z.infer<typeof Entry>;
@@ -130,3 +150,27 @@ export const Diary = z.object({
   modified: z.iso.datetime({ offset: true }).optional(),
 });
 export type Diary = z.infer<typeof Diary>;
+
+/**
+ * The owner's WebID profile — read unauthenticated so the studio can discover
+ * *where to log in* before any session exists (§7.5).
+ *
+ * Deliberately unlike every other schema here: this document is not ours. On
+ * ESS the identity provider serves it and answers `PATCH` with 405, so it
+ * carries no `dy:` terms and none of §6's house rules apply to it. Validate
+ * what we depend on, tolerate the rest.
+ */
+export const OwnerProfile = z.object({
+  /** Required. `session.login()` takes `oidcIssuer` as a mandatory option and
+   *  there is deliberately no OIDC_ISSUER env var (§7.5), so an absent issuer
+   *  is a failed read rather than an undefined discovered at redirect time. */
+  oidcIssuer: z.url(),
+  /** §7.5: the Pod root comes from `pim:storage` — never from the WebID's
+   *  origin, because on ESS identity and storage are different hosts. Optional:
+   *  a profile can still say where to log in without saying where it stores. */
+  storage: z.url().optional(),
+  /** The extended profile, which unlike the WebID document does live in the
+   *  Pod and is writable. Optional — CSS profiles routinely omit it. */
+  seeAlso: z.url().optional(),
+});
+export type OwnerProfile = z.infer<typeof OwnerProfile>;

@@ -219,9 +219,20 @@ cached-and-invalidated model expects.
         typescript-eslint@8.69.0 prettier@3.9.6 tsx@4.23.13 \
         size-limit@13.0.3 @size-limit/preset-app@13.0.3
 
+      **`size-limit` and `@size-limit/preset-app` were removed on 2026-09-05** — see the
+      bundle-budget item below. Left in this command as the historical record of what phase 0.5
+      installed; do not reinstall them.
+
 - [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
-      Verified installed (`chromium-1223` in the Playwright cache). The *config* and the spec
-      are still missing, so `test:e2e` does not yet run — see phase 2.
+
+      **The earlier "verified installed (`chromium-1223`)" here was wrong, and it is the
+      reason this looked done for two days.** A browser in the Playwright cache is only
+      installed *for the Playwright that wants it*: 1223 and 1208 were left behind by older
+      versions, and `@playwright/test@1.62.1` asks for **chromium-1234**
+      (`node_modules/playwright-core/browsers.json`). The first real launch failed with
+      "Executable doesn't exist at …/chromium_headless_shell-1234/…". Re-running
+      `playwright install chromium` fetched 1234 and it works. On an upgrade, check the
+      revision rather than the presence of a directory.
 
 ### shadcn/ui — studio only
 
@@ -301,6 +312,38 @@ cached-and-invalidated model expects.
       Radix, or anything from `app/(studio)`.
 - [x] Exempt `components/ui/**` from the arbitrary-Tailwind-values rule. shadcn's copied source
       uses them freely and fighting it wastes time.
+      - [x] **Closed 2026-09-05. The rule reached only a class string written inline.** Its
+            selector was `JSXAttribute[name.name='className'] Literal[…]`, so a const
+            initialiser was invisible: `components/studio/entry-editor.tsx` keeps its two shared
+            class strings in module-level consts spent as `className={CONTROL}` — an
+            `Identifier`, not a `Literal`. Measured: `disabled:bg-[#222]` inside `CONTROL`
+            produced zero errors, the same string inline produced one.
+
+            Now four arms, and the depths are deliberately asymmetric — child-anchored at the
+            `VariableDeclarator`, descendant *within* a `BinaryExpression`. Both halves are
+            load-bearing, and both were established by measurement rather than by reading:
+            - `VariableDeclarator Literal` (descendant) makes **`test/guardrails.test.ts` itself
+              unlintable** — its own fixtures live inside `const msgs = await lint(…)`, so every
+              deliberate violation is a descendant of a declarator. It flags that file twice
+              while still passing every snippet case, so the tests would look fine while the
+              guardrail broke the file that proves it works.
+            - `> BinaryExpression > Literal` (child) misses a three-part concatenation, because
+              `+` nests to the left and the offender is then a grandchild. Two-part passes,
+              three-part slips through.
+            - A `TemplateLiteral` arm is needed because static template text is a
+              `TemplateElement`, not a `Literal` — otherwise the rule is bypassed by swapping a
+              quote for a backtick, which both a formatter and an agent emit without thinking.
+
+            Name-agnostic on purpose (a rule keyed to `CONTROL`/`BUTTON` dies at the first
+            rename) and not directory-scoped (a `files` list rots). Repo-wide it flags zero
+            places outside `components/ui/**`, which is already exempt. 13 new cases in
+            `test/guardrails.test.ts` — 5 reject shapes, 4 allow, 2 non-vacuity, and 2 that lint
+            `eslint.config.mjs` and `test/guardrails.test.ts` **on disk**, which is what would
+            have caught the descendant mistake.
+
+            Still not covered, and named rather than pretended away: a class string in an object
+            property or array element, `clsx`/`cva` argument positions, and the `lib/vocab.ts`
+            config block, which names the arm list explicitly and must be kept in step by hand.
 - [x] Bundle budget, failing CI. **Now measures public routes specifically.**
       `size-limit` globs files and cannot answer "what does a public page ship", so
       `scripts/check-public-bundle.ts` derives the script list from each prerendered public
@@ -344,6 +387,98 @@ cached-and-invalidated model expects.
             the worst route not at all (173.3 and 169.7 kB against 176.3). `app/not-found.tsx`
             and `app/global-error.tsx` are now in the eslint public-boundary block as well —
             they sit outside `app/(public)/**` because Next requires them at the app root.
+      - [x] **The public lint fence was banning a spelling this project does not use.** The
+            group listed `@radix-ui/*`, but `package.json` depends on `radix-ui` ^1.6.7 — the
+            unified package — and all seven Radix imports under `components/ui/**` are
+            `from "radix-ui"`. The spelling the repo actually writes lint-passed on every public
+            path. `test/guardrails.test.ts` had only ever exercised the scoped form, so the
+            suite was green on a fence with a hole in it. Group is now
+            `["radix-ui", "radix-ui/*", "@radix-ui/*", "vaul", "sonner", "cmdk"]`.
+            Worth knowing for the next person who edits these: `no-restricted-imports` matches
+            `group` with **gitignore semantics, not minimatch**, so the bare name is a superset
+            of the subpath glob — `["radix-ui"]` blocks `radix-ui/dialog`, while `["radix-ui/*"]`
+            does *not* block bare `radix-ui`. The subpath entry is deliberate redundancy, not
+            load-bearing.
+      - [x] **`next-themes` added to the fence.** `components/ui/sonner.tsx` is its only
+            importer, there is no `ThemeProvider` in the tree, and the theme is fixed dark at
+            `:root` with no toggle — nothing public can legitimately want it.
+      - [x] **The `(studio)` route-group and `exifreader`/`lib/media` groups are now pinned.**
+            Both were correct and both untested; the `(studio)` globs contain literal
+            parentheses that nothing else would notice breaking.
+      - [x] **Both guardrail scripts were mutation-reviewed, 2026-09-04, and ten findings fixed.**
+            They had shipped without independent review. Every defect was found by applying a
+            wrong implementation and watching the check stay green — none by reading.
+            - **The studio exclusion was an unanchored substring test on the absolute path.** A
+              trip titled "Studio Ghibli Museum" was dropped from both the ceiling and the leak
+              scan — slugs derive from titles — and a checkout under any directory named
+              `studio` excluded every page. Now matched against the route-relative path, and
+              every exclusion is printed with its reason instead of happening silently.
+            - **The enforcement path had no test at all.** Six one-line sabotages — CLI guard
+              disabled, exit code removed, ceiling raised to 100000 kB, `href=` preloads dropped,
+              zero-bytes guard removed, studio exclusion removed — all left the suite green. CI
+              would have stayed green with the check switched off. `test/public-bundle-cli.test.ts`
+              and `test/check-commands.test.ts` are child-process harnesses against synthesised
+              `.next` fixtures; all six now turn them red.
+            - **The CLI entry guard failed open** under a symlinked absolute path and an
+              extensionless invocation — zero output, exit 0. Both sides are canonicalised now,
+              and a mismatch is loud. Its comment was wrong too: `import.meta.main` IS available
+              on Node 22; `tsx` leaving it `undefined` is the real reason it cannot be used.
+            - **A referenced chunk missing on disk was dropped silently** while the report still
+              printed the original file count, so "2 files, 93.3 kB" described one file. Fatal
+              now, and it names the reference. Same for a page the extraction found no scripts
+              on at all — the zero-bytes guard was global and never fired while one other page
+              had scripts.
+            - **`check:commands` graded whatever untagged fence came first** and its sentinel did
+              not close the hole its own comment claimed: a decoy naming `test` and `build`
+              passed while nine of twelve commands went ungraded. More than one untagged fence in
+              the section is now fatal — there is no reliable way to tell a decoy from the list,
+              so it refuses to guess. It also runs **both directions** now: `npm run size`, which
+              CI invoked, and `start`, which `netlify.toml` and the `Dockerfile` name, were both
+              invisible to the contract. (`size` was deleted on 2026-09-05; `start` is named in
+              CLAUDE.md now. The both-directions check is what kept the pair honest through the
+              deletion — it went red until CLAUDE.md's Commands block dropped `size` too.)
+            - **`"solid-client-authn"` never survived bundling**, violating the file's own
+              "markers must survive bundling" rule — it lives only in an import specifier and a
+              sourcemap comment. Dropped; `handleIncomingRedirect` covers the dep. The
+              survives-bundling test now runs against every dep, not just Radix.
+            - **The measurements justifying the whole second guardrail were wrong.** The gzip
+              figures had been taken as the sum of ESM + CJS + dev builds: cmdk 11.0 is really
+              17.1, sonner 28.9 is 9.6, vaul 33.9 is 21.4, maplibre 777.9 is 252.8. That inverts
+              the conclusion — with 13.7 kB of headroom sonner is the one that slips through, and
+              cmdk and vaul both trip. The identifier histogram was not reproducible either; the
+              real number is 54 distinct one-character names, the base-54 mangler alphabet
+              exhausted, and 2,107 distinct tokens of eight characters or more. The `>= 8` floor
+              survives, but because long tokens are *preserved* names a mangler cannot
+              synthesise — not because "8 is double the longest observed", which was false.
+            - **`esbuild` was imported by the test suite and declared nowhere.** It resolved only
+              as `tsx`'s transitive at an unpinned range — the comment blaming vite was wrong,
+              vite 8 bundles with rolldown. Under pnpm's isolated layout the import would not
+              resolve and the file would fail to load, silently taking the marker guardrail with
+              it. Now a pinned devDependency.
+      - [ ] **`test/setup.ts`'s network guard does not guard.** Its comment says "An accidental
+            real network call must fail the test, not quietly succeed." It does not: MSW's
+            `onUnhandledRequest` handler calls `print.error()`, which writes to stderr, and
+            vitest does not fail on stderr. Measured twice on 2026-09-04 — once by a test agent
+            (`REACHED THE REAL NETWORK: status=200 bytes=777`) and once directly, with a
+            throwaway spec that fetches `https://example.com/` and reports `1 passed`. So every
+            test in this suite relying on that guard to catch a stray fetch is relying on
+            nothing, and a unit test can silently depend on the live internet. Fix by throwing
+            from `onUnhandledRequest` rather than printing — keeping the deliberate localhost
+            exemption the Pod integration tests need — and pin it with a test that asserts an
+            unhandled request FAILS. Expect the fix to expose tests that were quietly reaching
+            the network; those are findings, not breakage.
+      - [ ] **Nothing checks that the Zod schemas cover the normative shapes**, and that gap has
+            already cost something. `lib/pod/schema.ts`'s `Entry` has neither `dcterms:created`
+            nor `dcterms:creator`, both of which §7.3 carries and describes as deliberately
+            non-redundant — "created is when the record came into being and datePublished is
+            when it became public". So `readEntry` silently drops them, and the first
+            read-modify-write in the studio would have destroyed them permanently. `readTrip`
+            reads `created`, so it is an inconsistency, not a policy.
+            Neither existing guardrail could see it: `check:vocab` compares `lib/vocab.ts`
+            against the data model and both terms ARE in vocab, and `validate:fixtures` parses
+            the §7 Turtle without asking whether any schema covers it. The missing check is the
+            third edge of that triangle — every predicate in a §7 block should appear in the Zod
+            schema for that resource, or be listed as a deliberate omission with a reason.
       - [ ] The ceiling may still only rise for **framework** cost, and only with the per-chunk
             breakdown to prove that is what it is. Never for our own code: anything of ours on
             a public route is a boundary failure, and the fix is the import. Lowering is always
@@ -386,7 +521,7 @@ cached-and-invalidated model expects.
 ### Scripts and CI
 
 - [x] `package.json` scripts exactly as listed in `CLAUDE.md`, so the two files cannot drift.
-- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size-limit`, `build`.
+- [x] CI runs: `lint`, `typecheck`, `test`, `validate:fixtures`, `size:public`, `build`.
 - [ ] `validate:fixtures` must pass from a clean checkout. Verify it now — it is already
       written and already passes. It runs on `tsx` and `n3`, both already in the dependency
       list; there is no second language runtime to install.
@@ -404,9 +539,30 @@ cached-and-invalidated model expects.
       assume it. **Done for the lint guardrails**: `test/guardrails.test.ts` lints deliberate
       violations at the paths where each rule applies, and asserts the allow-cases too, since a
       rule that rejects everything is useless. 10 cases, all passing.
-      - [ ] **Not yet done for the size budget.** See the size-limit item above: the glob still
-            measures every chunk, so there is nothing meaningful to violate yet. Do it when the
-            budget is narrowed to public routes in phase 1.
+      - [x] **Resolved 2026-09-05 by deleting the whole-app budget.** `size-limit`'s glob was
+            `.next/static/chunks/**/*.js` — EVERY chunk — under the name "public routes —
+            first-load JS", which it stopped measuring the moment the studio shipped a client
+            bundle. Measured against a clean `HEAD` worktree: **it was failing at 359.02 kB
+            against its own 200 kB limit on `ca80ec9` with nothing uncommitted**, because it was
+            summing the studio's 145 kB Inrupt auth chunk and React's 71 kB and calling them
+            public. So CI had a red step measuring something nobody had chosen.
+
+            Deleted rather than renumbered, and the reasoning is worth keeping because the
+            obvious move is to raise the limit. A studio budget cannot be made useful here: the
+            studio is behind a login, loaded once, and phase 3 brings MapLibre (252.8 kB gzip
+            alone) plus image processing, so any number tight enough to catch a real regression
+            would be renegotiated every phase — which is how a budget becomes a step people
+            skip. `npm run size:public` already enforces the invariant that matters, and better:
+            it derives the script list from each prerendered public page's HTML rather than
+            globbing, and scans every loaded chunk for studio-only dependencies by name. CI's
+            own comment on the step below already said "the studio is allowed to be heavy".
+
+            Removed: the `size` script, the `size-limit` config block, both devDependencies (62
+            packages), and the CI step. Updated: CLAUDE.md's Commands block, this file's CI
+            list, `docs/decisions.md` §24 (which said "the `size-limit` budget"), and
+            `docs/versions.md`, which cited `size-limit@13.0.3` as one of three packages setting
+            the Node floor — `jsdom@30.0.1` was and remains the binding one, so `engines` does
+            not move. `check:commands` verifies both directions and passes at 13 commands.
 
 ---
 
@@ -414,13 +570,16 @@ cached-and-invalidated model expects.
 
 Against hand-written Turtle placed in the Pod manually. No editor yet.
 
-- [ ] `lib/vocab.ts` complete and CI-checked against the data model
-- [ ] `lib/pod/read.ts` with Zod validation returning typed results or structured errors
-- [ ] `rebuildIndex(trip)` — build it now, not when it is first needed. It is also the
-      migration tool and the recovery path.
-- [ ] Trip index page and entry page, server-rendered
-- [ ] Slug resolution plus the slug-equals-container-segment invariant asserted
-- [ ] Sitemap, RSS, metadata
+- [x] `lib/vocab.ts` complete and CI-checked against the data model
+- [x] `lib/pod/read.ts` with Zod validation returning typed results or structured errors
+- [x] `rebuildIndex(trip)` — build it now, not when it is first needed. It is also the
+      migration tool and the recovery path. **Built, but four of §10's five clauses only**: it
+      does not verify each kept entry's ACL matches its status, which is the clause that
+      recovers "published but unreadable". See the guardrail section — fixing it needs the
+      `write.ts` <-> `access.ts` import cycle broken first.
+- [x] Trip index page and entry page, server-rendered
+- [x] Slug resolution plus the slug-equals-container-segment invariant asserted
+- [x] Sitemap, RSS, metadata
 
 **Cache Components consequence — handle this deliberately, it is a build-breaker.**
 
@@ -428,14 +587,15 @@ Against hand-written Turtle placed in the Pod manually. No editor yet.
 `empty-generate-static-params`, and `dynamicParams` is not supported (`docs/decisions.md` §22).
 Trip slugs come from the Pod, so:
 
-- [ ] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
-      This couples every deploy to Pod availability — accept it knowingly.
-- [ ] Decide and implement the empty-Pod case. A deployer who has not written a trip yet
+- [x] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
+      This couples every deploy to Pod availability — accept it knowingly. Present on both
+      `/trips/[slug]` and `/trips/[slug]/[entry]`.
+- [ ] **STILL OPEN (not stale).** Decide and implement the empty-Pod case. A deployer who has not written a trip yet
       currently gets a **failed build, not an empty site**, which is a terrible first run for the
       "fork it and deploy" promise. Either seed a placeholder param, or fail with an explicit
       message naming the fix ("create your diary root and one trip, then redeploy") rather than
       Next's raw error. Record which in `docs/decisions.md`.
-- [ ] Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
+- [ ] **STILL OPEN (not stale).** Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
       defensible; failing with an unreadable stack trace is not.
 - [x] Confirm the App Shell path: a trip published after the build should be served the shell and
       upgraded in the background, with no redeploy. **Verified** — the build's route table shows
@@ -479,26 +639,225 @@ In progress on branch `phase-2-studio`.
       carries both WebIDs; `sameWebId` compares IRIs properly and fails closed, so a mistyped
       `OWNER_WEBID` makes nobody the owner. A courtesy message, not a boundary (decisions.md
       §3, invariant 5).
-- [ ] **`login()` / `logout()`, and the studio client shell.** Deliberately deferred out of the
+- [x] **Corrected the studio-shell rule, which did not compile.** `CLAUDE.md` said "thin server
+      components rendering a dynamically imported client shell with SSR disabled". Next 16
+      rejects that: "`ssr: false` is not allowed with `next/dynamic` in Server Components"
+      (`node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md`, and a probe build). The
+      shape is **server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`**. Fixed in
+      all four places it was written down: `CLAUDE.md`, `app/(studio)/studio/page.tsx` and both
+      `.claude/agents/` definitions — the agent files matter most, since leaving them stale
+      would have had `nextjs-specialist` build the broken shape and `fullstack-solid-reviewer`
+      reject the working one.
+- [x] **`login()` / `logout()`, and the studio client shell.** Landed 2026-09-04 as
+      `signIn`/`signOut` plus `subscribeSessionState` in `lib/studio/session.ts`, and the
+      three-file shape below. 23 component tests; `/studio` still builds `○ (Static)`.
+      What follows is the original note, kept because each bullet turned into a test. Deliberately deferred out of the
       session module: they redirect the browser and no test covered them, so they land with the
-      shell where a component test can assert the `clientId` actually passed. Two things found
-      while building the session module that this step needs —
+      shell where a component test can assert the `clientId` actually passed. Build it as the
+      three-file shape above. Things found while building the session module and while
+      preparing this step —
       - `SolidSessionLike` does not model `session.events`. Without an
         `EVENTS.SESSION_EXPIRED` subscription the studio keeps rendering `owner` after the
         session lapses while every write 401s.
       - `config.ownerWebId` reads a non-`NEXT_PUBLIC_` env var, so the owner WebID must arrive
         at `studioState` as a **prop from the thin server component**. Reaching for `config`
         inside the client shell throws "OWNER_WEBID is not set" in the browser.
-- [ ] Entry create and edit, index maintenance, revalidation hook. `rebuildIndex` and
-      `putGuarded` already exist in `lib/pod/write.ts` from phase 1; this is the UI and the
-      §10 write sequence on top of them.
-- [ ] `localStorage` autosave of in-progress text
-- [ ] **`npm run test:e2e` is broken and needs fixing here**, since the Solid login redirect is
-      the one thing Playwright exists in this project for. There is no `playwright.config.*`,
-      so Playwright falls back to scanning and tries to load the Vitest suites — it exits 1
-      with "No tests found" after choking on `test/session.test.ts`. Chromium is installed;
-      the config and the login-redirect spec are what is missing. Not caught by the definition
-      of done, because `test:e2e` is not in it.
+      - The same applies to the whole `login()` argument list, not just the owner WebID.
+        `app/(public)/client-id.jsonld/route.ts` builds `clientId` as `${SITE_URL}/client-id.jsonld`
+        and the redirect as `${SITE_URL}/studio`; `SITE_URL` is not `NEXT_PUBLIC_` either. Pass
+        both down as props rather than recomputing from `window.location.origin`, which would
+        drift from the client ID document the identity provider actually fetches.
+      - A component test needs config work first: `vitest.config.ts` includes only
+        `**/*.test.ts`, so a `.tsx` test file is silently never run — this project's known
+        "green run that verified nothing" failure mode. `environment` is `node`, and
+        `test/setup.ts` does not load `@testing-library/jest-dom`. Fix all three with the test.
+      - **`login()` needs an `oidcIssuer` and nothing supplies one.** The library makes
+        `oidcIssuer` and `redirectUrl` mandatory (`ILoginInputOptions`, and Session.d.ts says so
+        outright), but there is no `OIDC_ISSUER` env var and there should not be: §7.5 already
+        says the WebID reliably carries `solid:oidcIssuer`, and `PROFILE.oidcIssuer` is already
+        in `lib/vocab.ts` waiting to be used. So the thin server component reads the owner's
+        WebID document — a public, unauthenticated read — and passes the issuer down with the
+        rest. **`readOwnerProfile` now exists** in `lib/pod/read.ts` (2026-09-04): it follows
+        `readDiary` in every respect but three, each pinned by a test because each looks like an
+        omission a cleanup would "fix" — the graph subject is the whole WebID rather than
+        `<#it>`, there is no `dy:schemaVersion` check because the WebID document is not ours,
+        and there is no `rdf:type` gate. `pim:storage` is optional: login needs only the issuer,
+        and `POD_ROOT` is an env var today.
+      - `logout()` takes a mandatory discriminator, `{ logoutType: "app" }` or
+        `{ logoutType: "idp", postLogoutUrl }`. App logout is the right default: IDP logout
+        signs the owner out of their identity provider entirely, and its `postLogoutUrl` has to
+        already be listed in `post_logout_redirect_uris` in the client ID document, which
+        currently names only `${SITE_URL}/`.
+- [x] **Entry create and edit, index maintenance, revalidation hook.** Landed 2026-09-04 as
+      `serialiseEntry` + `saveEntry` (`lib/pod/save-entry.ts`), the revalidation route at
+      `app/(public)/api/revalidate/route.ts`, `listStudioTrips` (`lib/studio/trips.ts`) and the
+      editor itself (`components/studio/entry-editor.tsx`). `rebuildIndex` and `putGuarded`
+      already existed in `lib/pod/write.ts` from phase 1; this was the UI and the §10 write
+      sequence on top of them. **Seen working against a real Pod**, not only tested: the picker
+      lists a seeded draft trip, marked as a draft, in three requests with no StrictMode
+      duplicates.
+
+      Two things it exposed, both worth keeping in view:
+      - **A data-loss bug the tests found first.** On the SECOND save of an entry this editor
+        had just created, `initial` is still absent, so a form supplying neither `created` nor
+        `datePublished` left them undefined on an update and the serialiser dropped the triples
+        — §7.3's "when the record came into being" vs "when it became public" destroyed
+        silently and permanently. The editor now holds both in `provenance` state. Measured
+        with a throwaway probe before that state existed: the second PUT carried no
+        `dcterms:created` at all.
+      - **`rebuildIndex` still implements only four of §10's five clauses** — it does not
+        verify each kept entry's ACL matches its status, which is the clause that recovers
+        "published but unreadable". Marked `it.todo`; fixing it needs the
+        `write.ts` ↔ `access.ts` import cycle broken first.
+- [x] **`localStorage` autosave of in-progress text.** Landed 2026-09-05.
+      `lib/studio/drafts.ts` is the storage half — `draftKey` / `readDraft` / `writeDraft` /
+      `clearDraft` over an INJECTED `StorageLike`, Zod-validated, and **nothing in it throws**:
+      it is called from the editor's mount effect, so anything it threw would turn "we kept a
+      backup of your text" into "you cannot open the editor at all". The key is
+      `wig.draft.v1.<webId>.<scope>` — versioned so a future shape makes this one invisible
+      rather than half-restorable, per-webId so a shared machine does not hand one person
+      another's unfinished text, per-scope so a create and an edit are different drafts.
+      `components/studio/entry-editor.tsx` is the wiring: `DRAFT_DEBOUNCE_MS = 800`, a mount
+      read, the banner, and clearing after the entry reaches the Pod.
+
+      **The ETag, `dcterms:created` and `schema:datePublished` are never persisted.** They come
+      from the read that produced the editor's state (§10) and a draft outlives that read by
+      however long the browser was closed. `writeDraft` stores `checked.data` rather than its
+      argument, so the schema is the fence in both directions — a caller spreading the editor's
+      state cannot leak one in. A restored ETag would be a blind PUT wearing a helpful hat.
+
+      **Offered, never applied**, and the form is HELD while the offer stands. The banner is
+      `<section role="region" title="Unsaved draft">` with Restore and Discard, and the nine
+      controls — Save included — sit in a `<fieldset disabled={offered !== null}>`.
+      - `title`, not `aria-label`, and it is load-bearing: `@testing-library`'s
+        `queryAllByLabelText` matches `aria-label` on ANY element, so an `aria-label` naming
+        the banner "Unsaved draft" shadows the Status control and six tests fail with "found
+        multiple elements" rather than anything legible. Measured, and now pinned directly.
+      - The hold exists because the banner and the autosave share one storage slot. Without it,
+        typing past an unanswered banner lets the 800 ms window overwrite the very draft being
+        offered — losing the long entry that decisions.md §10 names as the whole reason for the
+        feature. Two other designs were weighed and declined: dismissing the banner on
+        overwrite (honest, still loses the draft) and a second key promoted on answer (preserves
+        both, but two unanswered drafts on the next mount have no clean rule for which to offer).
+      - Save is held for the same reason. Left free, one unprompted click on an EDIT writes the
+        entry and settles the draft with the banner never read. jsdom gates a submit button's
+        activation behaviour on "actually disabled", which walks up to the fieldset, so the hold
+        dispatches no `submit` at all rather than merely looking inert.
+
+      **Four defects a read-only review and a mutation pass found after it first went green**,
+      each of which had passed all eight checks:
+      - the banner kept offering a draft the autosave had already destroyed (above);
+      - unmount dropped up to 800 ms of typing — routine, not exotic: the shell flips
+        `view.status` on session expiry and stops rendering the editor, so an expiring Solid
+        token took the typing with it. Fixed with an unmount-only effect reading a ref, NOT the
+        debounce cleanup, which React runs on every keystroke and which would defeat the
+        debounce;
+      - after a successful create the scope stayed `new`, so further typing was autosaved under
+        `new` carrying the created entry's slug — restore it on a fresh create form tomorrow and
+        Save sends `If-None-Match: *` to a URL that now exists, and the 412 tells the owner the
+        resource "changed elsewhere", which is not what happened;
+      - the draft was cleared for text typed DURING the round trip, which was then in neither
+        the Pod nor storage.
+
+      **Mutation testing is what earned the confidence**, again. Ten mutants; eight went red
+      immediately, and the two survivors were both worth the trouble: one was a genuinely
+      uncovered invariant (a `settleDraft` that leaves the debounce armed) and one was a
+      near-equivalent mutant whose survival showed the component's own docblock was **wrong** —
+      it claimed keying the scope on `target` "would clear a key nothing was ever stored under",
+      when on an edit `target.url` IS `documentUrlOf(initial.entry.iri)`. The justification was
+      corrected rather than left in the file to mislead.
+
+      Also found, and fixed, in tests written the same day: a byte-identity assertion racing a
+      live 800 ms timer, two docblocks specifying a spelling the implementation deliberately did
+      not use, and a cross-test leak where a failed save's outstanding window was flushed into
+      jsdom's file-wide `localStorage` by `cleanup()`, putting a banner on screen for four of the
+      six §10 outcome comparisons.
+
+      **Left open, deliberately:**
+      - **A tab close still loses up to 800 ms of typing.** Closing a tab does not unmount a
+        React tree, and nothing listens on `pagehide`/`visibilitychange`. Unmount covers the
+        session-expiry path, which is the routine one here; a tab close costs a few words, not
+        the long entry §10 is about. Which event to listen on — `pagehide` is unreliable on iOS,
+        `visibilitychange` fires on tab switches too — is a decision nobody has taken.
+      - **A draft restored in a different time zone from the one it was written in** gets this
+        machine's offset on `dy:occurredAt`. Write in Kyoto, restore in Rome, and the entry
+        claims `+02:00` for something that happened at `+09:00` — §7.3 says that is most of the
+        meaning. Pre-existing (a create has always used `offsetHere()` because there is no place
+        input until phase 3), but drafts widen the window from minutes to weeks. Revisit with §9.
+- [x] **`npm run test:e2e` — fixed 2026-09-04.** `playwright.config.ts`, `e2e/environment.ts`,
+      `e2e/global-setup.ts` and `e2e/solid-login.spec.ts`. Two tests, 11 seconds, both green:
+      the authorization redirect carries the `client_id` and `redirect_uri` that
+      `client-id.jsonld` publishes, and the full round trip logs in with the seeded credential
+      and returns to a studio showing the owner UI.
+
+      It was broken because there was no `playwright.config.*`, so Playwright scanned the
+      repository, tried to load the Vitest suites and died on `test/access.test.ts:103` with
+      "Cannot read properties of undefined (reading 'config')". `testDir: "./e2e"` is what
+      stops that. Still not in the definition of done — see the note at the end of this item.
+
+      **Both tests were killed to prove they were not vacuous.** Changing `clientId` in
+      `lib/studio/session.ts` to `${origin}/client-id.json` fails test 1 on the exact value
+      and leaves test 2 on CSS's "Server error" page. Deleting the `clientId` argument
+      altogether — the real dynamic-registration fallback — fails both.
+
+      **What that second mutation corrected, and it is worth keeping.** Phase 0 recorded the
+      fallback as "a bare UUID instead of the app name". Against CSS 7.2 that is not what
+      happens. Measured consent screen under dynamic registration:
+
+          Name  Where I Go e2e        ID  FruZ8UCqY2QwZdac1kd0b
+
+      The **name survives** — `@inrupt/solid-client-authn-browser` forwards `clientName` into
+      the registration — and the ID is a 21-character opaque handle, not a dashed UUID. So an
+      assertion on the name discriminates nothing, and a UUID regex matches nothing. The first
+      draft of the spec asserted both and would have passed while the app fell back. The
+      assertion that earns its keep is an exact match on the ID cell.
+
+      **Also fixed on the way:** Chromium was not actually installed for Playwright 1.62.1 —
+      see the phase 0.5 note above.
+
+      ---
+
+      *Original plan, kept because its findings are still the recipe:*
+
+      **Do this AFTER the shell, not before.** Playwright exists here for exactly one thing —
+      the Solid login redirect — and there is no sign-in button to drive until the shell lands.
+      A `playwright.config.ts` added now would make `test:e2e` exit 0 while running nothing,
+      which is the "green run that verified nothing" failure mode `CLAUDE.md` names, dressed up
+      as progress. When it is written: point `testDir` at a new `e2e/` so Playwright never
+      scans `test/` again, and drive it against the local Community Solid Server — phase 0
+      found the real flow cannot be validated from localhost against a hosted Pod, because the
+      identity provider has to be able to fetch `client-id.jsonld`.
+
+      **The local recipe, worked out and verified 2026-09-04.** A real login IS exercisable
+      against CSS, credentials and all:
+      - `scripts/seed-dev-pod.ts` randomises the pod name per run, but honours `SEED_NAME`. So
+        `SEED_NAME=e2e npm run pod:seed` gives a deterministic pod at
+        `http://localhost:3001/e2e/`, WebID `…/e2e/profile/card#me`.
+      - the seeder creates a password account alongside it: `e2e@localhost.test` / `dev`. That
+        is a real credential CSS's login form accepts, so the spec can go past the redirect
+        rather than only asserting it.
+      - both the app and CSS are on localhost, so CSS *can* fetch `client-id.jsonld` — which is
+        exactly what a hosted provider cannot do from a dev machine, and is why the static
+        client ID path is testable here and nowhere else locally.
+      - **a CSS-created profile card carries `solid:oidcIssuer` but NOT `pim:storage`.**
+        Verified against a live seeded pod, and `readOwnerProfile` returns
+        `{ ok: true, value: { oidcIssuer: "http://localhost:3001/" } }` against it. This is the
+        empirical case for `storage` being optional in `OwnerProfile`: had it been required,
+        the read would fail on every CSS pod and the studio could never offer sign-in.
+
+      **Should `test:e2e` join the definition of done?** Recommendation: **no, not as a ninth
+      line in that list — but yes as a named gate on any change to the auth seam.** The
+      argument for is that this is the only check covering the login flow, and its absence is
+      exactly why the command stayed broken. The argument against is what the list is *for*:
+      the other eight run anywhere with a checkout and Node 22, and `npm run build` already
+      needs a Pod, but this one needs a Pod **and** a 180 MB browser **and** port 3000 free,
+      and it fails loudly on all three. Put it in the unconditional list and the predictable
+      result is that the list stops being run — which costs more than this test is worth.
+      A workable middle: the definition of done gains a line saying that a diff touching
+      `lib/studio/**`, `app/(studio)/**`, `components/studio/**` or
+      `app/(public)/client-id.jsonld/**` must also run `npm run test:e2e`. That is where its
+      failures actually live, and it is checkable by reading the diff.
+      **Changing CLAUDE.md is the maintainer's call — this is a recommendation, not a change.**
 
 ## Phase 3 — media
 

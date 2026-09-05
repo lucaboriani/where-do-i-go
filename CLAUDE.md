@@ -6,29 +6,41 @@ Rules and invariants for this repository. Read every session. Dense on purpose.
 
 ## This file, AGENTS.md, and the Next.js managed block
 
-`next dev` on Next 16.3+ writes a managed block of Next.js agent rules, delimited by
-`<!-- BEGIN:nextjs-agent-rules -->
+`next dev` on Next 16.3+ writes a managed block of Next.js agent rules, delimited by HTML
+comment markers spelled `BEGIN:nextjs-agent-rules` and `END:nextjs-agent-rules`.
 
-# This is NOT the Next.js you know
+**Those markers are deliberately written here without their `<!--` and `-->` wrappers, and that
+is load-bearing — do not "fix" it.** Until 2026-09-05 this section quoted them in full, which
+made *this file* contain a well-formed managed block inside a backtick-quoted paragraph. The
+consequences were the opposite of what the section claimed:
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+- `hasCurrentAgentRules()` scans `AGENTS.md` **and** `CLAUDE.md`. It found the block here, saw
+  it matched Next's current text exactly, and returned early — so `writeAgentFiles()` never ran
+  and `AGENTS.md` was never given the block at all. `TODO.md` blamed this on "only `next build`
+  has run", which was wrong: `next dev` had run many times through the e2e harness.
+- Worse, it was latent rather than merely untidy. On a Next upgrade the block text changes, the
+  early return stops firing, and `writeAgentFiles` evaluates
+  `agentsMdExists && (agentsMdHostsBlock || !claudeMdHostsBlock)` → `true && (false || false)`
+  → false, falls through to `if (claudeMdExists)`, and **upserts into `CLAUDE.md`** — rewriting
+  the middle of this very paragraph. The rule would have failed exactly when it mattered.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+Note that `claudeMdHostsBlock` tests for the START marker **on its own**, so breaking the pair
+is not enough: the literal `<!` `-- BEGIN:…` string must not appear in this file in any form.
 
-<!-- END:nextjs-agent-rules -->`. It never truncates
-existing content — it replaces the block in place if the markers are present, otherwise
-appends it to the end of the file.
-
-Which file receives it, per `node_modules/next/dist/server/lib/generate-agent-files.js`:
+It never truncates existing content — it replaces the block in place if the markers are present,
+otherwise appends it to the end of the file. Which file receives it, per
+`node_modules/next/dist/server/lib/generate-agent-files.js`:
 
 - If `AGENTS.md` exists, the block goes there and `CLAUDE.md` is left alone.
 - If only `CLAUDE.md` exists, the block is appended to *this file*.
 - If neither exists, it creates `AGENTS.md` with the block and `CLAUDE.md` containing
   `@AGENTS.md`.
 
-**This repository keeps an `AGENTS.md`, so the managed block lives there and never touches
-this file.** `CLAUDE.md` imports it via `@AGENTS.md` at the top, so the Next.js rules are
-still in context. Do not delete `AGENTS.md`, or the block starts landing here.
+**This repository keeps an `AGENTS.md`, so the managed block lives there and never touches this
+file** — true as of 2026-09-05, and verified by running `next dev` and watching `AGENTS.md`
+receive it, rather than by reading the code alone. `CLAUDE.md` imports it via `@AGENTS.md` at
+the top, so the Next.js rules are still in context. Do not delete `AGENTS.md`, or the block
+starts landing here.
 
 Commit the managed block when it changes. Stripping it from a diff only recreates it as an
 uncommitted change on the next `next dev`.
@@ -111,6 +123,7 @@ Work is **not done** until all of these pass. Run them, read the output, and onl
 and pass on an unsupported runtime, so a green result on the wrong Node proves less than it looks.
 
 ```
+npm run pod:dev &           # FIRST — see below. `npm test` silently skips 23 tests without it
 npm test                  # vitest — unit, integration, guardrails
 npm run lint              # eslint, including the project guardrails
 npm run typecheck         # tsc --noEmit
@@ -120,6 +133,40 @@ npm run check:commands    # this file's commands vs package.json
 npm run build             # reads the Pod; needs one running
 npm run size:public       # what a public page actually ships
 ```
+
+**Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
+integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
+skips rather than vacuous passes. But `npm test` then reports green having never run 23 of them,
+and the list above put the Pod requirement only against `build`, six lines too late. Verified
+2026-09-04: with a Pod up, those same 23 pass in about 3 seconds. They are real tests, not rot —
+which is precisely why a run that quietly omits them is the "half a check" this section warns
+about.
+
+**A ninth command, path-scoped rather than unconditional.** If the diff touches any of
+
+```
+lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
+```
+
+then `npm run test:e2e` must pass too. That is the auth seam, and it is where this test's
+failures live: it drives a real Solid login round trip through the local Community Solid Server
+— redirect, consent, authorization code, `handleIncomingRedirect`, owner studio.
+
+It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
+this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
+infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
+reading the diff.
+
+Two things it needs, both of which fail loudly rather than skipping: `npm run pod:dev`, and
+`npx playwright install chromium`. A browser already in the Playwright cache is not enough —
+a cached revision only counts for the Playwright version that asks for it, and this repo has
+stale 1208 and 1223 alongside the 1234 that `@playwright/test@1.62.1` actually wants.
+
+It runs against `next dev` on purpose. React only double-invokes effects under StrictMode in a
+development build, and that double invocation is the whole reason `restoreSession` memoises
+synchronously (phase-0 question 2: the first `handleIncomingRedirect` returned
+`isLoggedIn: false`). Under `next start` the effect runs once and the spec would pass with the
+memo deleted.
 
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
@@ -198,8 +245,15 @@ disposable. Ask before proceeding past this if it is still unset.
 - `(public)` must never import from `(studio)`, and must never import the Solid auth library,
   Radix, Zod schemas used only for writes, or image-processing code.
 - A bundle-size budget on public routes fails CI. This is the real enforcement.
-- Studio pages are thin server components rendering a dynamically imported client shell with
-  SSR disabled.
+- Studio pages are thin server components, but the `dynamic(…, { ssr: false })` import of the
+  client shell lives **inside a `"use client"` wrapper, not in the page**. Next 16 rejects the
+  shorter spelling outright: "`ssr: false` is not allowed with `next/dynamic` in Server
+  Components. Please move it into a Client Component" — see
+  `node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md`, confirmed by building a probe
+  page. So the shape is **server page → `"use client"` wrapper → `dynamic(…, { ssr: false })`**,
+  three files rather than two. The page stays a server component because that is what may read
+  `OWNER_WEBID`, `SITE_URL` and `SITE_NAME`: none of them are `NEXT_PUBLIC_`, so `lib/config.ts`
+  throws in the browser and the shell has to receive them as props.
 - `lib/pod/read.ts` is unauthenticated and shared. `lib/pod/write.ts` and
   `lib/pod/access.ts` are studio-only.
 
@@ -269,6 +323,7 @@ The script *names* are the contract; the runner is not.
 ```
 dev                  # Next dev server
 build                # production build
+start                # serve the production build (`next start`); smoke-testing a build locally
 test                 # vitest
 test:e2e             # playwright, login flow only
 lint                 # eslint
@@ -276,7 +331,7 @@ typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
 check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
 check:commands       # the commands above vs package.json
-size:public          # gzip budget on what a public page ships
+size:public          # gzip budget on what a public page ships; the only bundle budget, CI runs it
 pod:dev              # local Community Solid Server
 pod:seed             # seed it with the docs/data-model.md fixtures
 ```

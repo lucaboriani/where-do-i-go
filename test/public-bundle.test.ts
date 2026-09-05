@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as esbuild from "esbuild";
 import eslintConfig from "../eslint.config.mjs";
 
 /**
@@ -12,11 +13,16 @@ import eslintConfig from "../eslint.config.mjs";
  *
  * `scripts/check-public-bundle.ts` weighs the chunks a public page loads. The
  * ceiling is going 180 -> 190 kB because the worst public route measures
- * 176.3 kB, and 13.7 kB of headroom is more than enough room for a small studio
- * dependency to slip in unnoticed: `cmdk` is 11.0 kB gzip, `sonner` 28.9,
- * `vaul` 33.9 — only the last of those would trip a size budget, and only
- * barely. Weight is the wrong question. The right question is "is this
- * dependency here at all", asked by NAME, at any size.
+ * 176.3 kB, and 13.7 kB of headroom is enough room for a studio dependency to
+ * slip in unnoticed. Measured 2026-09-04, each library bundled and minified by
+ * esbuild on its own and gzipped — what a bundler would actually add to a
+ * chunk: `sonner` 9.6 kB, `cmdk` 17.1, `vaul` 21.4. Only the first fits inside
+ * the headroom, so only the first is invisible to a size budget — the reverse
+ * of what an earlier revision of this comment said, which had these as 11.0,
+ * 28.9 and 33.9 by summing the gzip of every `.js`/`.mjs` in each package's
+ * `dist/`: the ESM build plus the duplicate CJS build, plus dev builds and
+ * workers nothing imports. Weight is the wrong question either way. The right
+ * question is "is this dependency here at all", asked by NAME, at any size.
  *
  * So this file tests a second check in the same script: a pure scan over the
  * chunk sources for markers that prove a studio-only library is present.
@@ -58,21 +64,20 @@ let mod: Mod = {};
 let loadError: unknown;
 
 beforeAll(async () => {
-  // The script runs its whole CLI at import time today. That is the thing the
-  // refactor has to remove, and the child-process test at the bottom is what
-  // asserts it. These two spies only stop the CLI printing over the test output
-  // or killing the worker with process.exit() in the meantime.
-  const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-    throw new Error(`${MODULE} called process.exit(${code}) while being imported`);
-  }) as never);
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  // Importing the script runs nothing: the CLI sits behind an entry guard, and
+  // the child-process case at the bottom of this file proves it from a
+  // directory with no `.next`.
+  //
+  // This used to spy on `process.exit` and `console.log` here, with a comment
+  // saying "the script runs its whole CLI at import time today". It did not,
+  // and the purity test already said so. The spies were removed rather than
+  // left as scaffolding: without them, a regression that DID run the CLI on
+  // import prints its report over this file's output or takes the worker down
+  // with process.exit(), instead of being quietly absorbed.
   try {
     mod = (await import("../scripts/check-public-bundle")) as unknown as Mod;
   } catch (error) {
     loadError = error;
-  } finally {
-    log.mockRestore();
-    exit.mockRestore();
   }
 });
 
@@ -179,6 +184,14 @@ const ARTIFACTS: { aliases: string[]; files: string[] }[] = [
   { aliases: ["vaul"], files: ["node_modules/vaul/dist/index.mjs"] },
   { aliases: ["sonner"], files: ["node_modules/sonner/dist/index.mjs"] },
   { aliases: ["cmdk"], files: ["node_modules/cmdk/dist/index.mjs"] },
+  {
+    // On disk because shadcn's sonner component imports `useTheme` from it, and
+    // banned from the public block in eslint.config.mjs because CLAUDE.md fixes
+    // the theme to dark with no toggle. Both builds, because the markers are
+    // API names and the two builds spell their internals differently.
+    aliases: ["next-themes"],
+    files: ["node_modules/next-themes/dist/index.mjs", "node_modules/next-themes/dist/index.js"],
+  },
   {
     // `radix-ui/dist/index.mjs` is a re-export shim — nothing of it survives
     // bundling. Two real primitives instead, both of which carry runtime
@@ -319,6 +332,151 @@ describe("findStudioDeps: every banned dep is detected in its own real build", (
   });
 });
 
+/**
+ * The same requirement as the Radix case above — "MARKERS MUST SURVIVE
+ * BUNDLING", the rule scripts/check-public-bundle.ts states about itself —
+ * applied to every dep on the list, and through a real bundler rather than a
+ * regex that pretends to be one.
+ *
+ * The regex above only removes import specifiers. A bundler also drops
+ * comments, and a marker that lives in a comment is exactly as useless as one
+ * that lives in a specifier: neither can ever fire on a chunk. Only the real
+ * thing catches both.
+ *
+ * esbuild is what does the bundling, and it IS a declared devDependency —
+ * added for exactly this. It arrived here transitively first, and the comment
+ * that used to sit here said it was "already installed as vite's, and
+ * therefore vitest's, own". That was wrong twice over: vite 8.2.2 bundles with
+ * rolldown and lists esbuild only as an optional peer, so the real provider was
+ * `tsx`, at an unpinned `~0.28.0`. Relying on that was a live hazard rather
+ * than an untidiness — `docs/decisions.md` §21 declines to dictate a package
+ * manager, and under pnpm's default isolated layout an undeclared transitive
+ * does not resolve, so this import would fail to load and take all 40 tests in
+ * this file with it, silently losing the marker guardrail on a pnpm checkout.
+ *
+ * If esbuild ever disappears these cases must fail rather than skip: a marker
+ * list nobody checks is how this guardrail goes quiet.
+ */
+const BUNDLE_EXTERNAL = [
+  // Node built-ins and the peer deps these libraries expect a host to provide.
+  // Everything else is genuinely bundled in, which is the point.
+  "node:*",
+  "fs",
+  "path",
+  "crypto",
+  "util",
+  "stream",
+  "http",
+  "https",
+  "url",
+  "zlib",
+  "events",
+  "buffer",
+  "react",
+  "react-dom",
+];
+
+const bundles = new Map<string, string>();
+
+/** The real artifact, bundled and minified the way a chunk in `.next` is. */
+async function bundledSource(relative: string): Promise<string> {
+  const cached = bundles.get(relative);
+  if (cached !== undefined) return cached;
+
+  // Fails loudly if the artifact moved, and rejects a stub.
+  realSource(relative);
+  const result = await esbuild.build({
+    entryPoints: [resolve(ROOT, relative)],
+    bundle: true,
+    minify: true,
+    write: false,
+    format: "esm",
+    platform: "browser",
+    legalComments: "none",
+    logLevel: "silent",
+    external: BUNDLE_EXTERNAL,
+    absWorkingDir: ROOT,
+  });
+  const code = result.outputFiles?.[0]?.text ?? "";
+  // A failed bundle would otherwise be an empty string, in which case every
+  // marker is "missing" and the second case below fails for the wrong reason.
+  expect(code.length, `esbuild produced no output for ${relative}`).toBeGreaterThan(1000);
+  bundles.set(relative, code);
+  return code;
+}
+
+describe("BANNED_DEPS: markers must survive a real bundler", () => {
+  it.each(ARTIFACTS.map((g) => [g.aliases[0], g] as const))(
+    "still detects %s after esbuild bundles and minifies it",
+    async (label, group) => {
+      const deps = bannedDeps().filter((d) => matchesGroup(d.name, group.aliases));
+      expect(deps.map((d) => d.name), `no entry in BANNED_DEPS covers ${label}`).not.toEqual([]);
+
+      for (const file of group.files) {
+        const code = await bundledSource(file);
+        // The bundler really did something; otherwise this repeats the
+        // detection case earlier in the file on the untouched artifact.
+        expect(code, `${file} came back unchanged`).not.toBe(realSource(file));
+
+        const findings = findStudioDeps([{ name: `static/chunks/${basename(file)}`, source: code }]);
+        for (const dep of deps) {
+          const hit = findings.find((f) => f.dep === dep.name);
+          expect(
+            hit,
+            `${dep.name} is undetectable once ${file} has been through a bundler. Markers ` +
+              `${JSON.stringify(dep.markers)} do not survive, so none of them would ever fire on ` +
+              `a real chunk. Use a runtime literal — a CSS custom property, a data attribute, an ` +
+              `exported function name — not an import specifier.`,
+          ).toBeDefined();
+          expect(code).toContain(hit!.marker);
+        }
+      }
+    },
+  );
+
+  /**
+   * Dep-level coverage is not enough. A dep with two markers, one of which is
+   * dead, looks fine above and is a marker nobody can rely on: the day the
+   * surviving one is renamed upstream, the list matches nothing and the scan
+   * goes quiet. Every marker that fires on the shipped build must still fire
+   * after bundling, or it should not be on the list.
+   */
+  it("keeps every marker that fires on the shipped build firing after bundling", async () => {
+    const casualties: { dep: string; marker: string; file: string }[] = [];
+    let checked = 0;
+
+    for (const group of ARTIFACTS) {
+      const deps = bannedDeps().filter((d) => matchesGroup(d.name, group.aliases));
+      for (const file of group.files) {
+        const source = realSource(file);
+        const code = await bundledSource(file);
+        for (const dep of deps) {
+          for (const marker of dep.markers) {
+            // Only markers this artifact actually carries. A marker for a
+            // sibling build is not this file's to prove.
+            if (!source.includes(marker)) continue;
+            checked++;
+            if (!code.includes(marker)) casualties.push({ dep: dep.name, marker, file });
+          }
+        }
+      }
+    }
+
+    expect(
+      checked,
+      "no marker was checked at all — the artifact list or the deps went empty",
+    ).toBeGreaterThanOrEqual(20);
+    expect(
+      casualties,
+      "these markers are present in the build the library ships and gone from the same build " +
+        "once a bundler has been through it — an import specifier the bundler resolved away, or " +
+        "a comment the minifier dropped. They can never fire on a chunk in .next, so they are " +
+        "list padding: either replace them with a runtime literal or remove them, and check the " +
+        "dep still has a marker that works",
+    ).toEqual([]);
+  });
+});
+
 describe("findStudioDeps: the framework is not a studio dependency", () => {
   it.each(Object.values(FRAMEWORK))("does not flag %s", (file) => {
     const source = realSource(file);
@@ -383,23 +541,42 @@ describe("BANNED_DEPS", () => {
   /**
    * The floor on marker length, and why these two numbers.
    *
-   * Measured against the chunks this project's own build emits: of every
-   * assigned identifier in `.next/static/chunks/*.js`, 7483 are 1 character,
-   * 1839 are 2, 14 are 3, 546 are 4, and nothing mangled is longer — the only
-   * tokens above 6 characters are real DOM names the minifier had to preserve
-   * (`charset`, `crossorigin`, `imagesizes`, `imagesrcset`, `Infinity`).
+   * Measured 2026-09-04 over the 9 files of `.next/static/chunks/*.js` this
+   * project's own build emits — 599,640 bytes, 108,076 identifier tokens, 4,985
+   * distinct. Distinct tokens by length, 1 through 10: 54, 1614, 170, 246, 260,
+   * 267, 267, 272, 238, 179. 2,107 of them are 8 characters or longer; the
+   * longest is 63.
+   *
+   * The 54 is the number that demonstrates mangling. It is the base-54
+   * identifier alphabet — `$`, `_` and the 52 letters — completely exhausted,
+   * every single-character name in use, 49,320 times between them. A mangler
+   * allocates shortest-first and only spills into length n when length n-1 runs
+   * out, so an 8-character generated name would need on the order of 54^7 live
+   * names in one scope. It does not happen.
    *
    * So:
-   *   - a marker shaped like a JS identifier must be >= 8 characters, double
-   *     the longest mangled identifier observed, with room for the minifier to
-   *     get greedier;
+   *   - a marker shaped like a JS identifier must be >= 8 characters, because
+   *     at that length a mangler cannot SYNTHESISE the token. Every one of
+   *     those 2,107 long tokens is a name the toolchain had to PRESERVE.
    *   - a marker containing a character that cannot appear in an identifier
    *     (`-`, `/`, `.`, `[`, a space) can never be synthesised whole by name
-   *     mangling, so 6 is enough.
+   *     mangling at any length, so 6 is enough.
    *
-   * "n3" fails both, which is the point. `charset` and `imagesizes` in that
-   * list are the reminder that a generic word is not safe either just because
-   * it is long.
+   * "n3" fails both, which is the point.
+   *
+   * An earlier revision of this comment gave the histogram as "7483 mangled
+   * identifiers of 1 character, 1839 of 2, 14 of 3, 546 of 4, and nothing
+   * mangled longer — the only tokens above 6 characters are real DOM names",
+   * and justified the floor as "double the longest observed". It does not
+   * reproduce: there are 267 distinct 7-character and 272 distinct 8-character
+   * tokens, and they are mostly Next's own preserved identifiers rather than
+   * DOM names — `onlyHashChange`, `hashFragment`, `scrollBehavior`,
+   * `inspectSource`, `TURBOPACK`. The floor is right; that was not the reason.
+   *
+   * And length alone is not safety. A preserved name can be an ordinary word:
+   * `Fragment`, `Provider`, `Response`, `Infinity`, `charset` and `imagesizes`
+   * are all in these chunks. A marker has to be a name only the banned library
+   * would preserve, not merely a long one.
    */
   const IDENTIFIER_SHAPED = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   const floorFor = (marker: string) => (IDENTIFIER_SHAPED.test(marker) ? 8 : 6);
@@ -518,8 +695,8 @@ describe("BANNED_DEPS", () => {
     const required = [
       // CLAUDE.md, Map: one MapLibre instance, lazy-mounted on intersection.
       // Lazy means it must not be in a public page's initial chunks at all —
-      // and at 777.9 kB gzip it is the one leak the ceiling would catch. It is
-      // listed anyway so the check does not depend on the ceiling.
+      // and at 252.8 kB gzip bundled it is the one leak the ceiling would
+      // catch. It is listed anyway so the check does not depend on the ceiling.
       "maplibre-gl",
       // CLAUDE.md, hard rules: lib/pod/read.ts is unauthenticated and shared,
       // and the RDF stack that parses Turtle runs on the server. n3 in a client

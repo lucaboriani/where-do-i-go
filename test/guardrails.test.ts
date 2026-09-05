@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
+import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 
 /**
@@ -19,6 +20,18 @@ async function lint(filePath: string, code: string) {
 }
 
 const ruleIds = (msgs: Awaited<ReturnType<typeof lint>>) => msgs.map((m) => m.ruleId);
+
+/**
+ * Parse failures, spelled out. A snippet ESLint cannot parse yields ONE message
+ * with `fatal: true` and `ruleId: null`, and no rule messages at all — so every
+ * allow-case here would pass on a snippet that was never linted. That is this
+ * repository's "green run that verified nothing" in miniature, and it is one
+ * mistyped fixture away at all times. Reject-cases fail loudly on their own (a
+ * null ruleId is not "no-restricted-syntax"); the allow-cases are what this is
+ * for. Returns strings rather than a count so a failure names the line.
+ */
+const fatals = (msgs: Awaited<ReturnType<typeof lint>>) =>
+  msgs.filter((m) => m.fatal).map((m) => `${m.line}:${m.column} ${m.message}`);
 
 describe("guardrails actually fire", () => {
   it("rejects a raw vocabulary IRI outside lib/vocab.ts", async () => {
@@ -55,6 +68,223 @@ describe("guardrails actually fire", () => {
     expect(ruleIds(msgs)).not.toContain("no-restricted-syntax");
   });
 
+  /**
+   * THE SAME GUARDRAIL, AT THE SPELLING THIS REPOSITORY ACTUALLY WRITES.
+   *
+   * The two cases above only ever exercise a string typed INSIDE the attribute,
+   * and that is the only shape the selector can see:
+   *
+   *     JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\[[^\]]+\]/]
+   *
+   * components/studio/entry-editor.tsx does not write its classes that way. Its
+   * nine controls share two module-level constants, CONTROL and BUTTON, spent as
+   * `className={CONTROL}` — an Identifier, not a Literal — so the rule never
+   * looks at the strings at all. Measured against the real config before this was
+   * written rather than reasoned: `disabled:hover:bg-[#222]` inside BUTTON
+   * produces ZERO no-restricted-syntax messages and the identical string inline
+   * produces one. Every class string in the studio editor is outside the fence,
+   * and the docblock above those two constants says so and asks for hand
+   * discipline instead. This is the test that replaces the hand discipline.
+   *
+   * THE INLINE CASES ABOVE STAY EXACTLY AS THEY ARE. They are the control that
+   * proves the rule fires at all; a widening that quietly stopped covering the
+   * inline form would otherwise read as a pass.
+   *
+   * THE FOUR SHAPES, and the third is the one that matters most:
+   *
+   *   1. inline `className="p-[3px]"`  — above, kept.
+   *   2. `const C = "…"`               — a single Literal initialiser.
+   *   3. `const B = "…" + "…"`         — what entry-editor.tsx's BUTTON actually
+   *                                      IS today. A rule that handles only a
+   *                                      single Literal initialiser passes this
+   *                                      one and misses the very file that
+   *                                      prompted the change. The three-operand
+   *                                      row is here because `"a" + "b" + "c"`
+   *                                      nests left, so the offending Literal is
+   *                                      a grandchild of the BinaryExpression,
+   *                                      not a child of it.
+   *   4. const C = backticks           — pinned DELIBERATELY. A TemplateLiteral's
+   *                                      static text is a TemplateElement, not a
+   *                                      Literal, so a Literal-only rule is
+   *                                      bypassed by one character, and quotes
+   *                                      and backticks are produced
+   *                                      interchangeably by both a formatter and
+   *                                      an agent. It costs one extra selector
+   *                                      arm; leaving it out leaves the fence
+   *                                      with a keyboard shortcut through it.
+   *
+   * Both public and studio paths, because a class constant on a public page is
+   * exactly as far outside the design tokens as one in the studio, and the
+   * scoping this rule needs is by NODE SHAPE, not by directory — see the
+   * allow-cases below for why that distinction is the whole design.
+   *
+   * lintText does not read from disk, so naming the real editor file here costs
+   * nothing and says which file the case is about.
+   */
+  it.each([
+    [
+      "components/studio/entry-editor.tsx",
+      "a direct string initialiser",
+      `const CONTROL = "w-full border border-hairline bg-[#222] px-3 py-2";\n` +
+        `export default function T() { return <input className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a concatenation of two literals — entry-editor.tsx's BUTTON, verbatim but for one value",
+      `const BUTTON =\n` +
+        `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
+        `  "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#222]";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a concatenation of three, where the offender is a grandchild",
+      `const BUTTON = "border " + "px-4 " + "p-[3px]";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "a template literal initialiser",
+      "const CARD = `w-full p-[3px]`;\n" +
+        "export default function T() { return <div className={CARD} />; }\n",
+    ],
+    [
+      "app/(public)/thing.tsx",
+      "the same const form on a public page",
+      `const CARD = "w-full p-[3px]";\n` +
+        `export default function T() { return <div className={CARD} />; }\n`,
+    ],
+  ])(
+    "rejects an arbitrary Tailwind value held in a const at %s — %s",
+    async (path, _shape, code) => {
+      const msgs = await lint(path, code);
+      // A snippet that fails to PARSE produces one fatal message and no rule
+      // messages, so this would fail on the assertion below rather than on the
+      // thing it is about. Named explicitly so the failure output says which.
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).toContain("no-restricted-syntax");
+      // Which no-restricted-syntax message matters: NO_RAW_IRIS shares the rule
+      // id, so `toContain("no-restricted-syntax")` alone would pass on the wrong
+      // guardrail firing for the wrong reason.
+      expect(
+        msgs.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message).join("\n"),
+      ).toMatch(/Arbitrary Tailwind/);
+    },
+  );
+
+  /**
+   * THE ALLOW-CASES. A fence that rejects everything is not a fence, and this
+   * one has a specific, measured way of going wrong.
+   *
+   * The first two are the ordinary ones: the real CONTROL and BUTTON strings out
+   * of entry-editor.tsx, unmodified. They are token-only, and they carry
+   * `disabled:` and `hover:` variant prefixes — measured as passing today, and
+   * kept here so a widened selector cannot start rejecting variant prefixes on
+   * the way to catching arbitrary values. components/ui/** stays exempt in the
+   * const form too, not just inline; shadcn's copied source is full of both.
+   *
+   * THE LAST TWO ARE THE TRAP. eslint.config.mjs is the file that DEFINES this
+   * rule and test/guardrails.test.ts is the file that TESTS it. Both are
+   * ordinary files under the everywhere block, both are linted by `eslint .`,
+   * and both are necessarily full of strings that look exactly like what the
+   * rule bans — quoting the banned thing is what defining and testing it
+   * consists of. They are linted from DISK here, not as snippets, so this file's
+   * own fixtures above are inside the allow-case: a rule the test cannot
+   * tolerate turns its own test red.
+   *
+   * Probed against the real config before this was written:
+   *
+   *   VariableDeclarator Literal[…]      (descendant) — 2 errors, both in
+   *       test/guardrails.test.ts, at the two inline cases above. Their fixtures
+   *       sit inside `const msgs = await lint(…)`, which makes the fixture
+   *       string a descendant of a VariableDeclarator. The rule would make its
+   *       own test unlintable while looking correct on every snippet.
+   *
+   *   VariableDeclarator > Literal[…]    (child-anchored, plus a
+   *   BinaryExpression arm and a TemplateLiteral arm) — 0 errors repo-wide
+   *       outside components/ui/**, and all five reject cases above still fire.
+   *
+   * On eslint.config.mjs specifically, and this corrects a plausible reading of
+   * it: the `w-[137px]` in that file is on line 89, in a COMMENT. No AST node
+   * carries it, so neither shape flags it. The rule's own selector string on
+   * line 91 does not self-match either — its VALUE contains `-\[`, a real
+   * backslash between the `-` and the `[`, so `[a-z0-9]-\[` does not match. That
+   * safety lives in the REGEX, not in the selector: drop the `-` from it (a
+   * bare `\[[^\]]+\]` is the obvious way to try to catch more) and two literals
+   * in eslint.config.mjs match at once, one of them being line 91 itself.
+   */
+  it.each([
+    [
+      "components/studio/entry-editor.tsx",
+      "entry-editor.tsx's real CONTROL — tokens only, with disabled: variants",
+      `const CONTROL =\n` +
+        `  "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";\n` +
+        `export default function T() { return <input className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/studio/entry-editor.tsx",
+      "entry-editor.tsx's real BUTTON — a concatenation, tokens only, hover: and disabled: variants",
+      `const BUTTON =\n` +
+        `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
+        `  "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+    [
+      "components/ui/thing.tsx",
+      "shadcn's copied source, const form — exempt inline, so exempt here too",
+      `const CONTROL = "w-full p-[3px]";\n` +
+        `export default function T() { return <div className={CONTROL} />; }\n`,
+    ],
+    [
+      "components/ui/thing.tsx",
+      "shadcn's copied source, concatenated const form",
+      `const BUTTON = "inline-flex " + "data-[state=open]:bg-accent";\n` +
+        `export default function T() { return <button className={BUTTON} />; }\n`,
+    ],
+  ])("allows %s — %s", async (path, _why, code) => {
+    const msgs = await lint(path, code);
+    // Without this, a snippet ESLint could not parse reports zero rule messages
+    // and this case passes having linted nothing. That is the exact vacuous pass
+    // this file exists to avoid.
+    expect(fatals(msgs)).toEqual([]);
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message),
+    ).toEqual([]);
+  });
+
+  /**
+   * Non-vacuity for the two on-disk cases below. If eslint.config.mjs and
+   * test/guardrails.test.ts were outside no-restricted-syntax's scope — a
+   * `files` change, a globalIgnores entry — they would lint clean forever and
+   * the allow-case would be proving nothing. NO_RAW_IRIS shares the rule id and
+   * is unrelated to this change, which is what makes it the right probe: it
+   * asks "is no-restricted-syntax alive at this path" without pinning anything
+   * about where the Tailwind arm is scoped.
+   */
+  it.each(["eslint.config.mjs", "test/guardrails.test.ts"])(
+    "no-restricted-syntax is alive at %s, so a clean lint there means something",
+    async (path) => {
+      const msgs = await lint(path, `const p = "https://schema.org/name";\nexport default p;\n`);
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).toContain("no-restricted-syntax");
+    },
+  );
+
+  it.each(["eslint.config.mjs", "test/guardrails.test.ts"])(
+    "%s on disk still lints clean — the rule must not break the file that defines it or the file that tests it",
+    async (path) => {
+      const [result] = await eslint.lintFiles([path]);
+      // An ignored or unmatched path yields NO result, and `result?.messages ??
+      // []` would then read as clean. Pin that the file was really linted.
+      expect(result?.filePath).toBe(resolve(process.cwd(), path));
+      // The whole message list, not a count: the failure output has to name the
+      // line, or "the config does not lint" is untraceable in CI.
+      expect(
+        result.messages.map((m) => `${path}:${m.line}:${m.column} ${m.ruleId ?? "FATAL"} ${m.message}`),
+      ).toEqual([]);
+    },
+  );
+
   it("rejects the Solid auth library on a public route", async () => {
     const msgs = await lint(
       "app/(public)/thing.tsx",
@@ -63,12 +293,189 @@ describe("guardrails actually fire", () => {
     expect(ruleIds(msgs)).toContain("no-restricted-imports");
   });
 
-  it("rejects Radix on a public route", async () => {
+  /**
+   * The Radix fence, at BOTH spellings — and the bare one is the spelling that
+   * matters, because it is the only one this project actually writes.
+   *
+   * package.json depends on `radix-ui` ^1.6.7 — the unified package — and on no
+   * `@radix-ui/react-*` package directly. All seven Radix imports under
+   * components/ui/** are `from "radix-ui"`. So a case that lints only
+   * `@radix-ui/react-dialog`, which is all this test used to do, exercises a
+   * spelling that appears nowhere in the repo, while the spelling someone would
+   * actually produce — copying a line out of components/ui/dialog.tsx onto a
+   * public page — sails straight through the group. That is this file's own
+   * "right code at the wrong path" warning one step sideways: the right path,
+   * the wrong specifier. Do not simplify this back to a single case.
+   *
+   * The scoped spelling stays on the list rather than being replaced: radix-ui
+   * re-exports the scoped packages and depends on them, so they sit in
+   * node_modules and a deliberate import — or one copy-pasted from Radix's own
+   * docs, which are written in the scoped style — resolves today.
+   */
+  it.each([
+    // specifier                   why this spelling is on the list
+    ["radix-ui"], //               what package.json has; all 7 components/ui Radix imports
+    ["radix-ui/dialog"], //        a resolvable subpath: the exports map has "./*" and
+    //                             node_modules/radix-ui/dist/dialog.mjs exists. The bare entry
+    //                             already blocks this — no-restricted-imports matches `group`
+    //                             with gitignore semantics, not minimatch, so "radix-ui" is a
+    //                             superset of "radix-ui/*" rather than the other way round.
+    //                             Probed: ["radix-ui"] blocks radix-ui/dialog; ["radix-ui/*"]
+    //                             does NOT block bare radix-ui. Pinned anyway, so that if that
+    //                             matcher ever changes the subpath does not quietly open up.
+    ["@radix-ui/react-dialog"], // the scoped spelling: present transitively via radix-ui
+    ["vaul"], //                   components/ui/drawer.tsx
+    ["sonner"], //                 components/ui/sonner.tsx
+    ["cmdk"], //                   components/ui/command.tsx
+  ])("rejects %s on a public route", async (specifier) => {
     const msgs = await lint(
       "app/(public)/thing.tsx",
-      `import * as Dialog from "@radix-ui/react-dialog";\nexport default function T() { return <Dialog.Root />; }\n`,
+      `import * as UI from "${specifier}";\nexport default function T() { return <div>{String(UI)}</div>; }\n`,
     );
     expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    // The message has to name the specifier, or CI output cannot tell a
+    // deployer which import to move.
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(specifier);
+  });
+
+  /**
+   * The allow-case for the group above. shadcn is studio-only, not banned
+   * outright, so the fix cannot be "ban radix-ui everywhere": that would make
+   * shadcn's own copied source and every studio page unlintable, and a fence
+   * that rejects everything is not a fence.
+   */
+  it.each([
+    ["app/(studio)/thing.tsx", "radix-ui"],
+    ["components/ui/dialog.tsx", "radix-ui"], // shadcn's copied source, verbatim
+    ["components/ui/drawer.tsx", "vaul"],
+  ])("allows %s to import %s", async (path, specifier) => {
+    const msgs = await lint(
+      path,
+      `import * as UI from "${specifier}";\nexport default function T() { return <div>{String(UI)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * next-themes, on all three fenced public paths.
+   *
+   * This one was a MISSING ban rather than a mis-spelled one — a judgement
+   * call, so the reasoning belongs next to the case and not only in the config.
+   * next-themes is on disk and importable from anywhere because shadcn's sonner
+   * component pulls useTheme out of it (components/ui/sonner.tsx). But
+   * CLAUDE.md's Styling rules fix the theme to dark, put the palette at :root
+   * rather than under a .dark class, and rule out a theme toggle. So a
+   * next-themes import on a public page is either dead weight in a bundle that
+   * has a CI budget on it, or the first line of a toggle the design already
+   * declined. Fenced on the public side only — see the allow-case below.
+   */
+  it.each(["app/(public)/thing.tsx", "components/public/thing.tsx", "app/not-found.tsx"])(
+    "rejects next-themes at %s — the theme is fixed dark, with no toggle",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { useTheme } from "next-themes";\nexport default function T() { return <div>{String(useTheme)}</div>; }\n`,
+      );
+      expect(ruleIds(msgs)).toContain("no-restricted-imports");
+      expect(
+        msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+      ).toContain("next-themes");
+    },
+  );
+
+  /**
+   * The allow-case for it. The ban has to stay public-only: widen it and
+   * components/ui/sonner.tsx — shadcn's copied source, which imports useTheme
+   * verbatim — becomes unlintable, and the studio loses the one place a theme
+   * hook is legitimately read.
+   */
+  it.each(["app/(studio)/thing.tsx", "components/ui/sonner.tsx"])(
+    "allows %s to import next-themes",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { useTheme } from "next-themes";\nexport default function T() { return <div>{String(useTheme)}</div>; }\n`,
+      );
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
+
+  /**
+   * REGRESSION PINS for two pattern groups that had no test at all: the
+   * (studio) route group, and the exifreader / lib/media group.
+   *
+   * Both were correctly spelled and already blocking when these cases were
+   * written — measured under a probe first, then pinned — so both passed on
+   * their first run. That is deliberate, and it is not the "a test that passes
+   * the first time is suspect" smell this file warns about elsewhere: nothing
+   * here claims new behaviour. The failing case that opened this loop is the
+   * radix-ui one above. What these close is a different gap. An untested fence
+   * is one refactor away from a decorative one, and neither group had anything
+   * that would notice it breaking — the (studio) group especially, whose globs
+   * carry literal parentheses that glob syntax could plausibly reinterpret.
+   */
+  it.each([
+    ["app/(public)/thing.tsx", "@/app/(studio)/studio/page"],
+    // A relative specifier, not just the alias: the group has a `**/(studio)/**`
+    // half precisely so a path that never spells `app/` is still caught.
+    ["components/public/thing.tsx", "../../app/(studio)/studio/page"],
+    ["app/not-found.tsx", "@/app/(studio)/studio/page"],
+  ])("rejects %s importing %s — separate root layouts keep the bundles apart", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import Page from "${moduleSpecifier}";\nexport default function T() { return <div>{String(Page)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /** The allow-case: the studio importing its own modules is the normal case. */
+  it("allows a studio page to import another (studio) module", async () => {
+    const msgs = await lint(
+      "app/(studio)/studio/page.tsx",
+      `import Shell from "@/app/(studio)/studio/shell";\nexport default Shell;\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * Image processing is studio-only: it runs client-side in a Web Worker before
+   * upload and has no business in a public reading page's bundle (CLAUDE.md,
+   * Media). The library is `exifreader` — `exifr` was rejected as unmaintained
+   * (docs/versions.md), so a case naming exifr would fence a package that is not
+   * a dependency, the same mistake the radix-ui spelling made above.
+   */
+  it.each([
+    ["app/(public)/thing.tsx", "exifreader"],
+    ["components/public/thing.tsx", "exifreader"],
+    ["app/(public)/thing.tsx", "@/lib/media/resize"],
+    ["app/not-found.tsx", "@/lib/media/resize"],
+  ])("rejects %s importing %s — image processing is studio-only", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /** The allow-cases: the studio, and lib/media itself, must keep using it. */
+  it.each([
+    ["app/(studio)/thing.tsx", "exifreader"],
+    ["lib/media/resize.ts", "exifreader"],
+    ["app/(studio)/thing.tsx", "@/lib/media/resize"],
+  ])("allows %s to import %s", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 
   it("rejects importing studio-only pod modules from a public route", async () => {
@@ -77,6 +484,98 @@ describe("guardrails actually fire", () => {
       `import { write } from "@/lib/pod/write";\nexport default function T() { return <div>{String(write)}</div>; }\n`,
     );
     expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  /**
+   * THE SAME GROUP, WALKED PROPERLY — including the two globs the §10 write
+   * sequence added: `lib/pod/save-entry` and `lib/pod/entry-model`.
+   *
+   * The case above lints ONE member of a four-member pattern group and does not
+   * check the message, so it would pass with `save-entry` and `entry-model`
+   * missing from the config entirely. That matters most for `save-entry`: it
+   * imports `lib/pod/access.ts`, so a public page importing it pulls
+   * @inrupt/solid-client into the public bundle one step removed — the same
+   * shape as the lib/studio hole this repo closed, and the one thing invariant 3
+   * and the size budget both forbid. `entry-model` drags nothing in and is
+   * fenced anyway: nothing public has any business serialising an entry, and a
+   * module on neither list is invisible to every check here.
+   *
+   * THE SPELLINGS ARE THE MEASURED ONES, not the plausible ones. This file's own
+   * radix-ui lesson is that a fence tested at a specifier the project does not
+   * write proves nothing: the alias form is what a page would be written with,
+   * the relative form is what an agent editing inside app/(public) produces, and
+   * both were probed against the real config before being pinned here.
+   *
+   * These cases passed on their first run, and that is expected rather than the
+   * "a test that passes first time is suspect" smell — the fence was already
+   * correct by inspection and by probe; what was missing was anything that would
+   * notice it breaking. Mutation-checked all the same: with the two new globs
+   * deleted from eslint.config.mjs, the save-entry and entry-model rows below go
+   * red and the rest of the file stays green.
+   */
+  it.each([
+    // the two new globs, at all three fenced public paths
+    ["app/(public)/thing.tsx", "@/lib/pod/save-entry"],
+    ["components/public/thing.tsx", "@/lib/pod/save-entry"],
+    ["app/not-found.tsx", "@/lib/pod/save-entry"],
+    ["app/(public)/thing.tsx", "@/lib/pod/entry-model"],
+    ["components/public/thing.tsx", "@/lib/pod/entry-model"],
+    ["app/not-found.tsx", "@/lib/pod/entry-model"],
+    // A relative specifier, no alias: the group is written `**/lib/pod/...`
+    // precisely so a path that never spells `@/` is still caught, and a file
+    // being edited inside app/(public) is where that spelling comes from.
+    ["components/public/thing.tsx", "../../lib/pod/save-entry"],
+    ["app/(public)/trips/[slug]/page.tsx", "../../../../lib/pod/save-entry"],
+    // The `**/lib/pod/save-entry.*` half of each pair, which is the only thing
+    // covering an extension-bearing specifier: gitignore semantics match whole
+    // segments, so the bare glob does NOT match `save-entry.ts`. Measured —
+    // delete the `.*` halves and these two rows are the only ones that notice.
+    ["app/(public)/thing.tsx", "@/lib/pod/save-entry.ts"],
+    ["app/(public)/thing.tsx", "@/lib/pod/entry-model.ts"],
+    // The two older members of the group, at the path they had no case at:
+    // app/not-found.tsx is fenced by a `files` entry rather than by being
+    // inside app/(public), so it is the entry most easily lost in a refactor.
+    ["app/not-found.tsx", "@/lib/pod/write"],
+    ["app/not-found.tsx", "@/lib/pod/access"],
+  ])("rejects %s importing %s — the write path is studio-only", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    // Naming the specifier is what makes the CI output actionable: "an import is
+    // restricted" without saying which one sends a deployer reading the message
+    // to the wrong line.
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /**
+   * The allow-cases, and they are not decoration: a fence that rejects
+   * everything is useless, and widening this group by one glob — `**\/lib/pod/**`
+   * would do it — makes `lib/pod/save-entry.ts` unable to import its own
+   * serialiser and the studio unable to save an entry at all.
+   *
+   * The last two rows are the specifiers the repository ACTUALLY contains today
+   * (`lib/pod/save-entry.ts` imports `./entry-model` and `./access` relatively),
+   * plus the one the test suite itself uses. Everything above them is a path the
+   * studio will use as phase 2 lands.
+   */
+  it.each([
+    ["app/(studio)/studio/page.tsx", "@/lib/pod/save-entry"],
+    ["app/(studio)/studio/page.tsx", "@/lib/pod/entry-model"],
+    ["components/studio/entry-editor.tsx", "@/lib/pod/save-entry"],
+    ["test/entry-write.test.ts", "@/lib/pod/save-entry"],
+    // The real, present-tense imports inside lib/pod itself.
+    ["lib/pod/save-entry.ts", "./entry-model"],
+    ["lib/pod/save-entry.ts", "./access"],
+  ])("allows %s to import %s — the studio has to be able to write", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default String(mod);\n`,
+    );
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 
   it("rejects ACL primitives outside lib/pod/access.ts", async () => {
@@ -277,10 +776,11 @@ describe("guardrails actually fire", () => {
   );
 
   /**
-   * FAILING ON PURPOSE — an open hole, at the time of writing. Unlike the two
-   * blocks above, this one has not been fixed yet: the fix is a change to
-   * eslint.config.mjs. When it lands, delete this paragraph rather than leaving
-   * a "FAILING ON PURPOSE" note on a passing test.
+   * A THIRD CLOSED HOLE. It was written failing and is now green, because
+   * eslint.config.mjs lists app/not-found.tsx (and app/global-error.tsx, which
+   * does not exist yet — an inert files entry, so the day someone adds one it is
+   * not another unfenced public page) in the boundary block's `files`. Removing
+   * either entry puts these two cases back in the red, which is the point of them.
    *
    * `app/not-found.tsx` is a public page that is not inside `app/(public)`. It
    * cannot be: it is the 404 for paths matching no route group at all, which is

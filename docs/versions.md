@@ -76,9 +76,13 @@ Resolved against the registry, the two binding declarations point in opposite di
 declares no engines of its own, so nothing in the dependency you actually name warns you about
 this. The intersection of the two ranges is the 22 line and nothing else.
 
-Within 22.x, three packages set a floor — `jsdom@30.0.1` (`^22.22.2`), `size-limit@13.0.3`
-(`^22.18.0`) and `eslint@10.9.1` (`^22.13.0`). The highest wins: **>= 22.22.2, < 23**. The
-current 22.x LTS is 22.23.2.
+Within 22.x, two packages set a floor — `jsdom@30.0.1` (`^22.22.2`) and `eslint@10.9.1`
+(`^22.13.0`). The highest wins: **>= 22.22.2, < 23**. The current 22.x LTS is 22.23.2.
+
+`size-limit@13.0.3` (`^22.18.0`) used to be a third, and its removal on 2026-09-05 does not
+move the answer: `jsdom` was already the binding constraint and still is. Worth stating rather
+than silently dropping, because "the floor came from a package we no longer depend on" is the
+kind of thing that gets re-derived wrongly later.
 
 npm treats `engines` as advisory rather than a hard gate, so Node 24 installs with an
 `EBADENGINE` warning instead of failing. That makes this a supportedness decision, not a build
@@ -171,3 +175,32 @@ Training data skews old. Expect and reject all of the following:
   `maplibre-gl`. Any Mapbox reference is a hallucination from v1-era examples.
 - `map.setProjection()` called before `style.load` — throws. Always inside the event handler.
 - `zod` v3 syntax — the project is on v4.
+- **A source file containing a literal NUL byte reads as clean to shell `grep`.** An agent
+  writing `\u0000` into a file as a real NUL rather than an escape produces something `file(1)`
+  calls `data`; `grep` then reports NO MATCH — not an error, and `grep -c` prints nothing at all
+  — while `sed` and `cat` display it as ordinary text. Hit for real on 2026-09-04 while writing
+  `app/(public)/api/revalidate/route.ts`. Scope, measured rather than assumed: this blinds
+  **shell** inspection only. Node's `readFileSync(f, "utf8")` finds the matches, so the
+  source-text guardrails that run inside vitest — the `"use cache"` directive scan, the
+  studio-shell import bans, the marker scan in `check-public-bundle.ts` — are unaffected. The
+  hazard is a human or agent grepping from a shell and believing the silence.
+- **An unquoted fragment IRI in a `.env` file.** Next's env loader reads an unquoted `#` as the
+  start of a comment, so `OWNER_WEBID=https://you.example/profile/card#me` is stored as
+  `https://you.example/profile/card`. Measured 2026-09-04 with `@next/env`: quoted keeps the
+  fragment, unquoted does not, and nothing warns. This bites every WebID, because a WebID is
+  usually a fragment IRI — and it is worse than a crash. The read finds the profile document's
+  own subject rather than the person, so it fails as "oidcIssuer: expected string, received
+  undefined" with nothing pointing at a missing fragment; and where the issuer does sit on the
+  document subject it does not fail at all — the studio comes up and `sameWebId` locks the owner
+  out of their own diary over three characters. Quote the value. `.env.example` says so at
+  `OWNER_WEBID`, which is where anyone configuring will actually look.
+- `print.error()` in a custom MSW `onUnhandledRequest` callback, believed to fail the test. It
+  does not, on msw 2.15: the `print` defaults were downgraded to printing only and, in the
+  library's own words, "do not affect the frame resolution"
+  (`node_modules/msw/lib/core/experimental/on-unhandled-frame.js`). Vitest does not fail on
+  stderr, so the request goes to the live internet and the test passes. `test/setup.ts` throws
+  instead, and `test/network-guard.test.ts` pins it. Two further details, measured rather than
+  assumed: a thrown plain `Error` becomes a 500 "Unhandled Exception" *response*, not a rejected
+  fetch — only msw's own unexported `InternalError` produces a network error — and since
+  `lib/pod/read.ts` turns every non-2xx into a structured error and never throws, a test can
+  receive that 500 and still pass. That is why the guard also sweeps in `afterEach`.

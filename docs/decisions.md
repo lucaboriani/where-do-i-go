@@ -321,7 +321,7 @@ monorepo, no workspaces, one application.
 it declares, while npm's flat layout lets a phantom transitive import work by accident. That is
 a real protection, and this project cares about imports more than most — the whole public/studio
 boundary is an import rule. Losing it puts more weight on the enforcement that remains:
-`no-restricted-imports`, and the `size-limit` budget on public routes that fails CI. Those were
+`no-restricted-imports`, and the `size:public` budget on public routes that fails CI. Those were
 already the primary defences; they are now the only ones. Keep them strict.
 
 **Consequences.** `package.json` script *names* are the contract, not the runner — `CLAUDE.md`
