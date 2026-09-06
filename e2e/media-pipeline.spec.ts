@@ -397,9 +397,7 @@ async function collectUploads(page: Page): Promise<Upload[]> {
  * received text instead of timing out on a locator that matched nothing.
  */
 async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void> {
-  /** The same spelling as `PHOTOS_LABEL` in test/entry-editor.test.tsx, which
-   *  is the table an implementer changes when they reword the label. */
-  await page.getByLabel(/photos?\b/i).setInputFiles({
+  await page.getByLabel(PHOTOS).setInputFiles({
     name,
     mimeType: "image/jpeg",
     buffer: Buffer.from(bytes),
@@ -411,14 +409,32 @@ async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void
 }
 
 /**
- * The owner branch, named before the editor is touched.
+ * Two assertions, because ONE OF THEM ONLY COVERS HALF OF WHAT THIS USED TO
+ * CLAIM — and a docblock claiming coverage it does not have is a documented
+ * defect shape in this repository: it stops the next person looking.
  *
- * Without it, a Pod whose trips enumeration failed — or a WebID that lost its
- * `#me` and landed on the not-owner branch — would surface as a twenty-second
- * timeout on a file input, with nothing saying why there is no editor.
+ * The `Signed in as …` line discriminates OWNER FROM NOT-OWNER and nothing
+ * else. That is worth having — it is what breaks when OWNER_WEBID loses its
+ * `#me`, since `sameWebId` compares fragments — but it says nothing about the
+ * editor. In components/studio/studio-shell.tsx that line is a SIBLING
+ * rendered ABOVE `<Writables>`, so a pending enumeration, a failed one and a
+ * Pod with zero trips all render it and all render no editor.
+ *
+ * So the editor is asserted on its own account, and the message names the
+ * three ways it can be absent. Otherwise each of them arrives as a bare
+ * twenty-second timeout on `setInputFiles`, with nothing saying why there is
+ * no control to set files on. Verified by pointing `PHOTOS` at a control that
+ * does not exist: the run fails HERE, with this sentence, rather than eleven
+ * lines later inside `attach`.
  */
 async function expectOwnerStudio(page: Page): Promise<void> {
   await expect(page.getByText(`Signed in as ${E2E.ownerWebId}.`)).toBeVisible();
+  await expect(
+    page.getByLabel(PHOTOS),
+    "the owner studio rendered no editor: the trips enumeration is still pending, or it " +
+      "failed, or the Pod has no trips at all (§4 — an entry lives inside a trip). " +
+      "`Signed in as …` above does not discriminate between the three.",
+  ).toBeVisible();
 }
 
 /**
@@ -456,5 +472,11 @@ async function dimensionsOf(
     return size;
   }, Array.from(bytes));
 }
+
+/** The same spelling as `PHOTOS_LABEL` in test/entry-editor.test.tsx, which is
+ *  the table an implementer changes when they reword the label. One constant,
+ *  so the guard below and the pick above can never drift apart and leave the
+ *  guard passing on a control the pick cannot find. */
+const PHOTOS = /photos?\b/i;
 
 const containerOf = (url: string): string => url.slice(0, url.lastIndexOf("/") + 1);
