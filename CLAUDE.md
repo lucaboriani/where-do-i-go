@@ -151,7 +151,7 @@ appears, name it here; do not reintroduce a total.
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
-lib/media/**
+lib/media/**   lib/pod/write.ts
 ```
 
 then `npm run test:e2e` must pass too. **Two seams, not one.**
