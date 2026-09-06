@@ -23,6 +23,21 @@ export type WorkerLike = {
 
 export type Pipeline = {
   process(file: Blob): Promise<PipelineResult>;
+  /**
+   * Three separable things: terminates the worker, rejects everything already
+   * in `pending`, and resets the queue tail so the instance stays reusable.
+   *
+   * IT IS NOT A CANCEL. A photo queued but not yet past `pending` is not in
+   * the map to reject, so its send still runs, re-spawns a worker and can
+   * RESOLVE AFTER THIS RETURNS — into a UI that believes it was cancelled.
+   *
+   * The only correct caller today is unmount cleanup, where that is harmless:
+   * the worker is spawned lazily inside send(), so StrictMode's double-effect
+   * at mount finds `worker` null and this is a no-op. Anything else — a cancel
+   * button, an abort on navigation — needs a generation counter compared
+   * inside the queue callback, which this deliberately omits. Add it before
+   * you add the second caller, not after.
+   */
   dispose(): void;
 };
 
