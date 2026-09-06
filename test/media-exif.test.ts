@@ -100,8 +100,46 @@ describe("readMetadata", () => {
     // it through. Stage 2's auto-date is told (by this module's own
     // docstring) to trust dateTimeOriginal — a wrong date discovered there
     // is worse than an absent one caught here.
+    //
+    // This sentinel is rejected by the `month < 1` branch alone, so it does
+    // NOT exercise daysInMonth/isLeapYear — the cases below pin those.
     const meta = readMetadata(bytesOf(exifJpeg({ dateTimeOriginal: "0000:00:00 00:00:00" })));
     expect(meta.dateTimeOriginal).toBeUndefined();
+  });
+
+  const dateOf = (spelling: string) => readMetadata(bytesOf(exifJpeg({ dateTimeOriginal: spelling }))).dateTimeOriginal;
+
+  it("accepts Feb 29 in a leap year, and rejects it in a non-leap year", () => {
+    // 2024 is divisible by 4 and not by 100 -> leap. 2023 is not divisible by
+    // 4. This exercises `isLeapYear(y) ? 29 : ...` directly, which the
+    // unset-date sentinel above does not reach.
+    expect(dateOf("2024:02:29 12:00:00")).toBe("2024-02-29T12:00:00");
+    expect(dateOf("2023:02:29 12:00:00")).toBeUndefined();
+  });
+
+  it("accepts Feb 29 in a century leap year, and rejects it in a century non-leap year", () => {
+    // 2000 is divisible by 400 -> leap despite being divisible by 100. 1900 is
+    // divisible by 100 but not 400 -> not leap. This is the century rule this
+    // isLeapYear implements (`y % 100 !== 0 || y % 400 === 0`); EXIF years in
+    // this range are not a practical concern for real photos, but the branch
+    // is live code and is otherwise unverified.
+    expect(dateOf("2000:02:29 12:00:00")).toBe("2000-02-29T12:00:00");
+    expect(dateOf("1900:02:29 12:00:00")).toBeUndefined();
+  });
+
+  it("rejects day 31 in a 30-day month, and accepts day 30", () => {
+    expect(dateOf("2026:04:31 12:00:00")).toBeUndefined();
+    expect(dateOf("2026:04:30 12:00:00")).toBe("2026-04-30T12:00:00");
+  });
+
+  it("accepts day 31 in a 31-day month, so DAYS_IN_MONTH is not uniformly 30", () => {
+    expect(dateOf("2026:01:31 12:00:00")).toBe("2026-01-31T12:00:00");
+  });
+
+  it("rejects an hour past 23", () => {
+    // Pins the hour bound: a digit-shaped but out-of-range hour must not
+    // pass through as though it were valid.
+    expect(dateOf("2026:03:29 24:00:00")).toBeUndefined();
   });
 
   it("reads OffsetTimeOriginal when the camera wrote one", () => {
