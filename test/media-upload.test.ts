@@ -150,4 +150,87 @@ describe("uploadPhoto", () => {
     if (result.ok) return;
     expect(result.error.kind).toBe("shape");
   });
+
+  /**
+   * THE HALF-WRITTEN CASE, WHICH EVERY OTHER FAILURE TEST HERE IS BLIND TO.
+   *
+   * The four failure-shaped tests above each drive ONE handler that answers the
+   * same status to every PUT, so "both PUTs failed" and "only the second failed"
+   * are indistinguishable to them: with 507 everywhere, the web PUT fails first
+   * and the thumb is never attempted. This one answers differently per
+   * derivative, which is the only way to reach the path where `web.<ext>` is on
+   * the Pod and `thumb.<ext>` is not.
+   *
+   * It asserts BOTH halves of why a bare `Result` is the right return type here,
+   * unlike lib/pod/save-entry.ts's step report:
+   *
+   *  1. the error names the derivative that actually failed, so the caller is
+   *     not told "the upload failed" about a file that is sitting on the Pod;
+   *  2. retrying with the same source bytes HEALS, because the path is content
+   *     addressed — the second attempt gets 412-as-reuse on web and writes only
+   *     the thumb. If this half ever goes red, the "no step report needed"
+   *     reasoning collapses and the return type has to be revisited.
+   */
+  it("reports a thumb-only failure as the thumb's, and heals on retry", async () => {
+    const source = new Uint8Array([4, 2]).buffer;
+    const attempted: string[] = [];
+    const isWeb = (request: Request) => new URL(request.url).pathname.endsWith("/web.webp");
+
+    server.use(
+      http.put(`${POD}travel/media/*/*`, ({ request }) => {
+        attempted.push(new URL(request.url).pathname.split("/").pop()!);
+        return new HttpResponse(null, { status: isWeb(request) ? 201 : 507 });
+      }),
+    );
+
+    const first = await uploadPhoto({
+      fetch: fetch as PodFetch,
+      podRoot: POD,
+      source,
+      derivatives: derivatives(),
+    });
+
+    expect(first.ok).toBe(false);
+    if (first.ok) return;
+    // Not just "an error": the error has to identify the derivative, because
+    // web.webp succeeded and is now on the Pod.
+    expect(first.error).toMatchObject({
+      kind: "http",
+      status: 507,
+      url: expect.stringMatching(/thumb\.webp$/),
+    });
+    // Both were attempted, in order — i.e. we really are on the partial path
+    // and not failing at the first PUT the way the 507 test above does.
+    expect(attempted).toEqual(["web.webp", "thumb.webp"]);
+
+    // Retry, same bytes. web.webp exists now, so `If-None-Match: *` answers 412
+    // — reuse — and only the thumb is written for real.
+    server.resetHandlers();
+    const retried: string[] = [];
+    server.use(
+      http.put(`${POD}travel/media/*/*`, ({ request }) => {
+        retried.push(new URL(request.url).pathname.split("/").pop()!);
+        return new HttpResponse(null, { status: isWeb(request) ? 412 : 201 });
+      }),
+    );
+
+    const second = await uploadPhoto({
+      fetch: fetch as PodFetch,
+      podRoot: POD,
+      source,
+      derivatives: derivatives(),
+    });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(retried).toEqual(["web.webp", "thumb.webp"]);
+    // The same content-addressed URL as the failed attempt: no orphan, nothing
+    // to clean up, and the entry can point at exactly this.
+    expect(second.value.contentUrl).toBe(
+      `${mediaContainer(POD, await mediaHash(source))}web.webp`,
+    );
+    expect(second.value.thumbnailUrl).toBe(
+      `${mediaContainer(POD, await mediaHash(source))}thumb.webp`,
+    );
+  });
 });

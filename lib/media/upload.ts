@@ -104,6 +104,36 @@ export async function uploadPhoto(opts: UploadPhotoOptions): Promise<Result<Phot
   const contentUrl = `${container}web.${webExt}`;
   const thumbnailUrl = `${container}thumb.${thumbExt}`;
 
+  /**
+   * A BARE `Result`, NOT lib/pod/save-entry.ts's STEP REPORT — AND THAT
+   * DIFFERENCE IS DELIBERATE, NOT AN OVERSIGHT. DO NOT "FIX" IT.
+   *
+   * There is a genuine partial-failure path here: web can be written and thumb
+   * then fail, leaving `web.<ext>` on the Pod while this returns an error. In
+   * §10's entry sequence that shape is exactly why `saveEntry` returns a report
+   * naming the completed steps and a `recovery` action — an entry written but
+   * unlisted is invisible rather than absent, and a caller that cannot tell
+   * "nothing happened" from "half-written" cannot reach `rebuildIndex`.
+   *
+   * None of that applies here, for one reason: THE PATH IS CONTENT-ADDRESSED.
+   * A retry with the same source bytes derives the same container, so the
+   * already-written derivative answers `If-None-Match: *` with 412, which
+   * `putDerivative` reads as reuse, and only the missing derivative is written.
+   * The operation is idempotent, so "retry" IS the recovery action and there is
+   * no orphan to clean up and no state a caller could act on differently. A
+   * step report would be a second thing to keep in step for no decision it
+   * enables — worse than none.
+   *
+   * That reasoning is load-bearing, so it is asserted rather than asserted-at:
+   * test/media-upload.test.ts, "reports a thumb-only failure as the thumb's,
+   * and heals on retry", drives web and thumb to different statuses because
+   * every other failure test here answers one status to every PUT and so never
+   * reaches this path at all. If that test ever goes red on its retry half,
+   * this comment is wrong and the return type has to be revisited.
+   *
+   * The error is `putGuarded`'s, so it carries the failing derivative's URL and
+   * the caller is never told "the upload failed" about a file that is present.
+   */
   const wrote = await putDerivative(opts.fetch, contentUrl, web.blob);
   if (!wrote.ok) return err(wrote.error);
   const wroteThumb = await putDerivative(opts.fetch, thumbnailUrl, thumb.blob);
