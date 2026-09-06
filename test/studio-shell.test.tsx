@@ -176,16 +176,26 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }, gate?: Pro
   const session = {
     info,
     events,
-    /** The session's authenticated fetch, which StudioSessionLike models
-     *  because the entry editor needs one to hand `saveEntry`. It is never
-     *  called on any path THIS file drives, because every case here supplies
-     *  `trips` and a supplied list means the shell enumerates nothing — the
-     *  assertion at the end of section 4 pins exactly that. Throwing is the
-     *  point: if that ever stops being true, the case that broke it says so
-     *  with this message rather than reaching a live host. The listing path is
-     *  test/studio-trip-loading.test.tsx's, and its fake session's fetch works. */
-    fetch: (async () => {
-      throw new Error("the shell must not fetch: nothing here goes to the Pod");
+    /**
+     * The session's authenticated fetch, which StudioSessionLike models because
+     * the entry editor needs one to hand `saveEntry`.
+     *
+     * IT IS CALLED, ONCE PER OWNER RENDER, and it was not always. Every case
+     * here supplies `trips`, so the SHELL still enumerates nothing — but the
+     * entry editor inside it reads §7.6's privacy settings on mount, through
+     * this fetch, and that is the editor's request rather than the shell's.
+     *
+     * Throwing is still the point. The read is a `Result` that fails closed, so
+     * the editor renders with its coordinate controls dead and every case in
+     * this file goes on testing what it tested; and a request to anything ELSE
+     * is a shell that started listing, which the enumeration at the end of
+     * section 4 catches BY URL rather than by count.
+     *
+     * The listing path is test/studio-trip-loading.test.tsx's, and its fake
+     * session's fetch works.
+     */
+    fetch: (async (input: RequestInfo | URL) => {
+      throw new Error(`nothing in this file may reach a host: ${String(input)}`);
     }) as typeof globalThis.fetch,
     async handleIncomingRedirect(options?: unknown): Promise<unknown> {
       restores.push(options);
@@ -803,35 +813,62 @@ describe("studio shell — the session lapsing mid-edit", () => {
   });
 
   /**
-   * A SHELL THAT HAS BEEN HANDED ITS TRIPS ASKS THE POD NOTHING — not through
-   * the ambient fetch, and not through the session's either.
+   * A SHELL THAT HAS BEEN HANDED ITS TRIPS DOES NOT GO AND LIST THEM AGAIN —
+   * not through the ambient fetch, and not through the session's either.
    *
-   * This used to read "makes no network request of its own", and it was true of
-   * a shell that could not fetch at all. It can now (test/studio-trip-loading
-   * .test.tsx), so the claim has to be the narrower one that is still true, or
-   * it becomes a green assertion about a path this file never takes. Both
-   * fetches are checked, because only one of them is the ambient one and the
-   * ambient spy alone would miss the whole listing.
+   * NARROWED TWICE, and the second narrowing is the interesting one.
    *
-   * test/setup.ts already fails an unhandled request, but a spy says what is
-   * meant and would still catch a request to a URL some handler happened to
-   * cover.
+   * It began as "makes no network request of its own", which was true of a
+   * shell that could not fetch at all. When the listing landed
+   * (test/studio-trip-loading.test.tsx) that became a claim about a path this
+   * file never takes, so it was narrowed to "when it is handed its trips".
+   *
+   * Then the coordinate gate landed and the claim stopped being true for a
+   * second reason: the SUBTREE is not silent. The entry editor reads §7.6's
+   * privacy settings on mount, through the session's fetch, before anything is
+   * typed — §9's fail-closed posture, and the reason section 1 of
+   * test/entry-editor.test.tsx can wait for the latitude control to become
+   * enabled with no interaction in front of it. That request is the editor's,
+   * not the shell's.
+   *
+   * SO THE SUBJECT IS THE SHELL'S OWN TRAFFIC, and the way to state it without
+   * blunting it is to ENUMERATE what was asked for rather than to count it: the
+   * one URL below is the editor's, and any other — the trips container, a
+   * `trip.ttl`, the public diary — fails this. A `toHaveLength(1)` or a filter
+   * on "not the settings URL" would let a re-listing through the moment it
+   * replaced that request rather than adding to it.
+   *
+   * Both fetches are gathered, because only one of them is the ambient one and
+   * the ambient spy alone would miss the whole listing. test/setup.ts already
+   * fails an unhandled request, but that only covers a URL no handler serves.
    */
-  it("makes no network request of its own when it is handed its trips", async () => {
+  it("does not re-list the trips it was handed", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const sessionFetch = vi.fn(async () => {
-      throw new Error("the shell must not fetch: this case supplies the trips");
+    /** Throws whatever it is asked for: nothing in this file may reach a host,
+     *  and the editor's read is a `Result` that fails closed rather than a
+     *  rejection anyone has to handle here. Recorded either way, which is what
+     *  makes the enumeration below an observation rather than the absence of an
+     *  exception. */
+    const sessionFetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      throw new Error(`nothing in this file may reach a host: ${String(input)}`);
     });
     const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
-    // Replaces the throwing stand-in with a countable one, so "it did not
-    // fetch" is an observation rather than the absence of an exception.
     Object.defineProperty(fake.session, "fetch", { value: sessionFetch, configurable: true });
 
     await renderShell(fake.session, { trips: [TRIP] });
     await waitFor(() => expect(signOutControl()).toHaveLength(1));
 
+    // The ambient one is never right in the studio: it carries no credential,
+    // and on a hosted Pod an anonymous read of an owner-only resource is a 401
+    // that does not distinguish private from missing (invariant 4).
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(sessionFetch).not.toHaveBeenCalled();
+    const asked = [...fetchSpy.mock.calls, ...sessionFetch.mock.calls].map(([input]) =>
+      String(input),
+    );
+    // §4's layout, spelled out rather than derived from `privacySettingsUrl`:
+    // deriving it from the function the shell calls would assert that the shell
+    // agrees with itself.
+    expect(asked).toEqual([`${POD}travel/settings/privacy.ttl`]);
     // Non-vacuous: the owner UI really did render, so this is not "nothing
     // happened at all".
     expect(editorSaveControl()).toHaveLength(1);

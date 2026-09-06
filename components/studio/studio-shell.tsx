@@ -38,6 +38,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { privacySettingsUrl } from "@/lib/pod/read";
 import { describe as describePodError } from "@/lib/pod/result";
 import { listStudioTrips } from "@/lib/studio/trips";
 import {
@@ -230,6 +231,7 @@ export default function StudioShell({
         session={session}
         trips={trips}
         listing={listing}
+        settingsUrl={settingsUrlFor(podRoot)}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -248,6 +250,7 @@ function Body({
   session,
   trips,
   listing,
+  settingsUrl,
   onSignIn,
   onSignOut,
 }: {
@@ -257,6 +260,10 @@ function Body({
   /** Undefined means "ask the Pod" — see the prop's docblock. */
   trips: EditorTrip[] | undefined;
   listing: ListingState;
+  /** §7.6's owner-only resource, for the editor. Resolved here rather than
+   *  there because the editor reads no config and this is derived from
+   *  `podRoot`, which arrived as a prop for exactly that reason. */
+  settingsUrl: string;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -316,7 +323,12 @@ function Body({
         <>
           <p className="mt-2 text-muted-foreground">{`Signed in as ${view.webId}.`}</p>
           <Action onClick={onSignOut}>{"Sign out"}</Action>
-          <Writables session={session} trips={trips} listing={listing} />
+          <Writables
+            session={session}
+            trips={trips}
+            listing={listing}
+            settingsUrl={settingsUrl}
+          />
         </>
       );
   }
@@ -336,14 +348,18 @@ function Writables({
   session,
   trips,
   listing,
+  settingsUrl,
 }: {
   session: StudioSessionLike;
   trips: EditorTrip[] | undefined;
   listing: ListingState;
+  settingsUrl: string;
 }) {
   // Supplied means supplied: the caller has already decided, so no state of the
   // enumeration is consulted and none was ever started. See the prop docblock.
-  if (trips !== undefined) return <Writable session={session} trips={trips} skipped={[]} />;
+  if (trips !== undefined) {
+    return <Writable session={session} trips={trips} skipped={[]} settingsUrl={settingsUrl} />;
+  }
 
   switch (listing.status) {
     /** Not a blank, and above all not the empty-state note. */
@@ -375,6 +391,7 @@ function Writables({
           session={session}
           trips={listing.listing.trips}
           skipped={listing.listing.skipped}
+          settingsUrl={settingsUrl}
         />
       );
   }
@@ -384,10 +401,12 @@ function Writable({
   session,
   trips,
   skipped,
+  settingsUrl,
 }: {
   session: StudioSessionLike;
   trips: EditorTrip[];
   skipped: StudioTripListing["skipped"];
+  settingsUrl: string;
 }) {
   return (
     <>
@@ -411,7 +430,7 @@ function Writable({
           </p>
         )
       ) : (
-        <EntryEditor session={session} trips={trips} />
+        <EntryEditor session={session} trips={trips} settingsUrl={settingsUrl} />
       )}
     </>
   );
@@ -462,6 +481,28 @@ function Action({ onClick, children }: { onClick: () => void; children: string }
       {children}
     </button>
   );
+}
+
+/**
+ * §7.6's owner-only resource, from the root this shell was handed.
+ *
+ * TOTAL, FOR THE REASON `enumerateTrips` BELOW CATCHES: `privacySettingsUrl`
+ * builds `new URL("travel/settings/privacy.ttl", podRoot)`, and a malformed
+ * POD_ROOT makes that throw synchronously. Thrown from a render rather than
+ * from an effect, it would take the whole studio down — a blank screen where
+ * the trips listing is already prepared to say what went wrong.
+ *
+ * The empty string is a URL that can only fail to read, and failing to read is
+ * §9's fail-closed answer: the coordinate controls stay dead and say so, while
+ * everything else on the form still works. A configuration that reaches here is
+ * already showing the owner a failed enumeration.
+ */
+function settingsUrlFor(podRoot: string): string {
+  try {
+    return privacySettingsUrl(podRoot);
+  } catch {
+    return "";
+  }
 }
 
 /**

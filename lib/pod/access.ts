@@ -177,9 +177,40 @@ const PUBLIC_NOTHING: Access = { read: false, append: false, write: false, contr
 const PUBLIC_READ: Access = { read: true, append: false, write: false, control: false };
 const OWNER_FULL: Access = { read: true, append: true, write: true, control: true };
 
-/** The §4 layout. Media is one global container, outside any trip, so that
- *  publishing never has to move binaries. */
-const CONTAINERS = ["travel/", "travel/trips/", "travel/media/"] as const;
+/**
+ * The §4 layout, with what the public may read inside each one.
+ *
+ * Media is one global container, outside any trip, so that publishing never has
+ * to move binaries.
+ *
+ * `travel/settings/` IS THE ONE WITH `publicChildren: false`, and the flag is
+ * the whole point of it being here rather than created on demand later. It
+ * holds `privacy.ttl` — the owner's home coordinates and fuzzing radius (§7.6)
+ * — and `acl:default` inherits recursively, so a container created below
+ * `travel/` with no ACL of its own is covered by the parent's public default.
+ * That is not a hypothesis: it is measured in this repository, on
+ * `travel/trips/2026-japan/`, where an anonymous GET returned 200 and listed
+ * the children.
+ *
+ * So the safe state for this container is NOT the state it arrives in, and the
+ * failure mode is silent — the write returns 201, the studio works, and the
+ * home coordinates are readable at a URL anyone can guess from §4. Creating it
+ * here, at first run, is what makes the safe shape structural rather than
+ * remembered by whoever writes the settings-editing UI.
+ *
+ * Verified rather than reasoned: before this entry existed, the integration
+ * suite's anonymous GET of `travel/settings/privacy.ttl` returned **200 with
+ * the home latitude in the body**, and `readPrivacySettings` with a plain
+ * unauthenticated fetch returned `ok` carrying the full home region. Both are
+ * 401 now. See test/pod-access.integration.test.ts, "the privacy settings
+ * container".
+ */
+const CONTAINERS: ReadonlyArray<{ segment: string; publicChildren: boolean }> = [
+  { segment: "travel/", publicChildren: true },
+  { segment: "travel/trips/", publicChildren: true },
+  { segment: "travel/media/", publicChildren: true },
+  { segment: "travel/settings/", publicChildren: false },
+];
 
 /**
  * Report the URL the CALLER asked about, not the URL that happened to fail.
@@ -682,6 +713,13 @@ export async function getAccess(url: string, opts: AccessOptions): Promise<Resul
  * It does NOT create diary.ttl or any other content. Content is a write, and
  * writes carry the dy: namespace, which is still example.org (CLAUDE.md,
  * "Blocked until decided").
+ *
+ * That applies to `travel/settings/privacy.ttl` too, and there for a second
+ * reason on top of the namespace: a default settings document would mean
+ * choosing a home region on the owner's behalf, and every possible choice is
+ * wrong. So a fresh Pod gets the container and no document, `readPrivacySettings`
+ * returns a structured 404, and §9's fail-closed rule means entries are written
+ * with no coordinate until the owner sets one. The studio has to say so.
  */
 export async function initialiseContainers(opts: {
   fetch: PodFetch;
@@ -698,9 +736,13 @@ export async function initialiseContainers(opts: {
   // i.e. enumerable. Verified against CSS 7.2.0: with an ACL on travel/ alone,
   // an anonymous GET of travel/trips/ returned 200 and listed its children.
   // createContainer is what makes that one operation rather than two.
-  for (const segment of CONTAINERS) {
+  for (const { segment, publicChildren } of CONTAINERS) {
     const url = new URL(segment, root).toString();
-    const access = await createContainer(url, { fetch: opts.fetch, webId: opts.webId });
+    const access = await createContainer(url, {
+      fetch: opts.fetch,
+      webId: opts.webId,
+      publicChildren,
+    });
     if (!access.ok) return err(access.error);
     containers.push(access.value);
   }

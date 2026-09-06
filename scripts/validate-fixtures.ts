@@ -30,9 +30,42 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["index", `${POD}/travel/trips/2026-japan/entries.ttl`],
   ["profile", `${POD}/profile/card`],
   ["typeindex", `${POD}/settings/publicTypeIndex.ttl`],
+  // §7.6, and note the path: `travel/settings/`, NOT the `settings/` at the Pod
+  // root that the line above serves the type index from. Same segment name,
+  // different container, opposite access requirement (§4).
+  ["privacy", `${POD}/travel/settings/privacy.ttl`],
 ];
 
-const GEO_PREDS = ["latitude", "longitude", "#lat", "#long", "bbox", "center"];
+/**
+ * Predicates whose object must be `xsd:decimal` (§6: "never xsd:float for
+ * coordinates").
+ *
+ * `homeLat` and `homeLong` are spelled out because NEITHER matched any existing
+ * entry: `#homeLat` does not contain `#lat`, and it is not `latitude` either. So
+ * §7.6's coordinate pair arrived unchecked by this rule.
+ *
+ * WHAT THAT DOES AND DOES NOT COST, measured rather than reasoned. `xsd:float`
+ * is banned unconditionally a few lines below, so a float home latitude was
+ * caught either way — an earlier draft of this comment claimed otherwise and was
+ * wrong. What these two entries actually catch is every OTHER wrong datatype:
+ * with them removed, `dy:homeLat "45.4655"` (i.e. `xsd:string`) passes this
+ * script while failing `decimal()` in lib/pod/rdf.ts on every real read. With
+ * them present it fails here, naming the predicate and both datatypes.
+ */
+const GEO_PREDS = ["latitude", "longitude", "#lat", "#long", "bbox", "center", "homeLat", "homeLong"];
+
+/**
+ * Predicates whose object must be `xsd:integer` (§6: "counts and distances").
+ *
+ * The other half of the datatype rule, and it was missing entirely — this
+ * script banned `xsd:float` and required decimals on coordinates, and said
+ * nothing about the integers. A `dy:homeRadiusMeters 3000.0` is `xsd:decimal`,
+ * reads back through `integer()` in lib/pod/rdf.ts as a datatype error, and was
+ * a perfectly valid fixture as far as this file was concerned. `Meters` covers
+ * `precisionMeters`, `homeRadiusMeters` and `defaultPrecisionMeters` at once.
+ */
+const INT_PREDS = ["Meters", "entryCount", "sortOrder", "schemaVersion", "width", "height"];
+
 const DT_RE = /[+-]\d{2}:\d{2}$|Z$/;
 
 const failures: string[] = [];
@@ -76,6 +109,9 @@ function main(): number {
       }
       if (GEO_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}decimal`) {
         fail(label, `${p} is ${dt}, expected xsd:decimal`);
+      }
+      if (INT_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}integer`) {
+        fail(label, `${p} is ${dt}, expected xsd:integer`);
       }
       if (dt === `${NS.xsd}dateTime` && !DT_RE.test(q.object.value)) {
         fail(label, `dateTime without UTC offset on ${p}: ${q.object.value}`);

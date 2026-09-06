@@ -15,7 +15,8 @@ import {
 } from "./rdf";
 import { describe, err, ok, type PodError, type Result } from "./result";
 import {
-  Diary, Entry, IndexEntry, OwnerProfile, Place, Trip, TripIndex, type LangText,
+  Diary, Entry, IndexEntry, OwnerProfile, Place, PrivacySettings, Trip, TripIndex,
+  type LangText,
 } from "./schema";
 import type { Quad } from "n3";
 
@@ -149,6 +150,27 @@ export const tripUrl = (podRoot: string, slug: string) =>
 export const tripIndexUrl = (podRoot: string, slug: string) =>
   new URL(`travel/trips/${encodeURIComponent(slug)}/entries.ttl`, podRoot).toString();
 export const diaryUrl = (podRoot: string) => new URL("travel/diary.ttl", podRoot).toString();
+
+/**
+ * The owner-only privacy settings (§7.6).
+ *
+ * NOT `{storage}settings/publicTypeIndex.ttl`. Same segment name, different
+ * container, opposite access requirement — the type index lives at the Pod root
+ * and must be publicly readable (§7.5), this one lives under `travel/` and must
+ * never be. Revision 2 of the data model already moved the type index out of
+ * `/travel/settings/` once; §4 says do not merge them.
+ *
+ * THIS ONE NORMALISES THE ROOT AND THE OTHERS ABOVE DO NOT, deliberately.
+ * `new URL("travel/…", "https://host/pod")` — a root with no trailing slash —
+ * resolves against the PARENT of `pod`, so on a multi-pod server (CSS hosts
+ * every account under one origin) it addresses a stranger's storage. For
+ * `diaryUrl` that is a 404. For this resource it is a read of, and eventually a
+ * write to, someone else's home coordinates. `config.podRoot` appends the slash
+ * so nothing in the app reaches here without one; this is the belt to that
+ * braces, at the one URL where being wrong is not merely a missing page.
+ */
+export const privacySettingsUrl = (podRoot: string) =>
+  new URL("travel/settings/privacy.ttl", podRoot.endsWith("/") ? podRoot : `${podRoot}/`).toString();
 
 /* --------------------------------------------------------------------- read */
 
@@ -360,6 +382,104 @@ export async function readDiary(url: string, opts?: ReadOptions): Promise<Result
         description: langText(v, DCTERMS.description),
         creator: v.one(DCTERMS.creator),
         trips: v.all(DY.trip),
+        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+      },
+      url,
+    );
+  });
+}
+
+
+/**
+ * The owner's privacy settings (§7.6) — the home region and the default grid,
+ * read before any coordinate is written (§9).
+ *
+ * Modelled on `readOwnerProfile`, which is the other read here that is not part
+ * of the public render path. FIVE THINGS DIFFER, and each is something a later
+ * "make these consistent" pass would get exactly backwards. Each is pinned by a
+ * test in test/privacy-settings.test.ts.
+ *
+ * 1. THE SUBJECT IS `<#it>`. `readOwnerProfile` uses the whole WebID, fragment
+ *    included, because a WebID *is* a fragment IRI naming a person and the
+ *    fragment is not ours to choose. This is our own resource, so §6's rule
+ *    applies unchanged: "every subject is a fragment, never a bare document
+ *    URL, never a blank node".
+ *
+ * 2. `dy:schemaVersion` IS CHECKED. `readOwnerProfile` deliberately skips it —
+ *    the WebID document is not ours and will never carry our version. This
+ *    resource is ours, so §11's "check it on every top-level read" applies in
+ *    full. It matters more here than elsewhere: a settings document written by
+ *    a later version of this app could mean something different by the same
+ *    four predicates, and acting on a misread home radius is not a rendering
+ *    glitch.
+ *
+ * 3. DATATYPES ARE ENFORCED — `xsd:decimal` for the coordinate pair (never
+ *    float), `xsd:integer` for the two distances (§6). `readOwnerProfile` reads
+ *    only IRIs and enforces nothing. Without this a `"3000"^^xsd:string` radius
+ *    reads back as the number 3000 with nothing complaining.
+ *
+ * 4. IT NEEDS AN AUTHENTICATED FETCH. `readOwnerProfile` is unauthenticated by
+ *    design; this resource is owner-only, so a caller without a session gets
+ *    401 — and on ESS an anonymous 401 does not even distinguish private from
+ *    missing (§13). Both arrive here as a structured `http` error, which is the
+ *    right answer either way: see below.
+ *
+ * 5. THERE ARE NO DEFAULTS, ANYWHERE. This is the fail-closed contract in §9,
+ *    and it is the whole reason this function exists rather than a config
+ *    lookup. Absent, unreadable, wrong version, half-written home region — all
+ *    of them are errors, and every caller publishes NO coordinate on any error.
+ *    An absent `dy:homeRadiusMeters` read as zero is a home region of no area,
+ *    i.e. no protection, reported as success.
+ *
+ * NO `rdf:type` GATE, which it shares with `readOwnerProfile` but for a
+ * different reason. There is no class for this resource: §3's four privacy
+ * terms are the four that were agreed with the owner, and a class would be a
+ * fifth (CLAUDE.md, "ask before doing"). §7.6 records that, and records that
+ * adding one later is purely additive. `dy:schemaVersion` plus the shape is the
+ * gate — which is what it would have to be regardless, since a type triple
+ * never protected against a document that parses and means something else.
+ *
+ * ON THE COMMON CASE, WHICH IS AN ERROR. A Pod that has never had a
+ * `privacy.ttl` returns 404 here, and `initialiseContainers()` creates the
+ * container but deliberately writes no document into it (§5). So every fresh
+ * deployment fails this read until the owner sets a home region, and §9 makes
+ * that mean "no coordinates are published". That is intended. It is also
+ * something the studio has to SAY — an entry silently losing its map pin
+ * becomes a bug report, whereas "you have not set a home region yet" is a
+ * one-time setup step with an obvious fix.
+ */
+export async function readPrivacySettings(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<PrivacySettings>> {
+  const fetched = await fetchTurtle(url, opts);
+  if (!fetched.ok) return fetched;
+  const { quads } = fetched.value;
+
+  return guard(() => {
+    const v = viewOf(quads, itOf(url));
+    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+
+    const lat = take(decimal(v, DY.homeLat, url));
+    const long = take(decimal(v, DY.homeLong, url));
+    const radiusMeters = take(integer(v, DY.homeRadiusMeters, url));
+
+    // ALL THREE OR NONE, and the difference is decided here rather than in the
+    // schema, because Zod cannot tell "absent" from "absent" once the object
+    // has been built. None of them present is a legitimate setting — "I have no
+    // home to protect" — and fuzzing still applies to every coordinate; it just
+    // never drops one. ANY of them present commits to a home region, so a
+    // missing sibling is a shape error naming the field rather than a silent
+    // downgrade to no protection at all.
+    const declaresHome = lat !== undefined || long !== undefined || radiusMeters !== undefined;
+
+    return validate(
+      PrivacySettings,
+      {
+        iri: itOf(url),
+        schemaVersion: schemaVersionOf(v, url),
+        home: declaresHome ? { lat, long, radiusMeters } : undefined,
+        defaultPrecisionMeters: take(integer(v, DY.defaultPrecisionMeters, url)),
         modified: take(offsetDateTime(v, DCTERMS.modified, url)),
       },
       url,

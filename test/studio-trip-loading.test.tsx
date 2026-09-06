@@ -157,6 +157,24 @@ const PATAGONIA = `${TRIPS}2025-patagonia/`;
 const BROKEN = `${TRIPS}2027-future/`;
 const tripDoc = (container: string) => `${container}trip.ttl`;
 
+/**
+ * §7.6's owner-only privacy settings — NOT this file's subject, and served for
+ * exactly that reason: the entry editor the shell renders reads it on mount, so
+ * leaving it out puts a failure banner inside the subtree every assertion here
+ * reads.
+ *
+ * The URL is §4's layout spelled out, not `privacySettingsUrl(POD)`: deriving
+ * it from the function the shell calls would assert that the shell agrees with
+ * itself. The document is the normative block, extracted like every other
+ * fixture here (§11 guardrail 6) and guarded, since a shift in the §7 numbering
+ * would otherwise serve some other resource under this name.
+ */
+const SETTINGS_URL = `${POD}travel/settings/privacy.ttl`;
+const PRIVACY_TTL = blocks[6];
+if (!PRIVACY_TTL?.includes("dy:homeRadiusMeters")) {
+  throw new Error("docs/data-model.md §7.6 block not found at the expected index");
+}
+
 /** A DIFFERENT Pod, used only as a decoy in the config test: nothing serves it,
  *  so a request to it is an unhandled request and test/setup.ts fails the test
  *  for it whether or not the assertion catches it first. */
@@ -284,6 +302,16 @@ function fakePod(spec: {
  * `diary.ttl` is served, and served WITHOUT the draft, on purpose — an
  * implementation that reached for the public diary would look successful and be
  * wrong in exactly the way §4 forbids. The draft assertions are what fail it.
+ *
+ * §7.6 IS SERVED TOO, and owner-only because that is what it is. The entry
+ * editor this shell renders reads it on mount (§9's fail-closed gate), so every
+ * case here that gets as far as an editor makes that request whether or not it
+ * is the subject. Serving it valid rather than letting the `${POD}*` catch-all
+ * 404 it keeps the editor in its ordinary state: a 404 puts "your privacy
+ * settings could not be read" on screen, which the whole-document assertion in
+ * "says nothing about skipped trips" matched — a REAL failure of a test whose
+ * subject is trips, and an intermittent one, since it depended on whether the
+ * read had resolved before the assertion ran.
  */
 function studioPod(extra: { onGet?: (url: string) => Promise<void> | void } = {}) {
   return fakePod({
@@ -291,6 +319,7 @@ function studioPod(extra: { onGet?: (url: string) => Promise<void> | void } = {}
     ownerOnly: {
       [TRIPS]: containerTurtle([...NOISE, "2026-japan/", "2025-patagonia/"]),
       [tripDoc(PATAGONIA)]: PATAGONIA_TTL,
+      [SETTINGS_URL]: PRIVACY_TTL,
     },
     onGet: extra.onGet,
   });
@@ -624,9 +653,20 @@ describe("studio shell — listing the owner's trips", () => {
     expect(pod.got(TRIPS)).toHaveLength(1);
     expect(pod.got(tripDoc(JAPAN))).toHaveLength(1);
     expect(pod.got(tripDoc(PATAGONIA))).toHaveLength(1);
-    // Exactly three requests in total: the container and the two trips. Neither
-        // `entries.ttl` nor `entries/` is anyone's business until save time.
-    expect(pod.requests).toHaveLength(3);
+    /**
+     * FOUR REQUESTS, AND EVERY ONE OF THEM IS NAMED. The listing is the three
+     * above; the fourth is §7.6, which the entry editor reads on mount once the
+     * trips arrive and it is rendered — not part of the listing, and counted
+     * here rather than filtered out so that "once" covers it too.
+     *
+     * Written as `1 + 1 + 1 + 1` against a total, which is what makes this an
+     * exhaustive statement: a fifth request of any kind, to any URL, fails it.
+     * Dropping the total and keeping only the four `got` calls would let a
+     * second read of anything else through unnoticed.
+     */
+    expect(pod.got(SETTINGS_URL)).toHaveLength(1);
+    expect(pod.requests).toHaveLength(4);
+    // Neither `entries.ttl` nor `entries/` is anyone's business until save time.
     expect(pod.urls().filter((u) => u.includes("entries"))).toEqual([]);
   });
 
@@ -977,6 +1017,11 @@ describe("studio shell — when the Pod will not answer", () => {
         [TRIPS]: containerTurtle([...NOISE, "2026-japan/", "2027-future/"]),
         [tripDoc(JAPAN)]: JAPAN_TTL,
         [tripDoc(BROKEN)]: "@prefix broken",
+        // Served for the same reason `studioPod` serves it: the ONE difference
+        // between this case and its mirror below must be the unreadable trip,
+        // and an unserved §7.6 would put a second "could not be read" sentence
+        // on only one of the two screens.
+        [SETTINGS_URL]: PRIVACY_TTL,
       },
     });
     const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
@@ -1001,14 +1046,32 @@ describe("studio shell — when the Pod will not answer", () => {
    * The mirror of the case above, and it is what stops "say something about
    * skips" turning into "always say something about skips". A clean Pod must
    * not tell the owner a trip went missing.
+   *
+   * THE SCOPE IS THE WHOLE DOCUMENT, deliberately: a message of this kind is
+   * worth catching wherever it is put, and narrowing to a region would be
+   * choosing where the implementer may not put it. That is also why this test
+   * broke — the editor's fail-closed banner says "your privacy settings could
+   * not be read", so an unserved §7.6 makes a test about TRIPS red for a reason
+   * that has nothing to do with trips, and only sometimes, depending on whether
+   * the mount read had resolved. `studioPod` serves the document; the note that
+   * is up while the read is outstanding shares no vocabulary with this regex,
+   * which is a rule the editor states about itself.
+   *
+   * `settle()` and the request count between them make that a fact rather than
+   * a coincidence of timing: the read has happened, it was answered, and the
+   * sentence below is absent from the settled DOM rather than from a DOM the
+   * assertion beat to the finish.
    */
   it("says nothing about skipped trips when none were skipped", async () => {
-    studioPod();
+    const pod = studioPod();
     const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
 
     const { container } = renderShell(fake.session);
 
     await waitFor(() => expect(editorHeadlineField()).toHaveLength(1));
+    await settle();
+
+    expect(pod.got(SETTINGS_URL), "§7.6 was never read, so no banner could be up").toHaveLength(1);
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/could not (be )?read|skipped|unreadable/i);
     expect(text).not.toContain("trip.ttl");

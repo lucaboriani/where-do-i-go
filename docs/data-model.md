@@ -6,7 +6,7 @@ Every other layer depends on this document. Treat predicate names as frozen once
 ships: changing them later means migrating live Pods that you may not control, because other
 people will have deployed this app against their own data.
 
-Revision 3. See §14 for what changed and why.
+Revision 5. See §14 for what changed and why.
 
 ---
 
@@ -141,7 +141,20 @@ Media and misc:
 - `dy:track` (IRI) — a GeoJSON or GPX file resource
 - `dy:tag` (`xsd:string`) — used on both trips and entries
 
-### Two naming decisions
+Privacy settings (§7.6 is the resource; §9 is what they do):
+
+- `dy:homeLat`, `dy:homeLong` (`xsd:decimal`) — the centre of the home region
+- `dy:homeRadiusMeters` (`xsd:integer`) — its radius. Inside it no coordinate is published at
+  all, so this is the one value whose absence must never be read as zero
+- `dy:defaultPrecisionMeters` (`xsd:integer`) — the grid a coordinate outside the home region is
+  snapped to, and the value written to `dy:precisionMeters` alongside the result
+
+These four live in one owner-only resource (§7.6), and they are the only terms in this document
+that are never publicly readable. That is the whole point of them: the home region is the thing
+being protected, so publishing its centre and radius would hand any reader the exact answer the
+fuzzing exists to withhold.
+
+### Three naming decisions
 
 **Bounding boxes are four separate decimals**, not one packed string. No string parsing means
 no parsing bugs, which matters when agents write the serialisation code.
@@ -149,6 +162,21 @@ no parsing bugs, which matters when agents write the serialisation code.
 **`dy:tag` rather than `schema:keywords`.** `keywords` is domain-restricted to
 `schema:CreativeWork`, which covers entries but not trips. One term used consistently on both,
 mapped to `keywords` in the JSON-LD output (§8), beats two terms for one concept.
+
+**`dy:homeLong`, the `…Long` spelling, consistent with `dy:long` and `dy:centerLong`.** Revision 4
+spelled it `homeLon` and said so deliberately: the four privacy terms had been agreed with that
+spelling, and a predicate becomes a permanent identifier the moment anything writes one (rule 4),
+so a rename after the first write means migrating Pods you do not control. That reasoning is why
+this was renamed on 2026-09-06 rather than left: the condition it named — "if it is going to
+change it has to change *before* that write" — still held. **Nothing had ever written a
+`privacy.ttl`**: `initialiseContainers()` creates `/travel/settings/` and deliberately writes no
+document into it (§5, §9), the studio has no control that writes one, and the only `privacy.ttl`
+in existence is the one `test/pod-access.integration.test.ts` PUTs into a disposable local
+Community Solid Server. Agreed with the owner before the edit, per CLAUDE.md.
+
+That window is now closed for all four terms. The next thing to write one of these is the studio,
+and after that a rename costs a migration — so `dy:homeLat`, `dy:homeLong`, `dy:homeRadiusMeters`
+and `dy:defaultPrecisionMeters` are fixed. Do not "tidy" them afterwards.
 
 ### On travel modes and schema.org
 
@@ -164,6 +192,8 @@ it later.
 ```
 /travel/
   diary.ttl                      dy:Diary — title, owner, trip list
+  settings/
+    privacy.ttl                  home region, default precision — OWNER-ONLY (§7.6)
   trips/
     2026-japan/
       trip.ttl                   the dy:Trip / schema:TouristTrip
@@ -226,6 +256,25 @@ control. If drafts must be genuinely private, add `/travel/media-private/` with 
 ACL and accept the move-on-publish work for binaries only. Decide this consciously; do not let
 it happen by default.
 
+### The settings container is owner-only, and is not the type index
+
+`/travel/settings/` is the only container under `/travel/` whose children are **not** publicly
+readable. It holds `privacy.ttl` (§7.6) and nothing else so far.
+
+It needs its OWN ACL, like every other container here, and for a sharper reason than the listing
+leak. `acl:default` inherits recursively, so a container created below `/travel/` with no ACL of
+its own is covered by the parent's public default — which would make `privacy.ttl` world-readable
+and publish the owner's home coordinates to anyone who guessed the path. That is the exact
+opposite of what the resource is for, and it would happen silently, on a 201. So
+`initialiseContainers()` creates it at first run with public read withheld, before anything can
+write into it.
+
+**It is not `{storage}settings/publicTypeIndex.ttl`, and the two must never be merged.** The type
+index sits at the *Pod root* under `{storage}settings/`, is found through the owner's profile
+document, and has to be given public read explicitly (§7.5). Revision 2 already moved it out of
+`/travel/settings/` once, because a type index there "would have been discovered by nothing"
+(§14). Same segment name, different container, opposite access requirement. Move neither.
+
 ### Naming
 
 Container segment names are always identical to `dy:slug`. This is what makes the public route
@@ -257,6 +306,8 @@ stays protected, draft existence and title do not (§4, `docs/decisions.md` §20
 | `/travel/diary.ttl` | n/a — a document | yes | owner |
 | `/travel/trips/` and below | **no** | yes | owner |
 | `/travel/media/` | **no** | yes | owner |
+| `/travel/settings/` | **no** | **no** | owner |
+| `/travel/settings/privacy.ttl` | n/a — a document | **no** | owner |
 | any resource with `dy:status dy:Draft` | n/a — a document | **no** | owner |
 | `/travel/media-private/`, if used | no | no | owner |
 
@@ -269,6 +320,11 @@ Each container needs its own ACL. Inheritance reaches arbitrary depth — an ACL
 `/travel/trips/` alone makes a document three levels below it readable — but a container with no
 ACL of its own is listable if any ancestor grants `accessTo`. Granting on `/travel/` only leaves
 `/travel/trips/` enumerable.
+
+`/travel/settings/` is that same rule with the grant removed: its own ACL, and no public
+`acl:default` on it either, so public read stops at the container and never reaches
+`privacy.ttl`. Letting it inherit the parent's default instead would publish the home
+coordinates the resource exists to keep private (§7.6, §9).
 
 Containers carry the default; individual draft resources override it. Publishing an entry is
 therefore two operations: flip `dy:status` to `dy:Published`, and relax that resource's ACL.
@@ -290,6 +346,12 @@ handling leaks into feature code, the eventual migration becomes a rewrite.
 Creating containers and setting initial ACLs by hand is the step where new deployers give up.
 Ship `initialiseContainers()` as a first-run flow that is idempotent and safe to re-run, and
 have it verify the resulting access rather than assuming the writes took effect.
+
+It creates four containers: `/travel/`, `/travel/trips/` and `/travel/media/` with public read
+reaching the resources inside, and `/travel/settings/` with none. It creates **no documents**.
+Content is a write, writes carry the `dy:` namespace, and that is still unresolved — and in the
+settings case a default document would also mean choosing a home region on the owner's behalf,
+where every possible choice is wrong (§9).
 
 ---
 
@@ -609,6 +671,61 @@ via an `InsertDeletePatch` was verified to leave a different app's existing regi
 This is what lets other Solid apps find the data, and what lets your own app locate an existing
 diary instead of hardcoding `/travel/`.
 
+### 7.6 Privacy settings — `/travel/settings/privacy.ttl`
+
+**Owner-only. This resource is never publicly readable** (§4, §5), and it is the only resource in
+this document with that property.
+
+```turtle
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix dy:      <https://example.org/ns/traveldiary#> .
+
+<#it>
+    dcterms:modified          "2026-09-06T11:20:04+02:00"^^xsd:dateTime ;
+    dy:schemaVersion          1 ;
+    dy:homeLat                45.4655 ;
+    dy:homeLong               9.1866 ;
+    dy:homeRadiusMeters       3000 ;
+    dy:defaultPrecisionMeters 500 .
+```
+
+**The home coordinate is stored at full precision, and this is the one place in the project where
+that is right.** Everywhere else §9 applies and the Pod holds only what is published; here the
+resource is not published, and a fuzzed centre would fuzz the *boundary* rather than the thing
+inside it — entries just outside a mis-placed circle get published, entries just inside a
+correctly placed one do not. Store the centre exactly and let `dy:homeRadiusMeters` carry the
+slack.
+
+**Nothing here has a default, and a half-written home region is an error.** A reader that treats
+an absent `dy:homeRadiusMeters` as zero has no home region at all, and publishes coordinates from
+the owner's doorstep while reporting success. So the three home values are accepted **all together
+or not at all** — never one or two of them — and `dy:defaultPrecisionMeters` is required outright,
+with no built-in fallback, because a fallback is a distance this project would be choosing for
+someone else's front door.
+
+Omitting all three home values is a legitimate configuration and means "I have no home to
+protect": fuzzing still applies to every coordinate, it just never drops one. That is a different
+fact from "the settings could not be read", which is never a value at all — it is a structured
+error, and §9's fail-closed rule takes over.
+
+**A stored `dy:homeRadiusMeters` of 0 is rejected on read** — not read as "no home region",
+and not read as a point. No deliberate configuration produces it: the studio has no control that
+writes a zero radius, so it means a partial or corrupted write, and §9's fail-closed rule is the
+right answer to that. What a fuzzing implementation should compute for a zero radius is a
+separate question, and it stays with that module; nothing valid arrives there carrying one.
+
+**No `rdf:type`, deliberately.** Every other resource here is typed and this one is not: the four
+terms in §3 are the four that were agreed with the owner, and a class would be a fifth (rule 4,
+and CLAUDE.md's "ask before doing"). The read gates on `dy:schemaVersion` and on the shape
+instead, which is what it would have to do anyway — a type gate never protected against a
+resource that parses and means something else. If a class for this resource is agreed later,
+adding it is purely additive and nothing here moves.
+
+**`dcterms:modified` is here for the same reason it is on every other resource**: this document is
+read, edited and written back, and §10's `If-Match` needs a read that produced the state being
+edited. The ETag does that job; `modified` is what a human reads.
+
 ---
 
 ## 8. JSON-LD mapping for public pages
@@ -646,10 +763,65 @@ Resources are publicly readable, so a design that stores a true coordinate next 
 
 **The Pod stores only the coordinate you are willing to publish.** The studio applies fuzzing
 before the write and discards the precise original. `dy:precisionMeters` then honestly describes
-what was stored, and doubles as the rendering hint.
+what was stored, and doubles as the rendering hint. Fuzzing at render time is not a weaker version
+of this — it is not a mitigation at all, because by then the precise value is already sitting in a
+world-readable resource and has been since the write.
 
-A configurable home-region radius that auto-fuzzes anything inside it is a good default, and
-the one privacy feature most likely to matter to someone deploying this.
+### Where the settings live, and why nowhere easier
+
+The home region and the default precision are configuration, so the two obvious homes for them are
+an environment variable and `localStorage`. Both are wrong here, and not marginally:
+
+- **An env var passed down as a prop bakes the answer into public HTML.** `/studio` builds as
+  `○ (Static)`, so a build-time prop is prerendered — and the prerendered HTML is served to anyone
+  who asks for `/studio`, with no session, because the route guard is UX and not security
+  (CLAUDE.md invariant 5). The owner's home coordinates would be in the page source of a public
+  URL.
+- **`localStorage` is per-browser, so it fails open exactly when it matters.** A new phone, a
+  cleared profile, a second laptop: the studio comes up with no home region and the next entry
+  publishes a coordinate near home. It is silent, and it happens while travelling — which is when
+  the diary is actually being written.
+
+The owner's own Pod, in an owner-only resource, is the only place that is private, survives a
+change of device, and keeps the Pod as the only datastore. Hence §7.6.
+
+### What is applied, before the write
+
+1. **Read the settings** (§7.6). If they cannot be read — absent, unreadable, a
+   `dy:schemaVersion` this app does not understand, or a partial home region — **no coordinate is
+   published at all**. See "fail closed" below.
+2. **Inside the home radius, drop the coordinate entirely. Do not coarsen it.** Coarsening maps
+   every entry near home onto one grid cell, and the centroid of that cell is the owner's home to
+   within the cell size. A hundred entries "fuzzed to 2 km" therefore resolve to a single point
+   that is the house, and each new entry sharpens it. Publishing nothing publishes nothing;
+   publishing a coarse value publishes it *repeatedly*, and the repetition is what makes it
+   precise. The entry is still written, with its place name if it has one — it is the geometry
+   that is absent, not the entry.
+3. **Outside it, snap to a deterministic grid** of `dy:defaultPrecisionMeters`, and write
+   `dy:precisionMeters` to match what was actually done. Deterministic, not random: a jitter
+   re-rolled per write leaks the true position through the mean of repeated edits of one place,
+   and makes one place look like several. The same coordinate and the same settings must always
+   produce the same output.
+4. **Rendering follows `dy:precisionMeters`**, so a snapped point draws as a circle the size of
+   its uncertainty rather than as a pin claiming a precision nobody has.
+
+A photo's GPS is a coordinate like any other. It goes through steps 1–4 before anything is
+written, not after.
+
+### Fail closed
+
+"No readable settings" and "no home region" are different facts, and only one of them is safe to
+act on. So the read returns a structured error rather than a filled-in default, and every caller
+publishes no coordinate on any error.
+
+The consequence is worth stating plainly, because it is the common case rather than the rare one:
+**on a Pod that has never had a `privacy.ttl`, every entry is written with no coordinate.**
+`initialiseContainers()` creates `/travel/settings/` but deliberately writes no document into it
+(§5), so this is what a brand-new deployment does by default. The studio has to say so out loud —
+an entry silently losing its map pin becomes a bug report, whereas "you have not set a home region
+yet" is a one-time setup step with an obvious fix.
+
+### EXIF
 
 **EXIF is stripped during the client-side resize**, from `web.jpg` and `thumb.jpg` both. That
 leaves `orig.jpg`, which retains full GPS and device metadata and sits at a public URL. Two
@@ -833,6 +1005,41 @@ provider — it needs a deployed origin — so the login flow phase 2 ships is n
 end to end.
 
 ## 14. Change log
+
+**Revision 5** renames one predicate and changes nothing else.
+
+- **`homeLon` → `dy:homeLong`** in §3, §7.6 and here. Agreed with the owner, per CLAUDE.md's
+  "ask before doing". `dy:long` and `dy:centerLong` already used the `…Long` spelling, and the
+  TypeScript surface spells the field `long` on both `GeoPoint` and `HomeRegion`, so the old
+  spelling was the odd one out in its own document.
+- **It was free, and it stops being free next.** Rule 4 makes a predicate permanent from the
+  first write, and revision 4's own note said the rename had to happen before that write or not
+  at all. Nothing has written a `privacy.ttl`: `initialiseContainers()` creates
+  `/travel/settings/` and writes no document into it (§5), the studio has no control that writes
+  one, and the only instance anywhere is the fixture `test/pod-access.integration.test.ts` PUTs
+  into a disposable local Community Solid Server. The `dy:` namespace is also still
+  `example.org`, so no live Pod holds one either.
+- No other predicate, class, datatype or fixture changed. §3's naming note now records the
+  rename and closes the window on all four privacy terms.
+
+**Revision 4** adds the privacy-settings resource, for coordinate fuzzing (§9, phase 3).
+
+- §3 gains four properties: `dy:homeLat` and `dy:homeLong` (`xsd:decimal`, spelled `homeLon`
+  until revision 5 above), `dy:homeRadiusMeters`
+  and `dy:defaultPrecisionMeters` (`xsd:integer`). Agreed with the owner before being written
+  here, per CLAUDE.md. **No existing predicate, class or datatype changed**, and every §7 fixture
+  from revision 3 is unaltered.
+- §7.6 is a new normative fixture, `/travel/settings/privacy.ttl`. It carries no `rdf:type`,
+  deliberately: a class would have been a fifth new term and four were agreed.
+- §4 and §5 gain `/travel/settings/`, the only container under `/travel/` whose children are not
+  publicly readable — its own ACL, and no public `acl:default` on it.
+  `initialiseContainers()` creates it, and creates no document inside it.
+- §9 stops calling the home radius "a good default" and states what was decided: a deterministic
+  grid snap outside the home region, the coordinate **dropped entirely** inside it rather than
+  coarsened, and a read that **fails closed** — no readable settings, no published coordinate. It
+  also records why the settings can be neither an env var (`/studio` is `○ (Static)`, so a
+  build-time prop is prerendered into publicly readable HTML) nor `localStorage` (per-browser, so
+  it fails open on a new device, while travelling).
 
 **Revision 3** records what phase 0 verified against two servers (Community Solid Server / WAC
 and Inrupt ESS / ACP), and corrects what it disproved:

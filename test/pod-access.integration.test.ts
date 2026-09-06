@@ -4,6 +4,7 @@ import { Parser } from "n3";
 import { DY, LDP, NS, SCHEMA } from "@/lib/vocab";
 import { createContainer, getAccess, initialiseContainers, makePrivate, makePublic } from "@/lib/pod/access";
 import type { InitReport } from "@/lib/pod/access";
+import { readPrivacySettings } from "@/lib/pod/read";
 import { describe as renderError, type Result } from "@/lib/pod/result";
 import { graphEquals } from "./graph";
 
@@ -37,7 +38,18 @@ const BASE = process.env.TEST_POD ?? "http://localhost:3001";
 /** The §7 Turtle blocks are normative; a hand-copied fixture would test a copy
  *  of the spec instead of the spec (docs/data-model.md §1). */
 const doc = readFileSync("docs/data-model.md", "utf8");
-const [, TRIP, ENTRY] = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1]);
+const [, TRIP, ENTRY, , , , PRIVACY] = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map(
+  (m) => m[1],
+);
+
+/**
+ * The owner's home latitude, out of the §7.6 fixture. Used as the leak marker
+ * below, and it satisfies the rule the other markers in this file follow: it
+ * shares no substring with any URL it will be fetched from, so a "did not leak"
+ * assertion cannot be satisfied by the request path echoed back in an error
+ * envelope — the false positive phase 0 had to correct.
+ */
+const HOME_LAT = "45.4655";
 
 /**
  * A negative fixture built by string replacement passes on the UNMODIFIED
@@ -114,6 +126,8 @@ const u = {
   entries: () => `${POD}travel/trips/2026-japan/entries/`,
   published: () => `${POD}travel/trips/2026-japan/entries/2026-03-29-arrival.ttl`,
   draft: () => `${POD}travel/trips/2026-japan/entries/2026-04-02-kanazawa.ttl`,
+  settings: () => `${POD}travel/settings/`,
+  privacy: () => `${POD}travel/settings/privacy.ttl`,
   scoped: () => `${POD}scoped/`,
 };
 
@@ -337,6 +351,12 @@ beforeAll(async () => {
   await putAsOwner(u.tripDoc(), TRIP);
   await putAsOwner(u.published(), ENTRY);
   await putAsOwner(u.draft(), DRAFT);
+
+  // §7.6, into the container initialiseContainers just created. Written by the
+  // OWNER, into a container whose grandparent grants the public a read that
+  // reaches everything else below it — which is exactly the condition under
+  // which this document must still not be readable.
+  await putAsOwner(u.privacy(), PRIVACY);
 
   // A sub-tree whose caller can WRITE but cannot CONTROL: public read+write,
   // no control, so an anonymous caller can create containers (2xx) and can
@@ -902,14 +922,29 @@ describe("the evidence model: verifiedBy, inherits, inheritsVerifiedBy", () => {
 
     expect(firstRun.value.podRoot).toBe(POD);
     // The §4 layout, in order — not merely "some containers".
-    expect(firstRun.value.containers.map((c) => c.url)).toEqual([u.travel(), u.trips(), u.media()]);
+    expect(firstRun.value.containers.map((c) => c.url)).toEqual([
+      u.travel(),
+      u.trips(),
+      u.media(),
+      u.settings(),
+    ]);
+
+    // `inherits` now takes BOTH of its values inside initialiseContainers' own
+    // report: three containers carry public read down to their children, and
+    // travel/settings/ carries none (§4, §7.6). Until revision 4 every container
+    // here was `inherits: true`, so a hard-coded `true` satisfied this test.
+    expect(Object.fromEntries(firstRun.value.containers.map((c) => [c.url, c.inherits]))).toEqual({
+      [u.travel()]: true,
+      [u.trips()]: true,
+      [u.media()]: true,
+      [u.settings()]: false,
+    });
 
     for (const container of firstRun.value.containers) {
       expect(container).toMatchObject({
         read: false,
         append: false,
         write: false,
-        inherits: true,
         inheritsVerifiedBy: "rules",
       });
       // Never "server": no HTTP header answers "what would an anonymous request
@@ -1301,5 +1336,136 @@ describe("a control resource that is ACP, not WAC", () => {
      */
     const onWac = await makePublic(container, { fetch: ownerFetch, webId });
     expect(onWac.ok, onWac.ok ? "" : renderError(onWac.error)).toBe(true);
+  }, 60_000);
+});
+
+
+/* ============================================ the privacy settings container */
+
+/**
+ * `/travel/settings/` and `privacy.ttl` (§7.6), against the real server.
+ *
+ * THIS IS THE ONE PLACE IN THE PROJECT WHERE A MISTAKE IS NOT A MISSING PAGE.
+ * Everything else under `travel/` is meant to be world-readable, so an ACL that
+ * came out too permissive is invisible — the diary works, and the failure looks
+ * like success. Here the same mistake publishes the owner's home coordinates,
+ * on a 201, to a URL anyone can guess from the layout in §4.
+ *
+ * `acl:default` inherits recursively, so a container created below `travel/`
+ * with no ACL of its own is covered by the parent's public default — that is
+ * measured, in this very file, on `travel/trips/2026-japan/`. Which means the
+ * safe state here is not the default state, and the only evidence that the
+ * write took is an anonymous GET that fails. A 2xx proves nothing (phase 0).
+ */
+describe("the privacy settings container", () => {
+  it("denies a logged-out reader the settings document, and leaks no coordinate", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // The request that matters: no session, no Solid library, exactly what the
+    // public path does. Denied AND leaking nothing — "45.4655" appears in
+    // neither requested URL, so it can only have come from the body.
+    await expectDenied(u.privacy(), [HOME_LAT]);
+
+    // ...and the container listing too, or the resource's existence and name
+    // are public even where its content is not (§4, decisions.md §20).
+    await expectDenied(u.settings(), ["privacy"]);
+  }, 30_000);
+
+  it("still lets the OWNER read it back — a rule that denies everyone is useless", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const res = await ownerFetch(u.privacy(), { headers: { accept: "text/turtle" } });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body.length).toBeGreaterThan(0);
+    // The status with its body. An HTTP code asserted alone is how a zero-byte
+    // 404 shipped in this project once already.
+    expect(objectOf(body, u.privacy(), DY.homeLat)).toBe(HOME_LAT);
+
+    // Byte-for-byte comparison would be permanently red — Turtle has no
+    // canonical form (§11). Compare the graph.
+    const round = graphEquals(PRIVACY, body, u.privacy());
+    expect(round.equal, `missing ${round.missing.join(" | ")} extra ${round.extra.join(" | ")}`).toBe(
+      true,
+    );
+  }, 30_000);
+
+  it("readPrivacySettings sees it as the owner and fails closed as anyone else", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // BOTH CONTEXTS, because only one of them is evidence. The owner's read
+    // proves the resource is intact and the parser agrees with §7.6; the
+    // anonymous read is the only thing that proves the restriction, and it is
+    // the exact call the fuzzing layer will make with the wrong fetch.
+    const asOwner = await readPrivacySettings(u.privacy(), { fetch: ownerFetch });
+    expect(asOwner.ok, asOwner.ok ? "" : renderError(asOwner.error)).toBe(true);
+    if (!asOwner.ok) return;
+    expect(asOwner.value.home).toEqual({ lat: 45.4655, long: 9.1866, radiusMeters: 3000 });
+    expect(asOwner.value.defaultPrecisionMeters).toBe(500);
+
+    const asAnon = await readPrivacySettings(u.privacy());
+    expect(asAnon.ok, asAnon.ok ? "an anonymous caller read the home coordinates" : "").toBe(false);
+    if (asAnon.ok) return;
+    // A structured error, never an empty settings object — §9's fail-closed
+    // rule is only worth as much as this distinction. `home: undefined` here
+    // would mean "no home region to protect" and would publish the coordinate.
+    expect(asAnon.error.kind).toBe("http");
+    if (asAnon.error.kind !== "http") return;
+    expect([401, 403]).toContain(asAnon.error.status);
+  }, 30_000);
+
+  it("closes only this container — the diary beside it is still public", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // The allow-case, in the same run and under the same grandparent. Without
+    // it, an initialisation that denied the public everything would satisfy
+    // every assertion above while shipping a diary nobody can read.
+    await expectPublicTriple(u.tripDoc(), DY.slug, "2026-japan");
+    await expectPublicTriple(u.published(), SCHEMA.headline, "First night in Shinjuku");
+  }, 30_000);
+
+  it("re-running initialisation does not reopen it", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // §5 wants a first-run flow "idempotent and safe to re-run", because this
+    // is the flow a deployer retries after any failure. A second run that
+    // widened access on the one owner-only container would be the worst
+    // possible time to find out.
+    const again = await initialiseContainers({ fetch: ownerFetch, podRoot: POD, webId });
+    expect(again.ok, again.ok ? "" : renderError(again.error)).toBe(true);
+    if (!again.ok) return;
+    expect(again.value.containers.map((c) => c.url)).toContain(u.settings());
+    expect(again.value.containers.find((c) => c.url === u.settings())?.inherits).toBe(false);
+
+    // Asserted at the server, not from the return value.
+    await expectDenied(u.privacy(), [HOME_LAT]);
+    const stillOwners = await ownerFetch(u.privacy(), { headers: { accept: "text/turtle" } });
+    expect(stillOwners.status).toBe(200);
+  }, 60_000);
+
+  it("makePrivate repairs a settings container that was created the leaky way", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // The state a Pod reaches when the settings document is written by another
+    // tool, or by a version of this app that predates revision 4: a container
+    // with no ACL of its own, inheriting travel/'s public default. Proven leaky
+    // FIRST, so the repair is measured against a real leak rather than against
+    // an assumption.
+    const leaky = `${u.travel()}settings-legacy/`;
+    const exposed = `${leaky}privacy.ttl`;
+    await createContainerWithNoAclOfItsOwn(leaky);
+    await putAsOwner(exposed, PRIVACY);
+
+    const before = await anon(exposed);
+    expect(before.status, "premise: the leaky shape really does expose it").toBe(200);
+    expect(await before.text()).toContain(HOME_LAT);
+
+    const repaired = await makePrivate(leaky, { fetch: ownerFetch, webId });
+    expect(repaired.ok, repaired.ok ? "" : renderError(repaired.error)).toBe(true);
+    if (!repaired.ok) return;
+    expect(repaired.value.inherits).toBe(false);
+
+    await expectDenied(exposed, [HOME_LAT]);
+    expect((await ownerFetch(exposed, { headers: { accept: "text/turtle" } })).status).toBe(200);
   }, 60_000);
 });
