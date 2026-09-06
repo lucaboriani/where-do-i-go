@@ -44,7 +44,7 @@ export type TransferableResult = {
   metadata: ReturnType<typeof readMetadata>;
 };
 
-/** Preferred first, then the fallback. §6.1: what comes back is what counts. */
+/** Preferred first, then the fallback. §7.3: what comes back is what counts. */
 const ENCODE_ORDER = ["image/webp", "image/jpeg"] as const;
 
 async function encode(

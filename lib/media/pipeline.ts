@@ -78,6 +78,15 @@ export function createPipeline(spawn: () => WorkerLike = defaultSpawn): Pipeline
       worker = null;
       for (const waiting of pending.values()) waiting.reject(new Error("pipeline disposed"));
       pending.clear();
+      // RESET THE TAIL, AND STAY USABLE. dispose() is an effect cleanup in the
+      // studio editor, and React double-invokes effects under StrictMode in
+      // development — so mount, dispose, mount again on the SAME memoised
+      // instance is the dev default, not an edge case. Without this line a
+      // photo processed after that remount chains onto the disposed
+      // lifecycle's tail and waits on a worker that was terminated. Making
+      // process() throw instead would turn a StrictMode remount into a crash,
+      // which is worse than the bug it would report.
+      queue = Promise.resolve();
     },
   };
 }
