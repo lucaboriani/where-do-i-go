@@ -112,6 +112,10 @@ import type { Entry } from "@/lib/pod/schema";
    hash and the metadata read are over bytes rather than over an empty File. */
 import { exifJpeg } from "./fixtures/exif-jpeg";
 import { readMetadata } from "@/lib/media/exif";
+/* Section 10e's duplicate case needs the container a given file hashes to, and
+   the real functions rather than a literal: a hardcoded hash would still pass
+   the day the digest changed, against an editor that had stopped deduplicating. */
+import { mediaContainer, mediaHash } from "@/lib/media/upload";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 
 /**
@@ -6071,5 +6075,243 @@ describe("entry editor — photos an edit did not touch", () => {
     const { quads: rowQuads, row } = indexRowOf(index.body, JAPAN.indexUrl, put.url);
     expect(row, "the edited entry has no row in the index it was written to").toBeDefined();
     expect(oneObject(rowQuads, row!, DY.thumbnail)?.value).toBe(kept.thumbnailUrl);
+  });
+});
+
+/* ─────────────────────────── 10e. a photo added to an entry that has one ── */
+
+/**
+ * THE PRODUCT OF THE TWO BRANCHES, WHICH NOTHING ABOVE RENDERS.
+ *
+ * 10a, 10b and 10c pick a photo and never pass `initial`, so what the entry
+ * arrived with is always empty. 10d passes `initial` and never picks, so what
+ * was attached here is always empty. Neither half therefore says anything about
+ * an edit that does BOTH — and that is the half where photos are destroyed.
+ *
+ * MEASURED, NOT SUPPOSED: with `photosFor` replaced by "if nothing was picked,
+ * keep what was carried; otherwise save what was picked", the whole suite is
+ * 927 passed and 2 todo — no red anywhere. The saved entry is a whole-document
+ * replace serialised from `entry.photos` (lib/pod/save-entry.ts), so a photo
+ * left out of that array has its triples removed and its binary orphaned:
+ * nothing else on the Pod references `travel/media/<hash>/`.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+describe("entry editor — a photo added to an entry that already has one", () => {
+  it("keeps both, and numbers the new one after the one that was there", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+
+    // NON-VACUOUS, both halves: there is a photo to preserve, and it carries the
+    // number the new one has to be placed after.
+    expect(entry.photos, "the §7.3 fixture carries no photo to preserve").toHaveLength(1);
+    const kept = entry.photos[0]!;
+    expect(kept.sortOrder, "the fixture's photo carries no sortOrder").toBe(1);
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      pipeline: rig.pipeline,
+    });
+
+    pickPhoto(jpegFile("beach.jpg"));
+    await screen.findByRole("img", { name: /beach\.jpg/i });
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    // NOT `clickSaveAndWait`: the attached photo's own `role="status"` has
+    // already made `outcomeText()` non-empty, so it would return before the save
+    // had done anything. 10b's reasoning, and the same fix.
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const subject = `${put.url}#it`;
+
+    const images = objectsOf(quads, subject, SCHEMA.image).map((t) => t.value);
+    expect(
+      images,
+      "the entry does not carry both photos: adding one destroyed the one it arrived with",
+    ).toEqual([`${put.url}#photo-1`, `${put.url}#photo-2`]);
+
+    /* THE CARRIED ONE, UNTOUCHED — the same URL and the same number. Renumbering
+       it would rewrite §7.3 data the owner never touched. */
+    const carried = images[0]!;
+    expect(oneObject(quads, carried, SCHEMA.contentUrl)?.value).toBe(kept.contentUrl);
+    expect(Number(oneObject(quads, carried, DY.sortOrder)?.value)).toBe(kept.sortOrder);
+
+    /* AND THE NEW ONE, ON THE POD AND NUMBERED AFTER IT. */
+    const added = images[1]!;
+    const contentUrl = oneObject(quads, added, SCHEMA.contentUrl)?.value ?? "";
+    expect(new URL(contentUrl).pathname, "the added photo is not a Pod media URL").toMatch(
+      MEDIA_PATH,
+    );
+    expect(contentUrl, "both fragments point at the same binary").not.toBe(kept.contentUrl);
+    const order = oneObject(quads, added, DY.sortOrder);
+    expect(
+      Number(order?.value),
+      "the added photo did not take the next position after the carried one",
+    ).toBe(2);
+    expect(datatypeOf(order), "sortOrder is not an xsd:integer").toBe(XSD.integer);
+
+    /* THE LISTING'S PICTURE DOES NOT MOVE. §7.4's row is denormalised from
+       `photos[0]`, so appending must not swap the cover of an entry the owner
+       only added a picture to. */
+    const index = pod.indexPut()!;
+    const { quads: rowQuads, row } = indexRowOf(index.body, JAPAN.indexUrl, put.url);
+    expect(row, "the edited entry has no row in the index it was written to").toBeDefined();
+    expect(oneObject(rowQuads, row!, DY.thumbnail)?.value).toBe(kept.thumbnailUrl);
+  });
+
+  /**
+   * A PHOTO THE ENTRY ALREADY HAS, PICKED AGAIN.
+   *
+   * Not a hypothetical: the container is `sha256(source)[0..16]`, so the same
+   * file always lands at the same URL and `uploadPhoto` reads the 412 as reuse.
+   * The upload is therefore harmless and the APPEND is not — two `#photo-N`
+   * fragments pointing at one binary render the same picture twice on every
+   * public listing, and this editor has no way to remove one.
+   *
+   * The carried photo is put at the container the picked file really hashes to,
+   * using the app's own `mediaHash`, so this cannot pass against an editor that
+   * deduplicates on something else.
+   */
+  it("attaches a photo the entry already carries only once", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+
+    const source = jpegFile("beach.jpg");
+    const container = mediaContainer(POD, await mediaHash(await source.arrayBuffer()));
+    expect(new URL(container).pathname, "the container is not §7.3's media shape").toMatch(
+      /^\/travel\/media\/[0-9a-f]{16}\/$/,
+    );
+
+    const entry = await specEntry();
+    const already: Entry = {
+      ...entry,
+      photos: [
+        { ...entry.photos[0]!, contentUrl: `${container}web.webp`, thumbnailUrl: `${container}thumb.webp` },
+      ],
+    };
+
+    await renderEditor(fake.session, {
+      initial: { entry: already, etag: '"entry-7"' },
+      pipeline: rig.pipeline,
+    });
+
+    pickPhoto(source);
+    await screen.findByRole("img", { name: /beach\.jpg/i });
+    // It really went up — this is a save-time deduplication, not a pick the
+    // editor quietly ignored.
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const images = objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value);
+
+    expect(images, "the same photo was attached twice").toEqual([`${put.url}#photo-1`]);
+    expect(oneObject(quads, images[0]!, SCHEMA.contentUrl)?.value).toBe(`${container}web.webp`);
+    // And the carried photo kept everything else it had.
+    expect(oneObject(quads, images[0]!, SCHEMA.caption)?.value).toBe(already.photos[0]!.caption?.value);
+  });
+
+  /** The same defect on a CREATE, where there is nothing carried to compare
+   *  against: one file, picked twice, is one photo. */
+  it("attaches the same file picked twice only once", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { pipeline: rig.pipeline });
+
+    pickPhoto(jpegFile("beach.jpg"));
+    pickPhoto(jpegFile("beach.jpg"));
+    await waitFor(() => expect(screen.getAllByRole("img", { name: /beach\.jpg/i })).toHaveLength(2));
+    // Both picks really ran: two files through the pipeline, four PUTs to one
+    // content-addressed container (a real Pod answers the second pair 412).
+    expect(rig.processed).toHaveLength(2);
+    await waitFor(() => expect(media.puts).toHaveLength(4));
+    expect(media.containers(), "the same bytes went to two containers").toHaveLength(1);
+
+    fillNewEntry();
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    expect(
+      objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value),
+      "one file picked twice was written as two photos",
+    ).toEqual([`${put.url}#photo-1`]);
+  });
+
+  /**
+   * A CARRIED PHOTO WITH NO `dy:sortOrder` OF ITS OWN.
+   *
+   * `Photo.sortOrder` is optional — a Pod contains whatever was written to it,
+   * including data from an older build — and lib/pod/entry-model.ts fills the
+   * gap with the photo's ONE-BASED POSITION rather than leaving it unwritten.
+   * So a single unnumbered carried photo is serialised as `dy:sortOrder 1`, and
+   * the number a new photo may take is 2.
+   *
+   * WHAT THIS CATCHES, and it catches two different wrong answers: seeding the
+   * search at `-1` gives the new photo 0, which sorts it in FRONT of a photo the
+   * owner already had, and seeding it at `carried.length` gives 1 — a collision
+   * with the very photo the fallback exists for.
+   */
+  it("numbers a new photo past a carried one that has no sortOrder", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+
+    const entry = await specEntry();
+    const unnumbered: Entry = {
+      ...entry,
+      photos: [{ ...entry.photos[0]!, sortOrder: undefined }],
+    };
+    expect(unnumbered.photos[0]!.sortOrder, "the carried photo still has a number").toBeUndefined();
+
+    await renderEditor(fake.session, {
+      initial: { entry: unnumbered, etag: '"entry-7"' },
+      pipeline: rig.pipeline,
+    });
+
+    pickPhoto(jpegFile("beach.jpg"));
+    await screen.findByRole("img", { name: /beach\.jpg/i });
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const images = objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value);
+    expect(images).toHaveLength(2);
+
+    // What the serialiser gave the carried photo, which is the number that is
+    // taken. Asserted rather than assumed: it is the premise of the next line.
+    const carried = Number(oneObject(quads, images[0]!, DY.sortOrder)?.value);
+    expect(carried, "an unnumbered carried photo is no longer written as its position").toBe(1);
+
+    const added = Number(oneObject(quads, images[1]!, DY.sortOrder)?.value);
+    expect(added, "the added photo took a position the carried photo already occupies").not.toBe(
+      carried,
+    );
+    expect(added, "the added photo did not take the next free position").toBe(2);
   });
 });

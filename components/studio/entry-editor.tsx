@@ -468,17 +468,42 @@ const restoredName = (photo: Photo, index: number) =>
  * exactly as it arrived, which is the treatment `created`, `datePublished` and
  * the place already get.
  *
+ * ONCE EACH, HOWEVER MANY TIMES IT IS PICKED. The media path is
+ * content-addressed, so re-picking a photo the entry already carries uploads
+ * nothing new — `putGuarded` answers 412 and `uploadPhoto` reads that as reuse —
+ * and returns the SAME `contentUrl`. Appending it blindly would write two
+ * `#photo-N` fragments pointing at one binary: the same picture twice on the
+ * public listing, and, with no removal control in this editor, nothing the owner
+ * can do about it except abandon the edit. The `Set` covers both ways in, since
+ * the same file picked twice in one session is the same defect on a create,
+ * where there is nothing carried to compare against.
+ *
  * `sortOrder` IS THE POSITION AT SAVE TIME, NOT AT PICK TIME, so a file the
  * pipeline refused leaves no gap in the sequence — and the CARRIED photos keep
  * the numbers they were stored with, because renumbering them would rewrite
  * §7.3 data the owner never touched.
+ *
+ * WHICH NUMBER IS FREE IS NOT `carried.length`, AND THAT IS MEASURED RATHER
+ * THAN ARGUED. lib/pod/entry-model.ts writes `photo.sortOrder ?? i + 1` — a
+ * carried photo with no number of its own is serialised with its ONE-BASED
+ * POSITION, not left unwritten — so a list of one unnumbered photo is written as
+ * `dy:sortOrder 1`, and `carried.length` is 1: the collision, in the very case
+ * the fallback exists for. So the seed is what the serialiser will actually
+ * write, and the sequence is one-based like every other `dy:sortOrder` in §7.3
+ * (`#photo-1` carries 1). The `0` seed is what makes a first photo on a create
+ * come out as 1 rather than 0.
  */
 function photosFor(carried: readonly Photo[], attached: readonly Photo[]): Photo[] {
-  const highest = carried.reduce((best, photo) => Math.max(best, photo.sortOrder ?? -1), -1);
-  return [
-    ...carried,
-    ...attached.map((photo, index) => ({ ...photo, sortOrder: highest + 1 + index })),
-  ];
+  const already = new Set(carried.map((photo) => photo.contentUrl));
+  const fresh: Photo[] = [];
+  for (const photo of attached) {
+    if (already.has(photo.contentUrl)) continue;
+    already.add(photo.contentUrl);
+    fresh.push(photo);
+  }
+
+  const highest = carried.reduce((best, photo, at) => Math.max(best, photo.sortOrder ?? at + 1), 0);
+  return [...carried, ...fresh.map((photo, at) => ({ ...photo, sortOrder: highest + 1 + at }))];
 }
 
 /* ══════════════════════════════════════════════════ what the owner is told ══ */
