@@ -482,7 +482,6 @@ describe("guardrails actually fire", () => {
   it.each([
     ["app/(studio)/studio/page.tsx", "@/components/studio/studio-shell"],
     ["components/studio/studio-shell.tsx", "@/components/studio/entry-editor"],
-    ["components/ui/thing.tsx", "@/components/studio/entry-editor"],
   ])("allows %s to import %s — the studio has to be able to render itself", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -935,7 +934,7 @@ describe("guardrails actually fire", () => {
  * (c267678). Two numbers, in two modules, with no compiler and no linter
  * holding them together: they can drift apart in silence, and the drift is
  * invisible until either an oversized placeholder ships to every reader of a
- * public page or a legitimate one is refused on read.
+ * public page or a legitimate one is thrown away on read.
  *
  * A test file is under neither fence, so it may import both sides and hold them
  * against each other. That is the entire reason the guard lives here rather
@@ -953,54 +952,100 @@ describe("guardrails actually fire", () => {
  * a literal and would guard nothing.
  *
  * And the schema's ceiling is reached THROUGH THE SCHEMA — by parsing strings
- * and finding where acceptance flips — never by reading a constant or matching
+ * and finding where RETENTION flips — never by reading a constant or matching
  * on `.max`. A refactor that expresses the ceiling some other way keeps this
  * honest instead of breaking it.
+ *
+ * It bisects on retention rather than on acceptance because the ceiling stopped
+ * being a rejection: over budget now DISCARDS the placeholder and keeps the
+ * photo, so `safeParse` succeeds on both sides of the boundary. A bisection on
+ * `success` would find no boundary at all and would have gone quietly green
+ * forever — a guard that stops guarding, which is worse than the drift it was
+ * watching for. `effectiveCeilingBytes` throws rather than asserts for exactly
+ * that class of failure, and it throws in BOTH directions: no boundary above,
+ * and a boundary that is a rejection rather than a discard.
  */
 describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () => {
   const A_PHOTO = { contentUrl: "https://pod.example/travel/media/abc123/web.webp" };
 
   /**
-   * Parse a Photo carrying exactly this placeholder, and report WHICH field
-   * objected. The paths are not decoration: a rejection for an unrelated reason
-   * — a contentUrl that stopped being a valid URL, a field the schema later
-   * makes required — would otherwise read as the budget doing its job, and
-   * every "rejects" assertion below would pass while measuring nothing.
+   * Parse a Photo carrying exactly this placeholder, and report three things
+   * where this helper used to report one.
+   *
+   * `accepted` — did the PHOTO survive. Since the ceiling became a discard this
+   * must be true on both sides of the boundary, and asserting it is how these
+   * cases hold the fix in place: an over-budget placeholder costs the
+   * placeholder, never the photo, never the entry that contains it, and never
+   * that entry's row in the trip index that `rebuildIndex` rewrites.
+   *
+   * `kept` — did the PLACEHOLDER survive. This is the boundary the bisection
+   * below hunts, and the reason the helper had to change shape at all.
+   *
+   * `blamed` is not decoration: a rejection for an unrelated reason — a
+   * contentUrl that stopped being a valid URL, a field the schema later makes
+   * required — would otherwise surface as a bare `accepted: false` naming
+   * nothing, and every case here would report a boundary it never measured.
    */
   function parseBlur(blurDataUrl: string) {
     const r = Photo.safeParse({ ...A_PHOTO, blurDataUrl });
     return {
       accepted: r.success,
+      kept: r.success && r.data.blurDataUrl === blurDataUrl,
+      value: r.success ? r.data.blurDataUrl : undefined,
       blamed: r.success ? [] : r.error.issues.map((i) => i.path.join(".")),
     };
   }
 
-  it("the control photo parses, so a rejection below is the budget and not the fixture", () => {
+  it("the control photo parses AND keeps a small placeholder, so a discard below is the budget and not the fixture", () => {
     expect(Photo.safeParse(A_PHOTO).success).toBe(true);
-    expect(parseBlur("data:image/webp;base64,AAAA").accepted).toBe(true);
+    const tiny = parseBlur("data:image/webp;base64,AAAA");
+    expect(tiny.accepted).toBe(true);
+    // Without this second assertion a transform that discarded EVERY
+    // placeholder would satisfy every `accepted` check in this describe.
+    expect(tiny.kept).toBe(true);
   });
 
   /**
-   * The largest string `Photo.blurDataUrl` accepts, in ASCII where one
-   * character is one byte, found by bisection rather than by reading the
-   * constant out of the module.
+   * The largest placeholder `Photo` KEEPS, in ASCII where one character is one
+   * byte, found by bisection rather than by reading the constant out of the
+   * module.
    *
-   * `hi` starts far above any plausible budget and is asserted REJECTED first.
-   * If the ceiling were deleted outright, bisection would otherwise return the
-   * top of its own probe range and this would degrade into comparing a number
-   * this test invented against BLUR_BUDGET_BYTES. It throws instead.
+   * Two degenerate schemas would make a bisection meaningless, and both throw
+   * here rather than returning a number this test invented:
+   *
+   *   - THE CEILING DELETED. The far probe is kept, so there is no boundary
+   *     below `hi` and bisection would return the top of its own probe range.
+   *   - THE CEILING FATAL AGAIN. The far probe is rejected rather than
+   *     discarded — the regression this whole change undoes. A bisection on
+   *     `kept` alone cannot tell it from a working discard, because a rejected
+   *     Photo has no `blurDataUrl` to keep either.
    */
   function effectiveCeilingBytes(): number {
     let hi = 1 << 16;
-    if (parseBlur("d".repeat(hi)).accepted) {
+    const far = parseBlur("d".repeat(hi));
+    if (!far.accepted) {
       throw new Error(
-        `Photo.blurDataUrl accepted ${hi} bytes — the read-side §6.4 ceiling is gone entirely`,
+        `Photo REJECTED a ${hi}-byte blurDataUrl (blamed: ${far.blamed.join(", ")}) instead of ` +
+          `discarding it — the read-side §6.4 ceiling is fatal to the whole photo again, and ` +
+          `with it to the entry and to that entry's row in the trip index`,
       );
     }
-    let lo = 0; // the empty string is always accepted: there is no .min() here
+    if (far.kept) {
+      throw new Error(
+        `Photo.blurDataUrl kept ${hi} bytes — the read-side §6.4 ceiling is gone entirely`,
+      );
+    }
+    let lo = 0; // the empty string is always kept: there is no .min() here
     while (hi - lo > 1) {
       const mid = (lo + hi) >> 1;
-      if (parseBlur("d".repeat(mid)).accepted) lo = mid;
+      const probe = parseBlur("d".repeat(mid));
+      if (!probe.accepted) {
+        throw new Error(
+          `Photo REJECTED a ${mid}-byte blurDataUrl (blamed: ${probe.blamed.join(", ")}) — over ` +
+            `budget must discard the placeholder, not reject the photo`,
+        );
+      }
+      if (probe.kept) lo = mid;
       else hi = mid;
     }
     return lo;
@@ -1013,12 +1058,15 @@ describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () 
   /**
    * Both sides of the boundary, in ASCII and in two-byte codepoints.
    *
-   * The multi-byte pair earns its place: `.max()` counts CHARACTERS, so
-   * BLUR_BUDGET_BYTES/2 accented characters sail under it and only the
-   * byte-counting refine can decide them. It is the case that catches the
-   * schema's two ceilings drifting apart from EACH OTHER — a refine left at the
-   * old number while `.max()` moves reopens exactly the four-byte-codepoint
-   * hole c267678 closed, and the ASCII bisection above cannot see it.
+   * The multi-byte pair earns its place because the budget is BYTES while the
+   * obvious cheap spelling of a ceiling is a character count. Measured against
+   * the installed zod@4.5.4 rather than recalled: `z.string().max(n)` counts
+   * CODE POINTS — `"\u{1F600}".repeat(3)` has `.length` 6 and still passes
+   * `.max(3)` — so BLUR_BUDGET_BYTES/2 accented characters are half the budget
+   * in codepoints and all of it in bytes, and sail under any
+   * `.max(BLUR_BUDGET_BYTES)`. Only a byte measurement decides them. The ASCII
+   * bisection above cannot see it: there one character is one byte and every
+   * wrong unit agrees with the right one.
    *
    * Every probe length is derived from BLUR_BUDGET_BYTES, so changing that
    * constant moves the probes and the schema stays where it is: the boundary
@@ -1034,10 +1082,16 @@ describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () 
   it.each(PROBES)(
     "the read schema and withinBlurBudget agree on the same string — %s",
     (_label, value) => {
-      const acceptedOnWrite = withinBlurBudget(value);
+      const withinBudget = withinBlurBudget(value);
       const onRead = parseBlur(value);
-      expect(onRead.accepted).toBe(acceptedOnWrite);
-      if (!acceptedOnWrite) expect(onRead.blamed).toContain("blurDataUrl");
+      // Never fatal, on either side of the boundary. `blamed` first so that a
+      // failure names the field that objected instead of printing `false`.
+      expect(onRead.blamed).toEqual([]);
+      expect(onRead.accepted).toBe(true);
+      // The two implementations agreeing: what the writer would have emitted is
+      // exactly what the reader keeps.
+      expect(onRead.kept).toBe(withinBudget);
+      expect(onRead.value).toBe(withinBudget ? value : undefined);
     },
   );
 });

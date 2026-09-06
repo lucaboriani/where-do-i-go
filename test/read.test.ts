@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { readDiary, readEntry, readTrip, readTripIndex } from "@/lib/pod/read";
+// The §6.4 budget itself, so the probes below move with it rather than
+// hard-coding 1200 and quietly slipping under a raised budget. A test file is
+// under neither import fence, so it may reach into studio-only lib/media.
+import { BLUR_BUDGET_BYTES } from "@/lib/media/targets";
 import { servePod } from "./msw";
 
 /**
@@ -128,6 +132,90 @@ describe("readEntry", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("shape");
+  });
+
+  /**
+   * AN OVER-BUDGET PLACEHOLDER COSTS THE PLACEHOLDER AND NOTHING ELSE.
+   *
+   * The §6.4 budget is enforced on read as well as on write, because the
+   * literal rides in world-readable Turtle and a foreign or older writer can
+   * put anything there. For one day that read-side ceiling REJECTED the photo,
+   * and the blast radius was the whole document: `Photo` failed, so `Entry`
+   * failed, so `readEntry` returned `shape` — the public entry page lost its
+   * headline, body, place and every photo over a decorative blur, and the next
+   * `rebuildIndex` then dropped the entry from the trip index because it could
+   * not read it. Strictly worse than having no guard at all, which is what
+   * this case exists to keep from coming back.
+   *
+   * Over the wire on purpose. `test/guardrails.test.ts` already holds the
+   * schema's ceiling against `BLUR_BUDGET_BYTES` by calling `Photo.safeParse`
+   * directly; that proves the two constants agree and proves nothing about
+   * what a reader of a real Pod resource gets back. This drives the normative
+   * §7.3 Turtle through `readEntry` over MSW, which is where the coupling
+   * between one bad literal and a blank page actually lived.
+   *
+   * The length is derived from BLUR_BUDGET_BYTES rather than written as 1201:
+   * a hard-coded probe silently slips UNDER the budget the day it is raised,
+   * and this case would then pass while testing nothing.
+   */
+  const OVER_BUDGET_BLUR = (() => {
+    const prefix = "data:image/webp;base64,";
+    return prefix + "A".repeat(BLUR_BUDGET_BYTES + 1 - prefix.length);
+  })();
+
+  it("keeps the entry and drops only the placeholder when blurDataUrl is one byte over the §6.4 budget", async () => {
+    // The fixture is the thing under test, so assert it is what it claims to
+    // be. A mis-derived probe or a `.replace` that matched nothing would
+    // otherwise produce a green run that verified the ordinary path.
+    expect(new TextEncoder().encode(OVER_BUDGET_BLUR).length).toBe(BLUR_BUDGET_BYTES + 1);
+    const turtle = ENTRY.replace(
+      /dy:blurDataUrl(\s+)"[^"]*"/,
+      (_m, gap: string) => `dy:blurDataUrl${gap}"${OVER_BUDGET_BLUR}"`,
+    );
+    expect(turtle).toContain(OVER_BUDGET_BLUR);
+    expect(turtle).not.toBe(ENTRY);
+
+    servePod({ [URLS.entry]: turtle });
+    const r = await readEntry(URLS.entry);
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // The placeholder is gone...
+    expect(r.value.photos[0].blurDataUrl).toBeUndefined();
+    // ...and nothing else is. The rest of the photo:
+    expect(r.value.photos).toHaveLength(1);
+    expect(r.value.photos[0].contentUrl).toBe(`${POD}/travel/media/6f2a1c8e/web.webp`);
+    expect(r.value.photos[0].thumbnailUrl).toBe(`${POD}/travel/media/6f2a1c8e/thumb.webp`);
+    expect(r.value.photos[0].caption).toEqual({ value: "Counter seating, no menu.", language: "en" });
+    expect(r.value.photos[0].width).toBe(1600);
+    expect(r.value.photos[0].height).toBe(1067);
+    expect(r.value.photos[0].encodingFormat).toBe("image/webp");
+    // ...and the entry the reviewer watched disappear:
+    expect(r.value.headline.value).toBe("First night in Shinjuku");
+    expect(r.value.articleBody?.value).toBeTruthy();
+    expect(r.value.place?.locality).toBe("Tokyo");
+    expect(r.value.place?.geo?.lat).toBeCloseTo(35.6938);
+    expect(r.value.occurredAt).toBe("2026-03-29T21:40:00+09:00");
+    expect(r.value.status).toBe("published");
+  });
+
+  /** The other side of the boundary, so the case above is measuring the budget
+   *  rather than reporting that `readEntry` never keeps a placeholder at all.
+   *  One byte shorter, same fixture, same path — and it survives. */
+  it("keeps a placeholder that is exactly at the budget", async () => {
+    const atBudget = OVER_BUDGET_BLUR.slice(0, -1);
+    expect(new TextEncoder().encode(atBudget).length).toBe(BLUR_BUDGET_BYTES);
+    const turtle = ENTRY.replace(
+      /dy:blurDataUrl(\s+)"[^"]*"/,
+      (_m, gap: string) => `dy:blurDataUrl${gap}"${atBudget}"`,
+    );
+    expect(turtle).toContain(atBudget);
+
+    servePod({ [URLS.entry]: turtle });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.photos[0].blurDataUrl).toBe(atBudget);
   });
 });
 

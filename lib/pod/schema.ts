@@ -64,7 +64,7 @@ export const Photo = z.object({
   /** From EXIF DateTimeOriginal. Offset required, like every other timestamp. */
   dateCreated: z.iso.datetime({ offset: true }).optional(),
   /**
-   * A `data:` URI placeholder, and the budget is enforced on READ as well as
+   * A `data:` URI placeholder, and the §6.4 budget is checked on READ as well as
    * on write.
    *
    * `withinBlurBudget` runs in the worker, which only ever governs what THIS
@@ -74,24 +74,37 @@ export const Photo = z.object({
    * ARRIVES: an older version of this app, another tool, or a foreign writer
    * (§11's premise for validating at all).
    *
-   * TWO CHECKS, NOT ONE. `.max()` counts CHARACTERS; the budget is BYTES, and
-   * `withinBlurBudget` measures with a `TextEncoder`. For a real base64 data
-   * URI the two coincide, but 1200 characters of four-byte codepoints is 4800
-   * bytes and would pass a character bound alone — a hole of exactly the shape
-   * this project keeps finding. The refine is the real ceiling; `.max()` is the
-   * cheap one that gives the clearer message in the common case.
+   * OVER BUDGET DISCARDS THE PLACEHOLDER; IT DOES NOT REJECT THE PHOTO. That
+   * asymmetry is the entire point of this field, and it was learned the hard
+   * way: for one day this was a `.max()` and a `.refine()`, both fatal. A
+   * single over-budget literal from a foreign writer then failed `Photo`, which
+   * failed `Entry`, which made `readEntry` return `shape` — so the public entry
+   * page lost its headline, body, place and every photo, and the next
+   * `rebuildIndex` dropped the entry from the trip index because it could not
+   * read it. A guard that turns a cosmetic problem into a missing page is worse
+   * than the problem it guards against. §3 says the budget "drops it", and
+   * dropping is what this does: the entry renders with no placeholder and
+   * everything else intact.
    *
-   * Over budget is fatal to the read rather than silently dropped, in the same
-   * way a malformed `contentUrl` is: §11 asks for a typed object or a
-   * structured error, and a placeholder quietly discarded would leave the
-   * writer with no signal that the budget exists.
+   * BYTES, NOT CHARACTERS, hence the `TextEncoder`: the budget is a wire size.
+   * A `.max()` would not be a cheaper spelling of the same check. Measured
+   * against the installed zod@4.5.4 rather than recalled: `z.string().max(n)`
+   * counts CODE POINTS, not UTF-16 units — `"\u{1F600}".repeat(3)` has `.length`
+   * 6 and passes `.max(3)` — so 1200 characters of four-byte codepoints is 4800
+   * bytes and sails under a character bound of 1200. test/guardrails.test.ts
+   * straddles the boundary in ASCII and in multi-byte codepoints for that
+   * reason.
+   *
+   * `serialiseEntry` validates with this same schema on the way OUT, so an
+   * over-budget placeholder is dropped there too rather than failing the save
+   * — which is still "drops it", and still means the Pod never receives one.
+   * Nothing this app produces reaches that path anyway: the worker's
+   * `withinBlurBudget` omits the placeholder before it is ever a `Photo`.
    */
   blurDataUrl: z
     .string()
-    .max(BLUR_BUDGET_BYTES, `blurDataUrl is over the §6.4 budget of ${BLUR_BUDGET_BYTES} bytes`)
-    .refine(
-      (value) => new TextEncoder().encode(value).length <= BLUR_BUDGET_BYTES,
-      `blurDataUrl is over the §6.4 budget of ${BLUR_BUDGET_BYTES} bytes`,
+    .transform((value) =>
+      new TextEncoder().encode(value).length <= BLUR_BUDGET_BYTES ? value : undefined,
     )
     .optional(),
 });
