@@ -212,10 +212,14 @@ it later.
         2026-03-31-nara.ttl
   media/
     6f2a1c8e/
-      web.jpg
-      thumb.jpg
-      orig.jpg                   optional, see §9
+      web.webp
+      thumb.webp
 ```
+
+**A media container holds two derivatives and nothing else.** There is no `orig.jpg` beside
+them: the camera original is never uploaded, by decision rather than by omission — see §9.
+The extension follows whatever the encoder actually produced, so `.webp` is the usual case
+rather than a guarantee; see §7.3.
 
 ### There is no drafts container
 
@@ -444,7 +448,7 @@ actually hurt, because it is another index to keep in sync.
     dy:startDate       "2026-03-28"^^xsd:date ;
     dy:endDate         "2026-04-17"^^xsd:date ;
     dy:index           <entries.ttl#it> ;
-    dy:coverImage      <../../media/6f2a1c8e/web.jpg> ;
+    dy:coverImage      <../../media/6f2a1c8e/web.webp> ;
     dy:track           <track.geojson> ;
     dy:tag             "japan", "trains", "food" .
 
@@ -589,7 +593,7 @@ Notes on this shape:
     dy:lat             35.6938 ;
     dy:long            139.7034 ;
     dy:precisionMeters 500 ;
-    dy:thumbnail       <../../media/6f2a1c8e/thumb.jpg> ;
+    dy:thumbnail       <../../media/6f2a1c8e/thumb.webp> ;
     dy:travelModeFrom  dy:Flight ;
     dy:sortOrder       1 .
 ```
@@ -837,16 +841,23 @@ yet" is a one-time setup step with an obvious fix.
 
 ### EXIF
 
-**EXIF is stripped during the client-side resize**, from `web.jpg` and `thumb.jpg` both. That
-leaves `orig.jpg`, which retains full GPS and device metadata and sits at a public URL. Two
-defensible positions:
+**EXIF is stripped during the client-side resize**, from `web.webp` and `thumb.webp` both.
 
-1. Do not upload originals. Saves the bulk of your Pod quota, and every view uses the web-sized
-   version anyway. This is the recommended default.
-2. Upload originals with EXIF stripped as well, accepting that the archival copy is lossy in
-   metadata.
+**Originals are not uploaded.** Decided in phase 3, and recorded here rather than re-argued.
+Phase-0 question 5 — whether a Pod provider hands an uploaded original back byte-for-byte, with
+whatever metadata it arrived carrying — came back unanswerable, because the provider in question
+is a Developer Preview and no privacy property should rest on the current behaviour of one. The
+decision does not need that answer. Every view in this app renders the web-sized derivative, so an
+original earns nothing but bulk against someone's Pod quota; and an original at a public URL is a
+full-resolution file carrying exactly the GPS and device metadata that the two derivatives just
+had removed. Hence a media container holds two files, not three (§4), and `dy:originalUrl` stays
+reserved with nothing writing it (§3).
 
-Uploading originals with metadata intact to a public container is not a third option.
+Should that ever be reopened, there is one alternative worth the argument and one that is not.
+The arguable one is uploading originals with EXIF stripped as well, accepting an archival copy
+that is lossy in metadata. **Uploading originals with metadata intact to a public container is
+not a third option** — it never was, and stripping the derivatives while publishing the source
+would defeat the whole step.
 
 ---
 

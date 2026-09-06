@@ -113,8 +113,8 @@ describe("serialiseIndex", () => {
         place: { geo: { lat: 35.6938, long: 139.7034, precisionMeters: 500 } },
         photos: [
           {
-            contentUrl: `${POD}/travel/media/6f2a1c8e/web.jpg`,
-            thumbnailUrl: `${POD}/travel/media/6f2a1c8e/thumb.jpg`,
+            contentUrl: `${POD}/travel/media/6f2a1c8e/web.webp`,
+            thumbnailUrl: `${POD}/travel/media/6f2a1c8e/thumb.webp`,
           },
         ],
       }),
