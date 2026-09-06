@@ -454,6 +454,19 @@ describe("guardrails actually fire", () => {
     ["components/public/thing.tsx", "exifreader"],
     ["app/(public)/thing.tsx", "@/lib/media/resize"],
     ["app/not-found.tsx", "@/lib/media/resize"],
+    // THE HOLE THIS CASE HOLDS SHUT, the same one lib/studio already closed
+    // below. no-restricted-imports matches `group` with gitignore semantics,
+    // not minimatch, so `**/lib/media/**` does NOT match the bare specifier —
+    // the pattern group needs a `**/lib/media` half of its own, and this is
+    // the only case that notices if someone drops it. Measured before it was
+    // added, not inferred: linting this exact import at app/(public) produced
+    // no no-restricted-imports message at all, while `@/lib/media/resize` at
+    // the same path was reported, so the file was being linted and the fence
+    // simply missed. Latent only because nothing resolves at lib/media today;
+    // the moment someone adds lib/media/index.ts, `@/lib/media` is a working
+    // import on a public page and the whole fence is bypassed by dropping a
+    // filename.
+    ["app/(public)/thing.tsx", "@/lib/media"],
   ])("rejects %s importing %s — image processing is studio-only", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -470,6 +483,10 @@ describe("guardrails actually fire", () => {
     ["app/(studio)/thing.tsx", "exifreader"],
     ["lib/media/resize.ts", "exifreader"],
     ["app/(studio)/thing.tsx", "@/lib/media/resize"],
+    // The bare specifier on the allowed side too: widening the pattern group
+    // to catch `@/lib/media` must not fence the studio out of its own media
+    // code. A fence that rejects everything proves nothing and blocks the work.
+    ["app/(studio)/thing.tsx", "@/lib/media"],
   ])("allows %s to import %s", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,

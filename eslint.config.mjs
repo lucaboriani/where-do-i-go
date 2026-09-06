@@ -306,7 +306,19 @@ const eslintConfig = defineConfig([
                 "lib/studio is studio-only. It wraps @inrupt/solid-client-authn-browser, so importing it from a public route drags the auth library into the public bundle indirectly — the ban on the library itself, one step removed.",
             },
             {
-              group: ["exifreader", "**/lib/media/**"],
+              // The bare directory AND the subpath, matching the lib/studio
+              // fence above. no-restricted-imports matches these groups with
+              // gitignore semantics, not minimatch, so "**/lib/media/**" alone
+              // does NOT match a bare "@/lib/media" import resolving to an
+              // index file. Measured, not inferred: before this entry existed,
+              // linting `import * as m from "@/lib/media"` at
+              // app/(public)/__fence-probe.tsx reported nothing at all, while
+              // the same file importing "@/lib/media/resize" was reported —
+              // so the file was being linted and the fence simply did not
+              // match. There is no lib/media/index.ts today; this closes the
+              // hole before there is one, which is the only time it can be
+              // closed without a public bundle already carrying the weight.
+              group: ["exifreader", "**/lib/media", "**/lib/media/**"],
               message:
                 "Image-processing code is studio-only; it must not weigh down the public bundle.",
             },
