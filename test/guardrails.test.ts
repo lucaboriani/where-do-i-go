@@ -478,7 +478,22 @@ describe("guardrails actually fire", () => {
     ).toContain(moduleSpecifier);
   });
 
-  /** The allow-cases: the studio, and lib/media itself, must keep using it. */
+  /**
+   * The allow-cases: the studio, and lib/media itself, must keep using it.
+   *
+   * THE SNIPPET IS DELIBERATELY JSX-FREE, AND THAT IS THE WHOLE POINT OF THIS
+   * COMMENT. Until 2026-09-06 this block linted `return <div>{String(mod)}</div>`
+   * — JSX — at `lib/media/resize.ts`, a `.ts` path where the parser rejects it.
+   * ESLint answers a snippet it cannot parse with exactly ONE message, `fatal:
+   * true` and `ruleId: null`, and no rule messages at all, so `not.toContain
+   * ("no-restricted-imports")` passed on a file that was never linted. Measured:
+   * `lintText` returned `[null]` for that pair, versus
+   * `["no-restricted-imports"]` for the same import at a `.tsx` path. That is
+   * this repository's "green run that verified nothing" in miniature, and the
+   * `fatals` helper at the top of this file exists for precisely it — the block
+   * simply never called it. Both halves are now fixed: a snippet that parses as
+   * .ts and .tsx alike, and the assertion that would have caught it.
+   */
   it.each([
     ["app/(studio)/thing.tsx", "exifreader"],
     ["lib/media/resize.ts", "exifreader"],
@@ -487,11 +502,24 @@ describe("guardrails actually fire", () => {
     // to catch `@/lib/media` must not fence the studio out of its own media
     // code. A fence that rejects everything proves nothing and blocks the work.
     ["app/(studio)/thing.tsx", "@/lib/media"],
+    // THE MEDIA PIPELINE'S ONLY WRITE PATH. lib/media/upload.ts imports
+    // putGuarded, because a binary upload goes through the one guarded write
+    // like everything else — a second hand-rolled PUT for binaries is a blind
+    // PUT waiting to happen. It is allowed today only because the fence block
+    // above is scoped to `files: ["app/(public)/**", "components/public/**",
+    // "app/not-found.tsx", "app/global-error.tsx"]`, which never reaches
+    // lib/media. That is a property of an array someone could widen in one
+    // keystroke, and nothing else would notice: `lib/pod/write` IS in the
+    // fenced group, so adding "lib/**" to that files array breaks the media
+    // pipeline's write path with no other test going red. Verified by doing
+    // exactly that — this case turns red under the widening and green again
+    // when it is reverted, so it pins the scope and not just the group.
+    ["lib/media/upload.ts", "@/lib/pod/write"],
   ])("allows %s to import %s", async (path, moduleSpecifier) => {
-    const msgs = await lint(
-      path,
-      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
-    );
+    const msgs = await lint(path, `import * as mod from "${moduleSpecifier}";\nexport const used = String(mod);\n`);
+    // Before the rule assertion, not after: an allow-case that never parsed
+    // passes the line below for the wrong reason. See the block comment.
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 
