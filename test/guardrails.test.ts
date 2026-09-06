@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
+import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
+import { Photo } from "@/lib/pod/schema";
 
 /**
  * TODO.md phase 0.5: "A deliberate violation of each guardrail rule fails CI —
@@ -10,6 +12,10 @@ import config from "../eslint.config.mjs";
  * Each case lints a snippet *at a path where the rule is supposed to apply*,
  * because every guardrail here is path-scoped. Linting the right code at the
  * wrong path proves nothing.
+ *
+ * A SECOND describe at the foot of this file is deliberately not a lint case.
+ * It guards a constant that a lint fence forced to be duplicated; its own
+ * comment says why it lives here.
  */
 
 const eslint = new ESLint({ cwd: process.cwd() });
@@ -916,4 +922,122 @@ describe("guardrails actually fire", () => {
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
+});
+
+/**
+ * ── A guardrail that is not a lint rule ─────────────────────────────────────
+ *
+ * WHY IT IS IN THIS FILE. Everything above proves a *fence* fires. This proves
+ * the invariant a fence made necessary. `app/(public)/**` may not import
+ * `**\/lib/media/**` (the "Image-processing code is studio-only" case above is
+ * what enforces it), and `lib/pod/schema.ts` is read by public pages — so the
+ * §6.4 blur budget could not be imported into it and had to be RESTATED there
+ * (c267678). Two numbers, in two modules, with no compiler and no linter
+ * holding them together: they can drift apart in silence, and the drift is
+ * invisible until either an oversized placeholder ships to every reader of a
+ * public page or a legitimate one is refused on read.
+ *
+ * A test file is under neither fence, so it may import both sides and hold them
+ * against each other. That is the entire reason the guard lives here rather
+ * than inside either module. `test/read.test.ts` was the other candidate and is
+ * the wrong home: it drives normative Turtle through `readEntry` over MSW, and
+ * this is not wire behaviour — it is two modules agreeing, which is what every
+ * other case in this file is about.
+ *
+ * NOT A RESTATEMENT, WHICH IS THE POINT. `expect(BLUR_BUDGET_BYTES).toBe(1200)`
+ * already exists, in test/media-targets.test.ts, and pins the VALUE. Nothing
+ * here names 1200. These cases compare the two implementations TO EACH OTHER,
+ * so they stay green when the budget is deliberately changed in both places and
+ * go red the moment it is changed in one — which is the only failure this is
+ * for. Asserting each side equals 1200 separately would be two restatements of
+ * a literal and would guard nothing.
+ *
+ * And the schema's ceiling is reached THROUGH THE SCHEMA — by parsing strings
+ * and finding where acceptance flips — never by reading a constant or matching
+ * on `.max`. A refactor that expresses the ceiling some other way keeps this
+ * honest instead of breaking it.
+ */
+describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () => {
+  const A_PHOTO = { contentUrl: "https://pod.example/travel/media/abc123/web.webp" };
+
+  /**
+   * Parse a Photo carrying exactly this placeholder, and report WHICH field
+   * objected. The paths are not decoration: a rejection for an unrelated reason
+   * — a contentUrl that stopped being a valid URL, a field the schema later
+   * makes required — would otherwise read as the budget doing its job, and
+   * every "rejects" assertion below would pass while measuring nothing.
+   */
+  function parseBlur(blurDataUrl: string) {
+    const r = Photo.safeParse({ ...A_PHOTO, blurDataUrl });
+    return {
+      accepted: r.success,
+      blamed: r.success ? [] : r.error.issues.map((i) => i.path.join(".")),
+    };
+  }
+
+  it("the control photo parses, so a rejection below is the budget and not the fixture", () => {
+    expect(Photo.safeParse(A_PHOTO).success).toBe(true);
+    expect(parseBlur("data:image/webp;base64,AAAA").accepted).toBe(true);
+  });
+
+  /**
+   * The largest string `Photo.blurDataUrl` accepts, in ASCII where one
+   * character is one byte, found by bisection rather than by reading the
+   * constant out of the module.
+   *
+   * `hi` starts far above any plausible budget and is asserted REJECTED first.
+   * If the ceiling were deleted outright, bisection would otherwise return the
+   * top of its own probe range and this would degrade into comparing a number
+   * this test invented against BLUR_BUDGET_BYTES. It throws instead.
+   */
+  function effectiveCeilingBytes(): number {
+    let hi = 1 << 16;
+    if (parseBlur("d".repeat(hi)).accepted) {
+      throw new Error(
+        `Photo.blurDataUrl accepted ${hi} bytes — the read-side §6.4 ceiling is gone entirely`,
+      );
+    }
+    let lo = 0; // the empty string is always accepted: there is no .min() here
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (parseBlur("d".repeat(mid)).accepted) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  it("the ceiling lib/pod/schema.ts enforces on read IS BLUR_BUDGET_BYTES", () => {
+    expect(effectiveCeilingBytes()).toBe(BLUR_BUDGET_BYTES);
+  });
+
+  /**
+   * Both sides of the boundary, in ASCII and in two-byte codepoints.
+   *
+   * The multi-byte pair earns its place: `.max()` counts CHARACTERS, so
+   * BLUR_BUDGET_BYTES/2 accented characters sail under it and only the
+   * byte-counting refine can decide them. It is the case that catches the
+   * schema's two ceilings drifting apart from EACH OTHER — a refine left at the
+   * old number while `.max()` moves reopens exactly the four-byte-codepoint
+   * hole c267678 closed, and the ASCII bisection above cannot see it.
+   *
+   * Every probe length is derived from BLUR_BUDGET_BYTES, so changing that
+   * constant moves the probes and the schema stays where it is: the boundary
+   * they straddle is the one under test, not a fixed one.
+   */
+  const PROBES: [label: string, value: string][] = [
+    ["ascii, exactly at the budget", "d".repeat(BLUR_BUDGET_BYTES)],
+    ["ascii, one byte over", "d".repeat(BLUR_BUDGET_BYTES + 1)],
+    ["two-byte codepoints, exactly at the budget", "é".repeat(Math.floor(BLUR_BUDGET_BYTES / 2))],
+    ["two-byte codepoints, one codepoint over", "é".repeat(Math.floor(BLUR_BUDGET_BYTES / 2) + 1)],
+  ];
+
+  it.each(PROBES)(
+    "the read schema and withinBlurBudget agree on the same string — %s",
+    (_label, value) => {
+      const acceptedOnWrite = withinBlurBudget(value);
+      const onRead = parseBlur(value);
+      expect(onRead.accepted).toBe(acceptedOnWrite);
+      if (!acceptedOnWrite) expect(onRead.blamed).toContain("blurDataUrl");
+    },
+  );
 });
