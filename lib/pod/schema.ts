@@ -40,6 +40,18 @@ export const Place = z.object({
   geo: GeoPoint.optional(),
 });
 
+/**
+ * The §6.4 blur budget, RESTATED HERE RATHER THAN IMPORTED — deliberately.
+ *
+ * `BLUR_BUDGET_BYTES` in `lib/media/targets.ts` is the source of this number
+ * and the two must stay in step. It is not imported because that module is
+ * studio-only and fenced from `app/(public)` by `no-restricted-imports`, while
+ * this file is read by public pages: an import would pull the media graph into
+ * the public bundle to fetch one integer, undoing the fence rather than
+ * respecting it. A duplicated constant with a comment is the cheaper mistake.
+ */
+const BLUR_BUDGET_BYTES = 1200;
+
 export const Photo = z.object({
   contentUrl: z.url(),
   thumbnailUrl: z.url().optional(),
@@ -51,8 +63,37 @@ export const Photo = z.object({
   encodingFormat: z.string().optional(),
   /** From EXIF DateTimeOriginal. Offset required, like every other timestamp. */
   dateCreated: z.iso.datetime({ offset: true }).optional(),
-  /** A `data:` URI placeholder, budgeted by lib/media/targets.ts. */
-  blurDataUrl: z.string().optional(),
+  /**
+   * A `data:` URI placeholder, and the budget is enforced on READ as well as
+   * on write.
+   *
+   * `withinBlurBudget` runs in the worker, which only ever governs what THIS
+   * app writes. The literal rides inside the entry's Turtle, which is
+   * world-readable and fetched on every public page view, multiplied by photo
+   * count — so the side that matters most is the one where an oversized value
+   * ARRIVES: an older version of this app, another tool, or a foreign writer
+   * (§11's premise for validating at all).
+   *
+   * TWO CHECKS, NOT ONE. `.max()` counts CHARACTERS; the budget is BYTES, and
+   * `withinBlurBudget` measures with a `TextEncoder`. For a real base64 data
+   * URI the two coincide, but 1200 characters of four-byte codepoints is 4800
+   * bytes and would pass a character bound alone — a hole of exactly the shape
+   * this project keeps finding. The refine is the real ceiling; `.max()` is the
+   * cheap one that gives the clearer message in the common case.
+   *
+   * Over budget is fatal to the read rather than silently dropped, in the same
+   * way a malformed `contentUrl` is: §11 asks for a typed object or a
+   * structured error, and a placeholder quietly discarded would leave the
+   * writer with no signal that the budget exists.
+   */
+  blurDataUrl: z
+    .string()
+    .max(BLUR_BUDGET_BYTES, `blurDataUrl is over the §6.4 budget of ${BLUR_BUDGET_BYTES} bytes`)
+    .refine(
+      (value) => new TextEncoder().encode(value).length <= BLUR_BUDGET_BYTES,
+      `blurDataUrl is over the §6.4 budget of ${BLUR_BUDGET_BYTES} bytes`,
+    )
+    .optional(),
 });
 export type Photo = z.infer<typeof Photo>;
 

@@ -13,12 +13,21 @@
  *
  * WHAT THIS DELIBERATELY DOES NOT DO: fuzz coordinates. §9 requires fuzzing
  * BEFORE the write — "the Pod stores only the coordinate you are willing to
- * publish" — and it is phase 3 work that does not exist yet. Whatever
- * coordinate this function is handed is the coordinate that reaches the Pod,
- * unrounded and unshifted, so that fuzzing is unambiguously the caller's job
- * and no test here can be misread as evidence that a coordinate was fuzzed. A
- * serialiser that quietly rounded would also make `dy:precisionMeters` a lie in
- * the other direction, describing a precision the value no longer has.
+ * publish" — and that happens in `lib/pod/fuzz.ts`, called by
+ * `components/studio/entry-editor.tsx` before the `Entry` reaches this
+ * function. Whatever coordinate this function is handed is the coordinate that
+ * reaches the Pod, unrounded and unshifted, so that fuzzing is unambiguously
+ * the caller's job and no test here can be misread as evidence that a
+ * coordinate was fuzzed. A serialiser that quietly rounded would also make
+ * `dy:precisionMeters` a lie in the other direction, describing a precision the
+ * value no longer has.
+ *
+ * That paragraph read "it is phase 3 work that does not exist yet" until
+ * 2026-09-06, having outlived commit fc9fcc5, which landed the module. A
+ * comment arguing for a state that no longer holds is worse than no comment:
+ * the next reader concludes nothing fuzzes, and either duplicates it here — the
+ * double-fuzz the paragraph exists to prevent — or ships the raw coordinate on
+ * the assumption that someone downstream will handle it.
  */
 import { DataFactory, Writer, type Quad } from "n3";
 import {

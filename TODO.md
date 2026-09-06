@@ -965,14 +965,49 @@ In progress on branch `phase-2-studio`.
             browser cannot read HEIC; export as JPEG" — is not implemented; what surfaces is the
             decoder's own `DOMException`, which is attributable but not actionable. One mapping in
             the worker's reject path, with a test.
-      - [ ] **No photo removal control.** An accidental attach can only be undone by reloading the
-            editor, and the derivatives stay on the Pod either way. The reviewer's verdict was
-            "ship stage 1; file the removal control as the next UI task rather than deferring it
-            indefinitely", so it is filed here as a task and not a footnote. It needs: a control
-            per slot, removal from `photos[]` with the remaining `sortOrder`s left alone (they are
-            positions, not indices — `lib/pod/entry-model.ts:161` serialises `sortOrder ?? i + 1`
-            one-based), and a decision about whether removal deletes the binaries or leaves them,
-            which is the orphan question below.
+      - [ ] **No photo removal control, and no retry — one UI task, not two.** An accidental
+            attach can only be undone by reloading the editor, and the derivatives stay on the Pod
+            either way. The reviewer's verdict was "ship stage 1; file the removal control as the
+            next UI task rather than deferring it indefinitely", so it is filed here as a task and
+            not a footnote. It needs: a control per slot, removal from `photos[]` with the
+            remaining `sortOrder`s left alone (they are positions, not indices —
+            `lib/pod/entry-model.ts:161` serialises `sortOrder ?? i + 1` one-based), and a
+            decision about whether removal deletes the binaries or leaves them, which is the
+            orphan question below.
+
+            **Retry is specified and was never built, and the two are the same control.** §8 asks
+            for a "per-photo state machine: decoding → uploading → ready | failed, *with retry*".
+            There is no retry affordance anywhere: a failed slot renders a permanent
+            `role="alert"` row that cannot be dismissed, and with no removal control either, the
+            only escape from a failed photo is reloading the editor and losing the draft.
+            Re-picking the same file does work — the content-addressed path makes it idempotent —
+            but it leaves the failed row in place and adds a second slot beside it. So a slot
+            needs both verbs, and retrying is nearly free: the source bytes are already held (see
+            the multi-pick bullet below, which wants to stop holding them) and a repeat upload of
+            an already-written derivative is the 412-as-reuse path.
+      - [ ] **Multi-pick reads every original into main-thread memory at once — the tab-kill the
+            worker queue exists to prevent, reached from the other side.** `attach` runs to its
+            first `await` synchronously, and the picker handler is
+            `for (const file of picked) void attach(file)`
+            (`components/studio/entry-editor.tsx:2141` at this commit). So N `file.arrayBuffer()`
+            reads start in a single tick; only `process()` is serialised behind the single-worker
+            queue, and `source` stays captured for the whole slot's life, until `uploadPhoto`
+            returns. Twelve 50 MP photos at ~25 MB each is ~300 MB held on the main thread while
+            the worker holds its own ~200 MB bitmap. There is no size guard and no count guard.
+            It also contradicts the spec's "keeps the raw file bytes off the main thread": the
+            file is read twice, once in `attach` for the hash and once in the worker's `run()`.
+
+            **The fix worth recording, because it removes the read rather than throttling it:**
+            hash in the worker. `run()` already has `bytes` (`lib/media/pipeline.worker.ts:77`),
+            so return `sourceHash` on `TransferableResult` and change `UploadPhotoOptions.source`
+            from `ArrayBuffer` to `hash: string`. The main thread then never calls
+            `arrayBuffer()` at all, and `File` stays a handle to disk. Serialising the picks
+            would also bound the peak, but it keeps the double read and the spec violation.
+
+            **Coverage gap, filed with it: nothing anywhere picks more than one file.** Every
+            test — unit, MSW and Playwright — attaches a single photo, so the multi-pick handler
+            that causes this has never been exercised at all. Whatever lands here needs a
+            multi-file pick in the test that would have caught it.
       - [ ] **Orphaned media is accepted, with no cleanup pass.** A photo that uploads and is then
             abandoned — the entry is never saved, the tab is closed, a slot is removed — leaves
             two binaries in `/travel/media/<hash>/` that nothing references. Accepted for stage 1

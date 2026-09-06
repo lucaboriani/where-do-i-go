@@ -5,6 +5,8 @@ import { DY, LDP, NS, SCHEMA } from "@/lib/vocab";
 import { createContainer, getAccess, initialiseContainers, makePrivate, makePublic } from "@/lib/pod/access";
 import type { InitReport } from "@/lib/pod/access";
 import { readPrivacySettings } from "@/lib/pod/read";
+import { putGuarded } from "@/lib/pod/write";
+import { mediaContainer, mediaHash, uploadPhoto } from "@/lib/media/upload";
 import { describe as renderError, type Result } from "@/lib/pod/result";
 import { graphEquals } from "./graph";
 
@@ -1467,5 +1469,261 @@ describe("the privacy settings container", () => {
 
     await expectDenied(exposed, [HOME_LAT]);
     expect((await ownerFetch(exposed, { headers: { accept: "text/turtle" } })).status).toBe(200);
+  }, 60_000);
+});
+
+/* ============================================ a binary derivative on a real Pod */
+
+/**
+ * THE MEDIA PUT, AGAINST A REAL SERVER — the one thing the media pipeline had
+ * never done anywhere in this repository.
+ *
+ * Every other test of the upload path fakes the Pod: MSW at the HTTP layer in
+ * test/media-upload.test.ts and test/entry-editor.test.tsx, and a Playwright
+ * `route.fulfill({ status: 201 })` in e2e/media-pipeline.spec.ts. Meanwhile
+ * scripts/seed-dev-pod.ts creates `travel/`, `travel/trips/` and the trip tree
+ * and NOT `travel/media/`, so `.pod-data/e2e/travel/` has no media container at
+ * all. The branch's headline claim — "upload the two derivatives to
+ * `/travel/media/`" — was therefore a claim about mocks, and the two things it
+ * rests on had never been measured against Community Solid Server:
+ *
+ *   1. `travel/media/<hash>/` IS CREATED BY NOTHING. `initialiseContainers`
+ *      makes `travel/media/`; the per-hash container below it is only ever
+ *      NAMED, by `mediaContainer()`. Does a real server create it on the way,
+ *      or refuse a PUT whose parent is absent?
+ *   2. `uploadPhoto` reads 412 as "the bytes already there ARE the bytes we
+ *      were about to write" — reuse, not failure. That reading is sound only
+ *      if a real server answers a repeated `If-None-Match: *` with exactly 412.
+ *
+ * Both are answered below by what was sent and what came back. The derivatives
+ * are read as a LOGGED-OUT reader wherever the question is "can a visitor see
+ * this photo", because that is the only context whose answer is evidence
+ * (phase 0): a 201 proves the write and says nothing about access.
+ *
+ * WHAT THESE BYTES ARE NOT. They are not an image. jsdom has no
+ * `createImageBitmap`, no `OffscreenCanvas` and no encoder, so no test outside
+ * Playwright can produce a real WebP — and pixels are not what is under test
+ * here. What makes this a media test is the binary body, the `image/webp`
+ * content type and the content-addressed path.
+ */
+describe("a binary derivative through putGuarded", () => {
+  /** A RIFF/WEBP header over four arbitrary bytes. Distinguishable from `other`
+   *  below, which is what makes "the stored resource was not overwritten" an
+   *  assertion rather than a tautology. */
+  const bytes = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]);
+  const other = new Uint8Array([0x52, 0x49, 0x46, 0x46, 9, 9, 9, 9, 0x57, 0x45, 0x42, 0x50]);
+  const webp = (b: Uint8Array<ArrayBuffer>) => new Blob([b], { type: "image/webp" });
+
+  /** Each test names its own hash, so none depends on another having run —
+   *  16 hex characters, the width `mediaHash` actually produces. */
+  const ARRIVES = "deadbeefdeadbeef";
+  const REPEATS = "feedfacefeedface";
+  const UNSEEN = "0123456789abcdef";
+
+  it("creates the per-hash container on the way, and the derivative reaches a logged-out reader", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const container = mediaContainer(POD, ARRIVES);
+    const target = `${container}web.webp`;
+
+    // The path is the studio's, built by the shipped function rather than by
+    // hand: a test that spelled the URL itself would pass while `uploadPhoto`
+    // wrote somewhere else entirely.
+    expect(container).toBe(`${u.media()}${ARRIVES}/`);
+
+    // THE PREMISE, at the server. `travel/media/` exists because
+    // initialiseContainers ran in beforeAll; the container below it does not,
+    // because nothing in this project creates it. Without this the assertion
+    // that follows would pass on a container something else had made.
+    expect((await ownerFetch(container, { headers: { accept: "text/turtle" } })).status).toBe(404);
+    expect((await ownerFetch(target, { headers: { accept: "image/webp" } })).status).toBe(404);
+
+    const written = await putGuarded(ownerFetch, target, webp(bytes), { create: true }, "image/webp");
+    expect(written.ok, written.ok ? "" : renderError(written.error)).toBe(true);
+
+    /**
+     * WHAT CSS 7.2.0 ACTUALLY DID: 201 Created, having made the missing
+     * intermediate container itself. Recorded here rather than assumed,
+     * because the other plausible answer — 404 or 409 on an absent parent — is
+     * real server behaviour elsewhere and would mean `uploadPhoto` needs a
+     * `createContainer` call it does not make. If this line ever goes red on
+     * another server, that is the finding and not a flaky test.
+     */
+    const listed = await ownerFetch(container, { headers: { accept: "text/turtle" } });
+    expect(listed.status).toBe(200);
+    const contained = new Parser({ baseIRI: container })
+      .parse(await listed.text())
+      .filter((q) => q.predicate.value === LDP.contains)
+      .map((q) => q.object.value);
+    expect(contained).toContain(target);
+
+    // The bytes, to a reader with no session and no Solid library — the public
+    // path exactly. Status AND body AND content type: a status asserted alone
+    // is how a zero-byte 404 shipped in this project once already.
+    const publicRead = await fetch(target);
+    expect(publicRead.status).toBe(200);
+    expect(publicRead.headers.get("content-type")).toContain("image/webp");
+    expect([...new Uint8Array(await publicRead.arrayBuffer())]).toEqual([...bytes]);
+
+    // `travel/media/` is still not enumerable, so a hash cannot be discovered
+    // without the file it was derived from — §4's obscurity trade-off left
+    // where §4 put it. ARRIVES is not a substring of the requested URL, so this
+    // cannot be satisfied by a request path echoed in an error envelope.
+    await expectDenied(u.media(), [ARRIVES]);
+
+    /**
+     * AND THE PART THAT IS NOT TIDY, SAID PLAINLY. The container CSS created on
+     * our behalf has no ACL of its own, so it is covered by `travel/media/`'s
+     * public `acl:default` AS A RESOURCE and its listing is open — the §20
+     * shape, one level down. Asserted rather than glossed, because it is what
+     * the server does and the next reader should not have to rediscover it.
+     *
+     * It is not a leak in this one place: everything inside is a published
+     * derivative that is world-readable anyway, and the container's name is
+     * unreachable without the source file. It would stop being harmless the day
+     * anything private is written under `travel/media/<hash>/`.
+     */
+    const anonListing = await anon(container);
+    expect(anonListing.status).toBe(200);
+    expect(await anonListing.text()).toContain("web.webp");
+  }, 60_000);
+
+  it("answers the second, identical PUT with 412 — the branch uploadPhoto is built on", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const target = `${mediaContainer(POD, REPEATS)}web.webp`;
+
+    const first = await putGuarded(ownerFetch, target, webp(bytes), { create: true }, "image/webp");
+    expect(first.ok, first.ok ? "" : renderError(first.error)).toBe(true);
+
+    // The exact request a re-pick of the same photo produces: same
+    // content-addressed path, same bytes, same `If-None-Match: *`.
+    const again = await putGuarded(ownerFetch, target, webp(bytes), { create: true }, "image/webp");
+    expect(again.ok, again.ok ? "the second create-PUT succeeded, so nothing was already there" : "").toBe(false);
+    if (again.ok) return;
+    // 412 SPECIFICALLY. `uploadPhoto`'s reuse branch matches on this number and
+    // on nothing else; a 409 or a 400 here would mean its premise is wrong and
+    // a re-picked photo surfaces to the owner as a failed upload.
+    expect(again.error.kind).toBe("http");
+    if (again.error.kind !== "http") return;
+    expect(again.error.status).toBe(412);
+    expect(again.error.url).toBe(target);
+
+    // It is a refusal, not a courtesy: DIFFERENT bytes to the same path are
+    // refused the same way and the stored resource is untouched. Without this,
+    // "412" would be compatible with a server that had already overwritten.
+    const clobber = await putGuarded(ownerFetch, target, webp(other), { create: true }, "image/webp");
+    expect(clobber.ok, clobber.ok ? "different bytes overwrote a content-addressed derivative" : "").toBe(false);
+    if (clobber.ok) return;
+    expect(clobber.error.kind).toBe("http");
+    if (clobber.error.kind !== "http") return;
+    expect(clobber.error.status).toBe(412);
+
+    const stored = await fetch(target);
+    expect(stored.status).toBe(200);
+    expect([...new Uint8Array(await stored.arrayBuffer())]).toEqual([...bytes]);
+  }, 60_000);
+
+  it("uploadPhoto puts both derivatives on the Pod, and a re-pick rewrites neither", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    // The whole function, against the real server — the sentence this describe
+    // exists to make true. `source` stands in for the original file: hashed for
+    // the path, never uploaded (§9).
+    const source = await webp(bytes).arrayBuffer();
+    const derivatives = {
+      web: { blob: webp(bytes), width: 1600, height: 1200 },
+      thumb: { blob: webp(other) },
+    };
+
+    const first = await uploadPhoto({ fetch: ownerFetch, podRoot: POD, source, derivatives });
+    expect(first.ok, first.ok ? "" : renderError(first.error)).toBe(true);
+    if (!first.ok) return;
+
+    const container = mediaContainer(POD, await mediaHash(source));
+    expect(first.value.contentUrl).toBe(`${container}web.webp`);
+    expect(first.value.thumbnailUrl).toBe(`${container}thumb.webp`);
+    expect(first.value.encodingFormat).toBe("image/webp");
+
+    // Both derivatives, to a logged-out reader, with their own bytes — so the
+    // thumb is not the web image under a second name.
+    const web = await fetch(first.value.contentUrl);
+    expect(web.status).toBe(200);
+    expect([...new Uint8Array(await web.arrayBuffer())]).toEqual([...bytes]);
+    const thumb = await fetch(`${container}thumb.webp`);
+    expect(thumb.status).toBe(200);
+    expect([...new Uint8Array(await thumb.arrayBuffer())]).toEqual([...other]);
+
+    // THE RE-PICK. Same file, so the same address, so both PUTs are refused —
+    // and `uploadPhoto` reports success anyway, because on a content-addressed
+    // path a 412 means the bytes are already there. The request log is how that
+    // is distinguished from a second upload that quietly overwrote.
+    const rec = recording(ownerFetch);
+    const second = await uploadPhoto({ fetch: rec.fetch, podRoot: POD, source, derivatives });
+    expect(second.ok, second.ok ? "" : renderError(second.error)).toBe(true);
+    if (!second.ok) return;
+    expect(second.value).toEqual(first.value);
+
+    const puts = rec.log.filter((r) => r.method === "PUT");
+    expect(puts.map((r) => r.url), summarise(rec.log)).toEqual([
+      first.value.contentUrl,
+      first.value.thumbnailUrl,
+    ]);
+    expect(puts.map((r) => r.status), summarise(rec.log)).toEqual([412, 412]);
+    // Every one of them carried the create precondition. A blind PUT here would
+    // have succeeded and overwritten, and this test would still be green on the
+    // assertions above.
+    expect(puts.map((r) => r.ifNoneMatch)).toEqual(["*", "*"]);
+    expect(puts.filter((r) => r.ifMatch !== null)).toEqual([]);
+  }, 60_000);
+
+  it("accepts the PUT even where travel/media/ was never provisioned — and the public cannot read it", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    /**
+     * THE OTHER HALF OF QUESTION 1, AND THE UNCOMFORTABLE ANSWER.
+     *
+     * `initialiseContainers` has no UI call site — it is reachable from tests
+     * and from nothing a deployer clicks. So the state where `travel/media/`
+     * does not exist at all is not hypothetical; it is what a Pod looks like
+     * until someone runs the first-run flow by hand.
+     *
+     * What CSS 7.2.0 does with a media PUT in that state is accept it: 201, all
+     * three missing containers created. The upload therefore SUCCEEDS, the
+     * studio shows a photo, the entry is saved pointing at it — and a visitor
+     * gets 401, because the containers CSS invented carry no ACL and the pod
+     * root's default grant is `acl:accessTo <./>` with no `acl:default`.
+     *
+     * That is the project's own rule biting in the direction it always warns
+     * about: a 2xx on a write proves the write and says nothing whatsoever
+     * about who can read it. Recorded here rather than in a comment, so that a
+     * future first-run flow with a real call site can be checked against it.
+     */
+    const unprovisioned = `${POD}unprovisioned-root/`;
+    const target = `${mediaContainer(unprovisioned, UNSEEN)}web.webp`;
+
+    // Premise: nothing exists on this branch of the tree.
+    expect((await ownerFetch(unprovisioned, { headers: { accept: "text/turtle" } })).status).toBe(404);
+
+    const written = await putGuarded(ownerFetch, target, webp(bytes), { create: true }, "image/webp");
+    expect(written.ok, written.ok ? "" : renderError(written.error)).toBe(true);
+
+    // The owner has it...
+    const asOwner = await ownerFetch(target, { headers: { accept: "image/webp" } });
+    expect(asOwner.status).toBe(200);
+    expect([...new Uint8Array(await asOwner.arrayBuffer())]).toEqual([...bytes]);
+
+    // ...and a logged-out reader does not. This is the assertion that matters:
+    // the write succeeded and the photo is invisible.
+    const publicRead = await fetch(target);
+    expect([401, 403]).toContain(publicRead.status);
+
+    // The allow-case, in the same run: the identically-shaped path under the
+    // PROVISIONED root is public. So the denial above is attributable to the
+    // missing first-run flow and not to something that broke media generally.
+    const provisioned = `${mediaContainer(POD, UNSEEN)}web.webp`;
+    const ok2 = await putGuarded(ownerFetch, provisioned, webp(bytes), { create: true }, "image/webp");
+    expect(ok2.ok, ok2.ok ? "" : renderError(ok2.error)).toBe(true);
+    expect((await fetch(provisioned)).status).toBe(200);
   }, 60_000);
 });
