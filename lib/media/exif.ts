@@ -13,6 +13,7 @@
  * entry in the wrong hemisphere with nothing to show for it.
  */
 import ExifReader from "exifreader";
+import type { ExpandedTags } from "exifreader";
 import { z } from "zod";
 
 export const PhotoMetadata = z.object({
@@ -33,13 +34,45 @@ export const PhotoMetadata = z.object({
 export type PhotoMetadata = z.infer<typeof PhotoMetadata>;
 
 /** EXIF spells a date "2026:03:29 21:38:02". Only the date half uses colons. */
-const EXIF_DATE = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}:\d{2}:\d{2})$/;
+const EXIF_DATE = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
 const OFFSET = /^[+-]\d{2}:\d{2}$/;
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const isLeapYear = (y: number): boolean => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+const daysInMonth = (y: number, month: number): number =>
+  month === 2 && isLeapYear(y) ? 29 : DAYS_IN_MONTH[month - 1]!;
+
+/**
+ * Shape-only regex matching is not enough: a camera with no clock set writes
+ * the literal sentinel "0000:00:00 00:00:00", which matches EXIF_DATE's
+ * digit shape and would otherwise pass through as a plausible-looking ISO
+ * string. Stage 2's auto-date is told (by this module's own docstring) to
+ * trust dateTimeOriginal, so an unset-date sentinel must be rejected here
+ * rather than surfacing as a wrong date on an entry later.
+ */
+function isValidCalendarDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): boolean {
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > daysInMonth(year, month)) return false;
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  return true;
+}
+
 export function readMetadata(bytes: ArrayBuffer): PhotoMetadata {
-  let tags: ReturnType<typeof ExifReader.load>;
+  // Typed directly as ExpandedTags rather than via `ReturnType<typeof
+  // ExifReader.load>`: `load` is overloaded, and ReturnType on an overloaded
+  // function resolves to the LAST signature only — here, the `(string|File,
+  // ...) => Promise<Tags>` overload, not the sync ExpandedTags one this call
+  // actually selects. A known TS pitfall, not a real ambiguity in the call.
+  let tags: ExpandedTags;
   try {
     tags = ExifReader.load(bytes, { expanded: true });
   } catch {
@@ -60,7 +93,12 @@ export function readMetadata(bytes: ArrayBuffer): PhotoMetadata {
   const rawDate = tags.exif?.DateTimeOriginal?.description;
   const matched = typeof rawDate === "string" ? EXIF_DATE.exec(rawDate) : null;
   if (matched) {
-    candidate.dateTimeOriginal = `${matched[1]}-${matched[2]}-${matched[3]}T${matched[4]}`;
+    const [, year, month, day, hour, minute, second] = matched;
+    if (
+      isValidCalendarDate(Number(year), Number(month), Number(day), Number(hour), Number(minute), Number(second))
+    ) {
+      candidate.dateTimeOriginal = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+    }
   }
 
   const rawOffset = tags.exif?.OffsetTimeOriginal?.description;

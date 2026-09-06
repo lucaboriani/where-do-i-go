@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { exifJpeg } from "./fixtures/exif-jpeg";
+import type { ExifOptions } from "./fixtures/exif-jpeg";
 import { readMetadata } from "@/lib/media/exif";
+
+type Gps = NonNullable<ExifOptions["gps"]>;
 
 /**
  * lib/media/exif.ts, against JPEGs built byte by byte rather than committed.
@@ -12,21 +15,28 @@ import { readMetadata } from "@/lib/media/exif";
 const bytesOf = (u: Uint8Array): ArrayBuffer =>
   u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
 
-/** Tokyo, 35.6938 N 139.7034 E — the §7.3 fixture's own coordinate. */
-const TOKYO = {
+/**
+ * Tokyo, 35.6938 N 139.7034 E — the §7.3 fixture's own coordinate.
+ *
+ * Typed as `Gps` rather than `as const`: `as const` makes the nested arrays
+ * readonly tuples, which don't satisfy ExifOptions.gps's mutable
+ * `[number, number][]`. Annotating with the target type instead gets the
+ * same literal-narrowing on latRef/longRef without that mismatch.
+ */
+const TOKYO: Gps = {
   latRef: "N",
   lat: [[35, 1], [41, 1], [3768, 100]],
   longRef: "E",
   long: [[139, 1], [42, 1], [1224, 100]],
-} as const;
+};
 
 /** Ushuaia, 54.8019 S 68.3030 W — both hemispheres negative. */
-const USHUAIA = {
+const USHUAIA: Gps = {
   latRef: "S",
   lat: [[54, 1], [48, 1], [687, 100]],
   longRef: "W",
   long: [[68, 1], [18, 1], [1080, 100]],
-} as const;
+};
 
 describe("readMetadata", () => {
   it("reads northern/eastern GPS as positive decimal degrees", () => {
@@ -82,6 +92,16 @@ describe("readMetadata", () => {
     const meta = readMetadata(bytesOf(exifJpeg({ dateTimeOriginal: "2026:03:29 21:38:02" })));
     expect(meta.dateTimeOriginal).toBe("2026-03-29T21:38:02");
     expect(meta.offsetTimeOriginal).toBeUndefined();
+  });
+
+  it("rejects the unset-date sentinel rather than passing it through as a plausible ISO string", () => {
+    // A camera with no clock set writes the literal "0000:00:00 00:00:00".
+    // It matches EXIF_DATE's digit shape, so shape-only validation would let
+    // it through. Stage 2's auto-date is told (by this module's own
+    // docstring) to trust dateTimeOriginal — a wrong date discovered there
+    // is worse than an absent one caught here.
+    const meta = readMetadata(bytesOf(exifJpeg({ dateTimeOriginal: "0000:00:00 00:00:00" })));
+    expect(meta.dateTimeOriginal).toBeUndefined();
   });
 
   it("reads OffsetTimeOriginal when the camera wrote one", () => {
