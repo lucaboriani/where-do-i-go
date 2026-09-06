@@ -20,6 +20,15 @@
  *                    test/studio-shell.test.tsx and test/session.test.ts do. A
  *                    test that mocks @inrupt/solid-client-authn-browser tests
  *                    the library's idea of a session.
+ *   privacy.ttl      MSW again, and deliberately NOT a mocked
+ *                    `readPrivacySettings`. §7.6's resource is owner-only, the
+ *                    read is the thing that has to fail closed, and a stubbed
+ *                    module would let a test assert "the editor did the right
+ *                    thing with settings that could not be read" against a
+ *                    fake that never parsed a document. The fail-closed cases
+ *                    below are real Turtle — a 404, and a half-written home
+ *                    region mutated out of the normative §7.6 block — served
+ *                    over HTTP and put through the real reader.
  *   /api/revalidate  MSW again. jsdom's origin is http://localhost:3000 and
  *                    vitest's jsdom `fetch` resolves a relative URL against it,
  *                    so the real route path is interceptable — verified before
@@ -48,20 +57,26 @@
  * driving the real `saveEntry` with a scripted Pod.
  *
  * ───────────────────────────────────────────────────────────────────────────
+ * COORDINATES ARE IN SCOPE AS OF 2026-09-06, AND THE TWO SAFETY PINS THAT USED
+ * TO STAND HERE ARE GONE. They were "exposes no coordinate input, while
+ * exposing the fields that are in scope" and "writes no coordinate predicate on
+ * a create", and this docblock said of them: "Both are safety pins, not
+ * placeholders: they must be deleted deliberately when fuzzing lands, which is
+ * the point." That is what happened. `lib/pod/fuzz.ts` exists and is covered by
+ * test/fuzz.test.ts; `readPrivacySettings` exists and is covered by
+ * test/privacy-settings.test.ts; section 1 below is the caller, and it asserts
+ * at the wire the thing the pins were holding the door for — that the
+ * coordinate a stranger can `curl` is the snapped one and the typed one is in
+ * no request at all.
+ *
  * WHAT IS DELIBERATELY OUT OF SCOPE, each for a reason worth stating:
  *
- *   COORDINATES. §9 requires fuzzing BEFORE the write — "the Pod stores only
- *   the coordinate you are willing to publish" — and fuzzing is phase 3 and
- *   does not exist anywhere under lib/. An editor with a latitude field would
- *   therefore write an unfuzzed coordinate to a publicly readable resource,
- *   which is a privacy invariant broken rather than a feature missing. There is
- *   a test below asserting the editor exposes NO coordinate input at all, and a
- *   second asserting no coordinate predicate reaches the wire on a create. Both
- *   are safety pins, not placeholders: they must be deleted deliberately when
- *   fuzzing lands, which is the point.
- *
- *   PHOTOS (phase 3, needs the resize/EXIF pipeline), CREATING A TRIP (not in
- *   phase 2), RICH TEXT.
+ *   PHOTOS (phase 3, needs the resize/EXIF pipeline — a photo's GPS is a
+ *   coordinate like any other and goes through §9 steps 1-4 before anything is
+ *   written, but there is no photo input to drive yet), CREATING A TRIP (not in
+ *   phase 2), RICH TEXT, and a PLACE NAME control: an edit carries the place it
+ *   already had, which is what the drop test in section 1 leans on, and a
+ *   create has no name to keep.
  *
  * ───────────────────────────────────────────────────────────────────────────
  * THE PROP AND LABEL SHAPES BELOW ARE THIS FILE'S PROPOSAL, NOT ITS SUBJECT.
@@ -78,8 +93,14 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Parser, type Quad, type Term } from "n3";
-import { DCTERMS, DY, GEO, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE, XSD } from "@/lib/vocab";
-import { readEntry } from "@/lib/pod/read";
+import { DCTERMS, DY, GEO, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE, XSD } from "@/lib/vocab";
+import { readEntry, readPrivacySettings } from "@/lib/pod/read";
+// Section 1's ORACLE, not its subject: the snapped values are hard-coded and
+// this is what ties them to the grid that produced them, in one control test.
+import { snapToPrecision } from "@/lib/pod/fuzz";
+// Aliased — `describe` is vitest's here. Used to print a structured PodError
+// when a control fails, so the message names the read rather than "false".
+import { describe as describeError } from "@/lib/pod/result";
 import { TAGS } from "@/lib/pod/tags";
 import { resetSessionRestore, type StudioSessionLike } from "@/lib/studio/session";
 import { triples } from "./graph";
@@ -169,11 +190,18 @@ const DOC = readFileSync("docs/data-model.md", "utf8");
 const BLOCKS = [...DOC.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1]);
 const ENTRY_TTL = BLOCKS[2];
 const INDEX_TTL = BLOCKS[3];
+/** §7.6, the owner-only privacy settings. Block 6: diary, trip, entry, index,
+ *  profile, type index, privacy — the same index test/privacy-settings.test.ts
+ *  takes it from. */
+const PRIVACY_TTL = BLOCKS[6];
 
 /** Guard the extraction: if the §7 numbering shifts, every test below would
  *  otherwise run silently against the wrong block. */
 if (!ENTRY_TTL?.includes("dy:Entry") || !INDEX_TTL?.includes("dy:TripIndex")) {
   throw new Error("docs/data-model.md §7.3/§7.4 blocks not found at the expected index");
+}
+if (!PRIVACY_TTL?.includes("dy:homeRadiusMeters")) {
+  throw new Error("docs/data-model.md §7.6 block not found at the expected index");
 }
 
 /* ═══════════════════════════════════════════════════════════ the fixtures ══ */
@@ -211,6 +239,106 @@ const ARRIVAL_URL = `${JAPAN.entriesContainer}${ARRIVAL_SLUG}.ttl`;
  *  compares against the specification rather than against my typing. */
 const SPEC_CREATED = "2026-03-29T22:03:44+09:00";
 const SPEC_OCCURRED = "2026-03-29T21:40:00+09:00";
+/** The place the §7.3 entry names, and the coordinate it already carries —
+ *  fuzzed to 500 m when it was stored, which is why it is allowed to be there. */
+const SPEC_PLACE_NAME = "Shinjuku, Tokyo";
+
+/* ══════════════════════════════════════════════ §7.6 privacy settings ══ */
+
+/**
+ * The owner-only resource §9 makes every coordinate write conditional on.
+ *
+ * IT IS A URL THE EDITOR IS GIVEN, not one it derives: the editor reads no
+ * config (`lib/config.ts` throws in the browser and there is a source assertion
+ * about it at the bottom of this file), so `settingsUrl` joins `indexUrl` and
+ * `entriesContainer` as something the shell resolves from `podRoot` —
+ * `privacySettingsUrl(podRoot)` in lib/pod/read.ts already spells it. An
+ * implementer who would rather pass the parsed settings down as a prop changes
+ * `renderEditor` and the four settings documents below; what may not change is
+ * that the failure cases are produced by a real read of a real document, since
+ * "the settings could not be read" is the state the whole feature turns on.
+ */
+const SETTINGS_URL = `${POD}/travel/settings/privacy.ttl`;
+
+/**
+ * A mutation of the normative block, guarded twice — the anchor must be found,
+ * and the edit must change the GRAPH rather than the bytes. Lifted from
+ * test/privacy-settings.test.ts, which states the reason: a negative test built
+ * by string-replacing a fixture passes the *unmodified* fixture the day the
+ * anchor drifts, and does it silently. Both guards throw at module load.
+ */
+function mutateSettings(from: string | RegExp, to: string): string {
+  const matched = typeof from === "string" ? PRIVACY_TTL.includes(from) : from.test(PRIVACY_TTL);
+  if (!matched) {
+    throw new Error(`§7.6 anchor not found in docs/data-model.md: ${String(from)}`);
+  }
+  const out = PRIVACY_TTL.replace(from, to);
+  const before = triples(PRIVACY_TTL, SETTINGS_URL);
+  const after = triples(out, SETTINGS_URL);
+  if (before.size === after.size && [...before].every((t) => after.has(t))) {
+    throw new Error(`§7.6 mutation left the graph unchanged: ${String(from)}`);
+  }
+  return out;
+}
+
+/**
+ * "I have no home to protect" — §7.6 in as many words, and a legitimate
+ * configuration rather than an error. Every coordinate is still snapped; none
+ * is ever dropped. Reading this as unreadable settings would strip the pin from
+ * every entry of everyone who has not set a home region, silently and forever,
+ * which is why it has an allow-case of its own below.
+ */
+const NO_HOME_TTL = mutateSettings(
+  /\s*dy:homeLat[^;]*;\s*dy:homeLong[^;]*;\s*dy:homeRadiusMeters[^;]*;/,
+  "",
+);
+
+/** A half-written home region: two of the three values. §7.6 — "a reader that
+ *  treats an absent dy:homeRadiusMeters as zero has no home region at all, and
+ *  publishes coordinates from the owner's doorstep while reporting success". */
+const HALF_HOME_TTL = mutateSettings(/\s*dy:homeRadiusMeters[^;]*;/, "");
+
+/** Same document, a different default precision. Exists so that "the preset
+ *  comes from the settings" can be shown to be a READ rather than a constant
+ *  that happens to equal the fixture's 500. */
+const PRECISION_2000_TTL = mutateSettings("dy:defaultPrecisionMeters 500", "dy:defaultPrecisionMeters 2000");
+
+/* ═════════════════════════════════════════════════════ the coordinates ══ */
+
+/**
+ * WHAT THE OWNER TYPES, and it is a string because that is what an
+ * `<input type="number">` hands back — and because the whole point of the
+ * headline test is a substring search for these exact characters across every
+ * outgoing request.
+ *
+ * On the Philosopher's Path, six decimals: ~10 cm, far finer than any grid
+ * below, and chosen so that none of the snapped forms contains it as a
+ * substring. That last property is not decoration — without it the "appears
+ * nowhere" assertion could not fail — so it is asserted in a control.
+ */
+const TYPED = { lat: "35.026345", long: "135.794782" } as const;
+
+/**
+ * What §7.6's own settings publish for it, and what each option of the
+ * precision control publishes.
+ *
+ * HARD-CODED, AND TIED TO lib/pod/fuzz.ts BY A CONTROL rather than computed
+ * here. Computing them with `snapToPrecision` in each assertion would pass for
+ * an editor that called the same function on the same input — including one
+ * that called it on the wrong input in the same way — and would also pass if
+ * the grid changed underneath. Hard-coding them means a grid change fails ONE
+ * control test that says so, instead of five tests that do not.
+ */
+const SNAP_500 = { lat: 35.02423, long: 135.79207 };
+const SNAP_2000 = { lat: 35.018, long: 135.7906 };
+const SNAP_10KM = { lat: 35.0649, long: 135.8242 };
+
+/** Inside §7.6's home region — 285 m from the centre of a 3 km radius. */
+const INSIDE_HOME = { lat: "45.466102", long: "9.190154" } as const;
+/** 5.9 km from the same centre: outside it, and the allow-case that stops
+ *  "drops everything" from passing the drop test. */
+const OUTSIDE_HOME = { lat: "45.515500", long: "9.210300" } as const;
+const SNAP_OUTSIDE_500 = { lat: 45.51486, long: 9.20856 };
 
 /* ═════════════════════════════════════════════════════════════ Turtle help ══ */
 
@@ -244,6 +372,18 @@ type PodScript = {
   /** Per index URL: Turtle to serve, or a status code to answer with. */
   index?: Record<string, string | number>;
   indexEtag?: string;
+  /**
+   * §7.6's privacy settings: Turtle to serve, or a status code. Defaults to the
+   * normative block, so every test written before coordinates existed keeps
+   * working unchanged — and so that "the settings could not be read" is always
+   * something a test asked for rather than something it forgot to arrange.
+   *
+   * A DEFAULT IS ALSO REGISTERED FILE-WIDE, in the beforeEach below, because
+   * most tests here render the editor without a Pod script at all and an
+   * unhandled GET fails the suite by design (test/setup.ts). msw's `use()`
+   * prepends, so this one wins wherever podFake is called.
+   */
+  settings?: string | number;
   /** Status for the entry PUT. Anything outside 2xx is a failure. */
   entryPut?: number;
   /** The ETag the server returns on the entry PUT. `null` sends no header. */
@@ -301,8 +441,20 @@ function podFake(script: PodScript = {}) {
     }),
   ]);
 
+  const settings = script.settings ?? PRIVACY_TTL;
+
   server.use(
     ...indexHandlers,
+    // §7.6, recorded like everything else: it is owner-only, so "which fetch
+    // asked for it" is an assertion section 4 makes on the recorded headers.
+    http.get(SETTINGS_URL, async ({ request }) => {
+      await record(request);
+      return typeof settings === "number"
+        ? new HttpResponse(`settings unavailable (${settings})`, { status: settings })
+        : HttpResponse.text(settings, {
+            headers: { "content-type": "text/turtle", etag: '"settings-1"' },
+          });
+    }),
     // Any entry file under any trip: the slug is the test's choice, so the
     // handler cannot hardcode it, and a PUT to the WRONG url must be recorded
     // rather than 404ing into an unrelated error.
@@ -338,6 +490,36 @@ function podFake(script: PodScript = {}) {
       requests.find((r) => r.method === "PUT" && !r.url.endsWith("entries.ttl")),
     indexPut: () => requests.find((r) => r.method === "PUT" && r.url.endsWith("entries.ttl")),
     revalidatePost: () => requests.find((r) => r.method === "POST" && r.url === REVALIDATE_URL),
+    settingsGet: () => requests.find((r) => r.method === "GET" && r.url === SETTINGS_URL),
+    /**
+     * WHAT THE SAVE SENT: every recorded request except the §7.6 read the
+     * editor makes ON MOUNT.
+     *
+     * "`pod.requests` is empty" used to be the spelling of "the save sent
+     * nothing", and it stopped being one the day the coordinate gate landed:
+     * the editor now reads the settings on mount, before any interaction, so
+     * every render leaves one GET behind and three refusal tests failed for a
+     * request no save made. Section 1's allow-case (`await waitFor(() =>
+     * expect(latitude).toBeEnabled())` with no interaction in front of it) is
+     * the assertion that makes an unconditional mount read the only possible
+     * implementation, so this is a contradiction between two assertions of
+     * mine, and the narrower claim is the one that survives.
+     *
+     * WHAT IS EXCLUDED IS ONE METHOD AT ONE URL, not "requests about
+     * settings". A PUT to `privacy.ttl`, or a settings GET the SAVE issued, is
+     * still here — and every caller pairs this with a count of the mount read,
+     * so a save that re-read the settings n more times fails on that count
+     * rather than passing through this filter.
+     */
+    saveTraffic: () =>
+      requests.filter((r) => !(r.method === "GET" && r.url === SETTINGS_URL)),
+    /**
+     * EVERY BYTE THAT LEFT THE BROWSER, method and URL included. The privacy
+     * assertion is "the typed coordinate is in no request at all" — not "not in
+     * the entry document" — because a coordinate that escapes through the index
+     * row, or through a query string on the revalidation hook, has escaped.
+     */
+    wire: () => requests.map((r) => `${r.method} ${r.url}\n${r.body}`).join("\n"),
   };
 }
 
@@ -473,6 +655,20 @@ async function renderEditor(
      * default: `localStorage`.
      */
     storage?: StorageLike;
+    /**
+     * §7.6's resource (section 1). A URL rather than a parsed value, because
+     * the read failing is the case that matters and only a URL can be made to
+     * 404. Every test above leaves it at the default, where the normative block
+     * is served and the coordinate controls are live.
+     *
+     * REQUIRED ON THE COMPONENT, optional only in this harness. The shell is
+     * what resolves it — `privacySettingsUrl(podRoot)` — and if the prop were
+     * optional the day the shell forgot to pass it, the editor would fail
+     * closed for ever, silently, with no test anywhere going red: coordinates
+     * would simply never publish. A required prop makes that omission a tsc
+     * error, which is the only check that covers a wire nobody rendered.
+     */
+    settingsUrl?: string;
   } = {},
 ) {
   const Editor = await loadEditor();
@@ -483,6 +679,7 @@ async function renderEditor(
         trips={props.trips ?? TRIPS}
         initial={props.initial}
         storage={props.storage}
+        settingsUrl={props.settingsUrl ?? SETTINGS_URL}
       />
     </StrictMode>,
   );
@@ -507,6 +704,12 @@ const LABEL = {
   status: /status|publish|draft/i,
   tags: /tags?\b/i,
   travelModeFrom: /travel mode|how you (got|arrived)|arriv|mode/i,
+  /* Section 1. `/latitude/i` does not match "Longitude" and vice versa; both
+     are matched by COORDINATE_FIELD as well, which is what the "exactly three
+     of them" assertion uses. */
+  latitude: /latitude/i,
+  longitude: /longitude/i,
+  precision: /precision/i,
 };
 
 function setText(label: RegExp, value: string) {
@@ -603,6 +806,29 @@ async function clickSaveAndWait() {
 
 beforeEach(() => {
   resetSessionRestore();
+  /**
+   * §7.6, SERVED FOR EVERY TEST IN THIS FILE, valid unless a test says
+   * otherwise.
+   *
+   * The editor reads the settings on mount — it has to, since the coordinate
+   * controls are disabled or live depending on the answer, and "accept the
+   * input and refuse at save time" is the posture §9 rules out. So every render
+   * below issues this GET, including the forty-odd tests that have nothing to
+   * do with coordinates, and an unhandled request throws (test/setup.ts).
+   *
+   * Registered here rather than inside `podFake` because most of those renders
+   * never call `podFake`. Where a test does, its own handler is registered
+   * later and msw's `use()` prepends, so the script wins — verified in
+   * node_modules/msw/lib/core/experimental/handlers-controller.mjs, where
+   * `use()` puts the new handlers in front of the existing ones.
+   */
+  server.use(
+    http.get(SETTINGS_URL, () =>
+      HttpResponse.text(PRIVACY_TTL, {
+        headers: { "content-type": "text/turtle", etag: '"settings-1"' },
+      }),
+    ),
+  );
 });
 
 afterEach(() => {
@@ -661,9 +887,12 @@ describe("controls for this file", () => {
   });
 
   it("the coordinate query would find a coordinate field if one existed", () => {
-    // THE ALLOW-CASE for the safety pin below. A "no coordinate input" test
-    // whose query matches nothing anywhere proves nothing at all, so the query
-    // is proved against a control that certainly is one.
+    // The family query is now used the other way round — section 1 asserts it
+    // finds EXACTLY the three controls the editor is meant to have, so a fourth
+    // coordinate-ish input cannot appear unnoticed. It still has to be a query
+    // that resolves something, and it still has to resolve nothing on a tree
+    // with no coordinate field in it; both halves are measured here rather than
+    // assumed, exactly as they were when the pin they served was the opposite.
     const probe = document.createElement("div");
     probe.innerHTML = '<label for="p">Latitude</label><input id="p" />';
     document.body.append(probe);
@@ -677,70 +906,775 @@ describe("controls for this file", () => {
 const COORDINATE_FIELD = /lat(itude)?|long(itude)?|\blng\b|coordinate|gps|geo\b|precision|position/i;
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 1. THE SAFETY PIN: no coordinates, at either end.
+ * 1. COORDINATES — snapped before the write, or not published at all (§9).
+ *
+ * WHAT USED TO BE HERE. Two tests stood in this section: "exposes no coordinate
+ * input, while exposing the fields that are in scope" and "writes no coordinate
+ * predicate on a create". They were safety pins over a hole rather than
+ * placeholders — fuzzing did not exist, so a latitude field would have put a
+ * true coordinate on a world-readable resource — and both docblocks said they
+ * were to be deleted deliberately when fuzzing landed rather than quietly
+ * satisfied. That is what this section is. `lib/pod/fuzz.ts` exists and is
+ * covered by test/fuzz.test.ts; `readPrivacySettings` exists and is covered by
+ * test/privacy-settings.test.ts; neither had a caller. The invariant the pins
+ * were holding the door for is now asserted where it actually lives: on the
+ * bytes that left the browser.
+ *
+ * THE ORDER OF EVENTS IS THE WHOLE FEATURE. §9: "The studio applies fuzzing
+ * before the write and discards the precise original." So it happens here, in
+ * the editor, before the `Entry` is built — `saveEntry` never sees a precise
+ * coordinate, and there is nothing downstream that could catch one, because by
+ * then the precise value no longer exists anywhere. That is why every assertion
+ * below reads the RECORDED REQUEST rather than an argument to a spy.
+ *
+ * THE FOUR THINGS THIS SECTION PINS, and each is a different failure:
+ *
+ *   1. the published pair is the SNAPPED one, and the typed one is in no
+ *      request at all — not the entry document, not the index row, not the
+ *      revalidation hook;
+ *   2. inside the home region the geometry is DROPPED, not coarsened, and the
+ *      place it names survives without it;
+ *   3. `dy:precisionMeters` describes what was actually done — it comes from
+ *      the settings, the owner may override it, and whatever number reaches the
+ *      wire, the pair beside it is that grid's;
+ *   4. it FAILS CLOSED: settings that cannot be read disable the controls with
+ *      a stated reason, while valid settings with no home region leave them
+ *      live. Conflating those two is the failure that silently strips the pin
+ *      from every entry of everyone who never set a home region.
+ *
+ * WHAT IS NOT PINNED HERE, deliberately: whether the owner is TOLD that a
+ * coordinate was dropped for being inside the home region. It would be kind,
+ * §9 does not require it, and a wording assertion nobody agreed on is how a
+ * test starts dictating copy.
  * ════════════════════════════════════════════════════════════════════════ */
 
-describe("entry editor — coordinates, which must not be here at all", () => {
-  /**
-   * §9: "The studio applies fuzzing before the write and discards the precise
-   * original." Fuzzing is phase 3 and does not exist. A latitude field today
-   * would put a true coordinate on a publicly readable resource, and §9 opens
-   * by saying exactly why that cannot be fixed later: "anyone can fetch the raw
-   * triple".
-   *
-   * THE ALLOW-CASE IS ASSERTED IN THE SAME TEST, and it is what stops this
-   * being a rule that rejects nothing: the in-scope fields must be found by the
-   * very same accessible query that finds no coordinate one.
-   */
-  it("exposes no coordinate input, while exposing the fields that are in scope", async () => {
-    const fake = fakeStudioSession();
-    const { container } = await renderEditor(fake.session);
+/** The `#geo` node, reached the way a reader reaches it: `<#it>` →
+ *  `schema:contentLocation` → `#place` → `schema:geo`. Resolving it by fragment
+ *  name would also find a `<#geo>` node that nothing points at, which is a
+ *  coordinate published into a document no consumer can navigate. */
+function geoNodeOf(quads: Quad[], url: string): string | undefined {
+  const place = oneObject(quads, `${url}#it`, SCHEMA.contentLocation)?.value;
+  return place === undefined ? undefined : oneObject(quads, place, SCHEMA.geo)?.value;
+}
 
-    // Allow-case first.
-    expect(screen.getAllByLabelText(LABEL.headline)).toHaveLength(1);
-    expect(screen.getAllByLabelText(LABEL.articleBody)).toHaveLength(1);
-    expect(screen.getAllByLabelText(LABEL.occurredAt)).toHaveLength(1);
-    expect(screen.getAllByLabelText(LABEL.slug)).toHaveLength(1);
-    expect(screen.getAllByLabelText(LABEL.tags)).toHaveLength(1);
+/** One entry's row in the index, found by `dy:entryResource` rather than by
+ *  fragment name: the fragment is the serialiser's business, the pointer is the
+ *  contract (§7.4). */
+function indexRowOf(body: string, indexUrl: string, entryUrl: string) {
+  const quads = quadsOf(body, indexUrl);
+  const row = quads.find(
+    (q) => q.predicate.value === DY.entryResource && q.object.value === `${entryUrl}#it`,
+  )?.subject.value;
+  return { quads, row };
+}
 
-    // The pin.
-    expect(screen.queryAllByLabelText(COORDINATE_FIELD)).toEqual([]);
-    expect(screen.queryAllByPlaceholderText(COORDINATE_FIELD)).toEqual([]);
-    expect(screen.queryAllByText(COORDINATE_FIELD)).toEqual([]);
+/** Every id an element points its description at. An association that resolves
+ *  is the difference between a reason a screen reader announces and one that
+ *  computes to the empty string — see the control at the end of section 8. */
+const describedByIdsOf = (el: Element): string[] =>
+  (el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter((id) => id !== "");
 
-    // And nothing unlabelled sneaking through under a name attribute.
-    const controls = [...container.querySelectorAll("input, textarea, select")];
-    expect(controls.length).toBeGreaterThan(0);
-    const suspicious = controls
-      .map((c) => `${c.getAttribute("name") ?? ""} ${c.getAttribute("id") ?? ""}`)
-      .filter((s) => COORDINATE_FIELD.test(s));
-    expect(suspicious).toEqual([]);
+/** The three controls, named so a failure says which one. */
+const coordinateControls = () =>
+  [
+    ["latitude", screen.getByLabelText(LABEL.latitude)],
+    ["longitude", screen.getByLabelText(LABEL.longitude)],
+    ["precision", screen.getByLabelText(LABEL.precision)],
+  ] as const;
+
+/**
+ * All three are present, asserted BEFORE anything waits on one of them.
+ *
+ * A `waitFor` around an element that does not exist spends its whole timeout
+ * and then reports "unable to find a label" under a dump of the form — which
+ * reads like a broken query rather than like a missing control, and costs a
+ * second per test while it does it. This says which control is missing, at
+ * once.
+ */
+function requireCoordinateControls() {
+  for (const [what, label] of [
+    ["latitude", LABEL.latitude],
+    ["longitude", LABEL.longitude],
+    ["precision", LABEL.precision],
+  ] as const) {
+    expect(
+      screen.queryAllByLabelText(label),
+      `the editor has no ${what} control`,
+    ).toHaveLength(1);
+  }
+}
+
+/**
+ * The wording a fail-closed editor has to reach for. Loose on purpose and, like
+ * `LABEL`, this file's proposal rather than its subject: what is being asserted
+ * is that the owner is told WHY the control is dead, and §9's own sentence for
+ * it is "you have not set a home region yet". An implementer who words it
+ * differently changes this regex and nothing else.
+ */
+const NO_SETTINGS_REASON = /settings|privacy|home region/i;
+
+/**
+ * Type a coordinate the way the owner would, and refuse to pretend when the
+ * control would not have accepted it.
+ *
+ * `fireEvent.change` fills a DISABLED input perfectly happily — jsdom dispatches
+ * the event and React's handler runs — so a test that typed without checking
+ * would report a published coordinate against a form nobody could have used.
+ * That exact shape has already been found in this file once, in section 8c's
+ * docblock: "eight keystrokes a real browser refuses, green only because
+ * `fireEvent` ignores disabled state."
+ *
+ * It WAITS first, because the settings arrive over the network and the controls
+ * cannot be live until they have. Typing synchronously on mount would assert
+ * against whatever the pending state happens to be.
+ */
+async function typeCoordinate(point: { lat: string; long: string }) {
+  requireCoordinateControls();
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText(LABEL.latitude),
+      "the latitude control never became live: either the settings read did not settle, or it took the fail-closed branch",
+    ).toBeEnabled();
   });
 
+  expect(typeAsUser(LABEL.latitude, point.lat), "the latitude control refused the keystroke").toBe(
+    true,
+  );
+  expect(
+    typeAsUser(LABEL.longitude, point.long),
+    "the longitude control refused the keystroke",
+  ).toBe(true);
+
+  // AND THE VALUE STUCK. A controlled input whose onChange goes nowhere takes
+  // the event and re-renders with the old value, which publishes an empty
+  // coordinate while this helper reports success.
+  expect((screen.getByLabelText(LABEL.latitude) as HTMLInputElement).value).toBe(point.lat);
+  expect((screen.getByLabelText(LABEL.longitude) as HTMLInputElement).value).toBe(point.long);
+}
+
+describe("controls for section 1", () => {
   /**
-   * The same pin at the wire, which is where it actually matters: whatever the
-   * form does, no coordinate predicate may reach the Pod on a create.
-   *
-   * Not vacuous — the entry PUT is asserted to have happened and to carry the
-   * headline first, so an editor that saved nothing fails before it gets here.
+   * NOT TESTS OF THE EDITOR — section 0's kind, and they pass on their first
+   * run for the same reason. Every assertion in this section rests on the four
+   * settings documents meaning what the tests think they mean and on the
+   * hard-coded snapped values being the ones the real grid produces. Both are
+   * things that go wrong silently: a mutation that no longer applies serves a
+   * perfectly good document to a "this is refused" test, and a grid change
+   * makes five tests fail with no hint of why.
    */
-  it("writes no coordinate predicate on a create", async () => {
+  it("the four settings documents are the ones this section thinks they are", async () => {
+    servePod({ [SETTINGS_URL]: PRIVACY_TTL });
+    const normative = await readPrivacySettings(SETTINGS_URL);
+    expect(normative.ok, normative.ok ? "" : describeError(normative.error)).toBe(true);
+    if (!normative.ok) return;
+    expect(normative.value.defaultPrecisionMeters).toBe(500);
+    expect(normative.value.home).toEqual({ lat: 45.4655, long: 9.1866, radiusMeters: 3000 });
+
+    // Valid, and deliberately WITHOUT a home region — the case §7.6 calls "I
+    // have no home to protect". The mutation guard has already proved the graph
+    // changed; this proves it changed into something still readable, which is
+    // the half a `.replace` cannot tell you.
+    servePod({ [SETTINGS_URL]: NO_HOME_TTL });
+    const noHome = await readPrivacySettings(SETTINGS_URL);
+    expect(noHome.ok, noHome.ok ? "" : describeError(noHome.error)).toBe(true);
+    if (!noHome.ok) return;
+    expect(noHome.value.home, "the no-home fixture still declares a home region").toBeUndefined();
+    expect(noHome.value.defaultPrecisionMeters).toBe(500);
+
+    // Half a home region: REFUSED, and that is what makes the fail-closed test
+    // below a test of the editor rather than of a document nobody rejected.
+    servePod({ [SETTINGS_URL]: HALF_HOME_TTL });
+    expect(
+      (await readPrivacySettings(SETTINGS_URL)).ok,
+      "the half-written home region reads fine, so the fail-closed case below is served a valid document",
+    ).toBe(false);
+
+    // And the third precision really is a third precision.
+    servePod({ [SETTINGS_URL]: PRECISION_2000_TTL });
+    const other = await readPrivacySettings(SETTINGS_URL);
+    expect(other.ok).toBe(true);
+    if (!other.ok) return;
+    expect(other.value.defaultPrecisionMeters).toBe(2000);
+  });
+
+  it("the snapped values asserted below are the ones lib/pod/fuzz.ts produces", () => {
+    const at = (metres: number) =>
+      snapToPrecision(Number(TYPED.lat), Number(TYPED.long), metres);
+
+    for (const [metres, expected] of [
+      [500, SNAP_500],
+      [2000, SNAP_2000],
+      [10_000, SNAP_10KM],
+    ] as const) {
+      const snapped = at(metres);
+      expect({ lat: Number(snapped.lat), long: Number(snapped.long) }, `@${metres}m`).toEqual(
+        expected,
+      );
+    }
+
+    const outside = snapToPrecision(Number(OUTSIDE_HOME.lat), Number(OUTSIDE_HOME.long), 500);
+    expect({ lat: Number(outside.lat), long: Number(outside.long) }).toEqual(SNAP_OUTSIDE_500);
+
+    // THE SUBSTRING PROPERTY, which is what makes "the typed pair appears
+    // nowhere" an assertion capable of failing. If a future grid published
+    // enough digits to contain the typed value, that test would pass while
+    // leaking, and this control is where that gets caught.
+    const published = Object.values({ SNAP_500, SNAP_2000, SNAP_10KM, SNAP_OUTSIDE_500 })
+      .flatMap((p) => [String(p.lat), String(p.long)])
+      .join(" ");
+    expect(published).not.toContain(TYPED.lat);
+    expect(published).not.toContain(TYPED.long);
+
+    // And the snap really moves the point: at 500 m these differ by ~250 m.
+    expect(Number(TYPED.lat)).not.toBe(SNAP_500.lat);
+    expect(Number(TYPED.long)).not.toBe(SNAP_500.long);
+  });
+});
+
+describe("entry editor — what a stranger can fetch", () => {
+  /**
+   * THE TEST THE TWO DELETED PINS WERE PROTECTING.
+   *
+   * §9: "Resources are publicly readable, so a design that stores a true
+   * coordinate next to a 'please blur this' flag leaks immediately: anyone can
+   * fetch the raw triple." There is no render-time mitigation behind this and
+   * no second chance after the PUT.
+   *
+   * WHAT WOULD BREAK IT: building `place.geo` from the form state instead of
+   * from the `FuzzResult`; calling `fuzzForPublication` and then writing the
+   * inputs anyway; fuzzing for the entry document and passing the raw pair to
+   * the index row; rounding the typed value instead of snapping it.
+   */
+  it("publishes the snapped pair, and the typed one reaches no request at all", async () => {
     const pod = podFake();
     const fake = fakeStudioSession();
     await renderEditor(fake.session);
 
     fillNewEntry();
+    await typeCoordinate(TYPED);
     await clickSaveAndWait();
 
     const put = pod.entryPut();
-    expect(put).toBeDefined();
+    expect(put, "nothing was written to the Pod at all").toBeDefined();
     const quads = quadsOf(put!.body, put!.url);
-    const it_ = `${put!.url}#it`;
-    expect(oneObject(quads, it_, SCHEMA.headline)?.value).toBe("Rain on the Philosopher's Path");
 
-    for (const predicate of [SCHEMA.latitude, SCHEMA.longitude, GEO.lat, GEO.long, DY.precisionMeters]) {
-      expect(quads.filter((q) => q.predicate.value === predicate)).toEqual([]);
+    // The premise: this really is the save of the form that was filled in.
+    expect(oneObject(quads, `${put!.url}#it`, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    const geo = geoNodeOf(quads, put!.url);
+    expect(
+      geo,
+      "no #geo node reachable from <#it> via schema:contentLocation and schema:geo",
+    ).toBeDefined();
+    expect(oneObject(quads, geo!, RDF.type)?.value).toBe(SCHEMA.GeoCoordinates);
+
+    // WHAT WAS PUBLISHED. Compared as numbers, never as bytes: §11 guardrail 6
+    // — "35.6938 versus 35.69380 are free choices any library upgrade may
+    // change".
+    for (const predicate of [SCHEMA.latitude, GEO.lat]) {
+      expect(Number(oneObject(quads, geo!, predicate)?.value), predicate).toBe(SNAP_500.lat);
     }
+    for (const predicate of [SCHEMA.longitude, GEO.long]) {
+      expect(Number(oneObject(quads, geo!, predicate)?.value), predicate).toBe(SNAP_500.long);
+    }
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe("500");
+
+    // Fragments, never blank nodes (§11 guardrail 4) — `triples` throws on one.
+    expect(() => triples(put!.body, put!.url)).not.toThrow();
+
+    // AND THE TYPED PAIR IS IN NOTHING THAT LEFT THE BROWSER. Not scoped to the
+    // entry document: a coordinate that escaped through the index row or a
+    // query string has escaped.
+    const wire = pod.wire();
+    expect(wire, "the typed latitude is on the wire").not.toContain(TYPED.lat);
+    expect(wire, "the typed longitude is on the wire").not.toContain(TYPED.long);
+    // The mutation half: the snapped one IS there, so "nowhere" cannot be
+    // satisfied by an editor that published no coordinate at all.
+    expect(wire).toContain(String(SNAP_500.lat));
+
+    // The index row carries the same snapped pair (§7.4's flat dy: geo terms).
+    const indexPut = pod.indexPut();
+    expect(indexPut, "the index was not written, so the map has no pin").toBeDefined();
+    const { quads: rows, row } = indexRowOf(indexPut!.body, indexPut!.url, put!.url);
+    expect(row, "no index row points at the entry that was just written").toBeDefined();
+    expect(Number(oneObject(rows, row!, DY.lat)?.value)).toBe(SNAP_500.lat);
+    expect(Number(oneObject(rows, row!, DY.long)?.value)).toBe(SNAP_500.long);
+    expect(oneObject(rows, row!, DY.precisionMeters)?.value).toBe("500");
+  });
+
+  /**
+   * §6, and CLAUDE.md's hard rule: "xsd:decimal for coordinates (never float),
+   * xsd:integer for counts". BOTH SERIALISERS, because there are two —
+   * lib/pod/entry-model.ts writes the `#geo` node and lib/pod/index-model.ts
+   * writes the flat row, and lib/pod/literals.ts exists precisely because "a
+   * second copy of these four lines in a second serialiser is how one of them
+   * ends up writing 1e-7 while the other does not".
+   *
+   * WHAT WOULD BREAK IT: handing `place.geo` a string instead of a number, so
+   * that n3 infers `xsd:string`; a serialiser reaching for `xsd:float`; a value
+   * large or small enough to reach exponent notation, which `xsd:decimal` has
+   * no form for.
+   */
+  it("writes xsd:decimal for the pair and xsd:integer for the precision", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session);
+
+    fillNewEntry();
+    await typeCoordinate(TYPED);
+    await clickSaveAndWait();
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const geo = geoNodeOf(quads, put.url)!;
+    expect(geo, "no #geo node to check the datatypes of").toBeDefined();
+
+    for (const predicate of [SCHEMA.latitude, SCHEMA.longitude, GEO.lat, GEO.long]) {
+      const term = oneObject(quads, geo, predicate);
+      expect(datatypeOf(term), predicate).toBe(XSD.decimal);
+      // A decimal point and no exponent: "35" and "3.5e1" are both things a
+      // careless serialiser produces and neither is what §6 asks for.
+      expect(term?.value, predicate).toMatch(/^-?\d+\.\d+$/);
+    }
+
+    const precision = oneObject(quads, geo, DY.precisionMeters);
+    expect(datatypeOf(precision)).toBe(XSD.integer);
+    expect(precision?.value).toMatch(/^\d+$/);
+
+    // The second serialiser, on the same values.
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put.url);
+    expect(row).toBeDefined();
+    expect(datatypeOf(oneObject(rows, row!, DY.lat))).toBe(XSD.decimal);
+    expect(datatypeOf(oneObject(rows, row!, DY.long))).toBe(XSD.decimal);
+    expect(datatypeOf(oneObject(rows, row!, DY.precisionMeters))).toBe(XSD.integer);
+  });
+});
+
+describe("entry editor — the home region", () => {
+  /**
+   * §9 step 2, in its own words: "Inside the home radius, drop the coordinate
+   * entirely. Do not coarsen it… The entry is still written, with its place
+   * name if it has one — it is the geometry that is absent, not the entry."
+   *
+   * DRIVEN AS AN EDIT OF THE §7.3 ENTRY, for two reasons. The entry already
+   * HAS a place with a name and an (already fuzzed) coordinate, so "the name
+   * survives, the geometry does not" is assertable at all — the editor has no
+   * place-name control, so a create has no name to keep. And it makes the drop
+   * a REMOVAL rather than an omission: the stored `#geo` and the index row's
+   * `dy:lat` have to go, and a stale coordinate left behind in either is a leak
+   * that outlives the edit that was meant to remove it.
+   *
+   * THE ALLOW-CASE IS IN THE SAME TEST and it is 5.9 km from the same centre.
+   * Without it an editor that dropped every coordinate on an edit would pass,
+   * and that editor is indistinguishable from this one on the drop half alone.
+   *
+   * WHAT WOULD BREAK IT: coarsening instead of dropping (the tempting "20 km is
+   * coarse enough", which §9 answers at length); keeping `place: existing.place`
+   * and merely adding the new geometry, so the old one survives; dropping the
+   * whole place along with its geometry; leaving the index row alone.
+   */
+  it("drops the geometry of a point inside it, keeps the place, and publishes one just outside", async () => {
+    const fake = fakeStudioSession();
+
+    /* THE DROP. */
+    const pod = podFake();
+    const entry = await specEntry();
+    await renderEditor(fake.session, { initial: { entry, etag: '"entry-7"' } });
+
+    await typeCoordinate(INSIDE_HOME);
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "§9: it is the geometry that is absent, not the entry").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    // The place is still named. The premise for that assertion is the fixture:
+    // if §7.3 ever loses its place name this fails here rather than passing for
+    // an editor that dropped the lot.
+    expect(ENTRY_TTL, "the §7.3 fixture no longer names a place").toContain(SPEC_PLACE_NAME);
+    const place = oneObject(quads, `${put!.url}#it`, SCHEMA.contentLocation)?.value;
+    expect(place, "the place went with the geometry").toBeDefined();
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe(SPEC_PLACE_NAME);
+
+    // NOT ONE COORDINATE TRIPLE, anywhere in the document.
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(
+        quads.filter((q) => q.predicate.value === predicate),
+        `${predicate} survived a drop`,
+      ).toEqual([]);
+    }
+    // Nor the digits, anywhere on the wire — including the ones that were
+    // typed, which is the pair that would identify the owner's front door.
+    expect(pod.wire()).not.toContain(INSIDE_HOME.lat);
+    expect(pod.wire()).not.toContain(INSIDE_HOME.long);
+
+    // The index row loses what §7.4 had for it. The premise first, so this
+    // cannot pass against a fixture that never carried a coordinate.
+    expect(INDEX_TTL, "the §7.4 fixture's row no longer carries dy:lat").toContain("dy:lat");
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put!.url);
+    expect(row).toBeDefined();
+    for (const predicate of [DY.lat, DY.long, DY.precisionMeters]) {
+      expect(
+        objectsOf(rows, row!, predicate),
+        `the index row kept ${predicate} after the entry dropped its geometry`,
+      ).toEqual([]);
+    }
+
+    cleanup();
+
+    /* THE ALLOW-CASE, 5.9 km away: the same form, the same settings, the same
+       home region, and this one publishes. */
+    const outside = podFake();
+    await renderEditor(fake.session, { initial: { entry, etag: '"entry-7"' } });
+
+    await typeCoordinate(OUTSIDE_HOME);
+    await clickSaveAndWait();
+
+    const second = outside.entryPut()!;
+    const secondQuads = quadsOf(second.body, second.url);
+    const geo = geoNodeOf(secondQuads, second.url);
+    expect(
+      geo,
+      "a point 5.9 km outside a 3 km home region published nothing: this editor drops every coordinate, and the half of this test above proves nothing",
+    ).toBeDefined();
+    expect(Number(oneObject(secondQuads, geo!, SCHEMA.latitude)?.value)).toBe(SNAP_OUTSIDE_500.lat);
+    expect(Number(oneObject(secondQuads, geo!, SCHEMA.longitude)?.value)).toBe(
+      SNAP_OUTSIDE_500.long,
+    );
+    expect(outside.wire()).not.toContain(OUTSIDE_HOME.lat);
+    expect(outside.wire()).not.toContain(OUTSIDE_HOME.long);
+  });
+});
+
+describe("entry editor — the precision it claims", () => {
+  /**
+   * §7.6: `dy:defaultPrecisionMeters` "is required outright, with no built-in
+   * fallback, because a fallback is a distance this project would be choosing
+   * for someone else's front door". A preset that ignores the owner's setting
+   * is that fallback wearing a select's clothes — and it is invisible, because
+   * both numbers look equally deliberate on the wire.
+   *
+   * THE SETTINGS VALUE IS TAKEN VERBATIM, AND THAT IS A DECISION THIS FILE IS
+   * MAKING. The control offers exact / ~100 m / ~1 km / ~10 km, and §7.6's own
+   * fixture says 500 — which is none of them. Rounding to the nearest option
+   * would be defensible in one direction only (coarser is never a leak), and it
+   * is still refused here: rounding COARSER publishes a pin further from the
+   * truth than the owner asked for while `dy:precisionMeters` reports it as
+   * intentional, and rounding FINER is a leak. So the settings value joins the
+   * list rather than being mapped onto it.
+   *
+   * TWO DIFFERENT DOCUMENTS, because one would be satisfied by a constant that
+   * happens to equal the fixture.
+   *
+   * WHAT WOULD BREAK IT: a default in the component; presetting from the first
+   * option; reading the settings but passing `undefined` to
+   * `fuzzForPublication` and writing the select's value to the Pod.
+   */
+  it("presets the precision from the settings, and is reading them rather than guessing", async () => {
+    const fake = fakeStudioSession();
+
+    const first = podFake();
+    await renderEditor(fake.session);
+    fillNewEntry();
+    await typeCoordinate(TYPED);
+    await clickSaveAndWait();
+
+    const one = first.entryPut()!;
+    const oneQuads = quadsOf(one.body, one.url);
+    const oneGeo = geoNodeOf(oneQuads, one.url);
+    expect(oneGeo, "no coordinate was published under the normative settings").toBeDefined();
+    expect(oneObject(oneQuads, oneGeo!, DY.precisionMeters)?.value).toBe("500");
+    expect(Number(oneObject(oneQuads, oneGeo!, SCHEMA.latitude)?.value)).toBe(SNAP_500.lat);
+
+    // The settings really were read, on the session's own fetch: this resource
+    // is owner-only and an anonymous GET is a 401 on a real Pod.
+    expect(first.settingsGet(), "the editor never read §7.6 at all").toBeDefined();
+    expect(first.settingsGet()!.headers.authorization).toBe(CREDENTIAL);
+
+    cleanup();
+
+    /* THE SAME FORM, A DIFFERENT SETTINGS DOCUMENT. */
+    const second = podFake({ settings: PRECISION_2000_TTL });
+    await renderEditor(fake.session);
+    fillNewEntry();
+    await typeCoordinate(TYPED);
+    await clickSaveAndWait();
+
+    const two = second.entryPut()!;
+    const twoQuads = quadsOf(two.body, two.url);
+    const twoGeo = geoNodeOf(twoQuads, two.url);
+    expect(twoGeo, "no coordinate was published under the 2000 m settings").toBeDefined();
+    expect(
+      oneObject(twoQuads, twoGeo!, DY.precisionMeters)?.value,
+      "the precision on the wire did not follow the settings: it is a constant in the editor",
+    ).toBe("2000");
+    // And the pair moved with it, which is what makes the number honest rather
+    // than a label stuck on a 500 m snap.
+    expect(Number(oneObject(twoQuads, twoGeo!, SCHEMA.latitude)?.value)).toBe(SNAP_2000.lat);
+    expect(Number(oneObject(twoQuads, twoGeo!, SCHEMA.longitude)?.value)).toBe(SNAP_2000.long);
+    expect(second.wire()).not.toContain(TYPED.lat);
+  });
+
+  /**
+   * The override, and the invariant that survives whatever the options turn out
+   * to be: THE PAIR ON THE WIRE IS THE PAIR THAT PRECISION PRODUCES. §9 step 3
+   * — "write `dy:precisionMeters` to match what was actually done" — and
+   * test/fuzz.test.ts section 9 says why in the other direction: "If the
+   * reported number is not the one applied, the triple is a lie in whichever
+   * direction is worse."
+   *
+   * WHAT WOULD BREAK IT: keeping the select's value in state and passing the
+   * settings default to `fuzzForPublication` (or the reverse); writing
+   * `result.precisionMeters` from the form rather than from the result.
+   */
+  it("applies the precision the owner chose, and writes the one it applied", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session);
+
+    fillNewEntry();
+    await typeCoordinate(TYPED);
+    setChoice(LABEL.precision, /\b10\s*km/i);
+    await clickSaveAndWait();
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const geo = geoNodeOf(quads, put.url);
+    expect(geo, "the override published no coordinate at all").toBeDefined();
+
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe("10000");
+    expect(Number(oneObject(quads, geo!, SCHEMA.latitude)?.value)).toBe(SNAP_10KM.lat);
+    expect(Number(oneObject(quads, geo!, SCHEMA.longitude)?.value)).toBe(SNAP_10KM.long);
+
+    /* THE HONEST-PRECISION INVARIANT, derived from the wire itself rather than
+       from this file's constants: whatever number `dy:precisionMeters` claims,
+       the pair beside it is that grid's. It is the assertion that survives a
+       change to the option list, and the one that catches an editor that
+       applied one precision and reported another — which is the shape §9 step 3
+       and test/fuzz.test.ts section 9 both name as "a lie in whichever
+       direction is worse". */
+    const claimed = Number(oneObject(quads, geo!, DY.precisionMeters)!.value);
+    const honest = snapToPrecision(Number(TYPED.lat), Number(TYPED.long), claimed);
+    expect(
+      Number(oneObject(quads, geo!, SCHEMA.latitude)?.value),
+      `the published latitude is not on the ${claimed} m grid the triple claims`,
+    ).toBe(Number(honest.lat));
+    expect(Number(oneObject(quads, geo!, SCHEMA.longitude)?.value)).toBe(Number(honest.long));
+
+    // The override really overrode: the settings' own 500 m answer is a
+    // different point, and it is not what was published.
+    expect(Number(oneObject(quads, geo!, SCHEMA.latitude)?.value)).not.toBe(SNAP_500.lat);
+    expect(pod.wire()).not.toContain(TYPED.lat);
+    expect(pod.wire()).not.toContain(TYPED.long);
+
+    // And the index row agrees with the entry about which grid was used.
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put.url);
+    expect(oneObject(rows, row!, DY.precisionMeters)?.value).toBe("10000");
+  });
+});
+
+describe("entry editor — settings it cannot read", () => {
+  /**
+   * §9's fail-closed rule, and the posture is `sameWebId`'s: the control is
+   * dead before it can take input, not live and refused at save time. "No
+   * readable settings" and "no home region" are different facts and only one of
+   * them is safe to act on.
+   *
+   * THE ALLOW-CASE IS THE THIRD ARM, and it is the one that matters most: §7.6
+   * calls settings with no home region "a legitimate configuration" meaning "I
+   * have no home to protect", and reading that as unreadable would silently
+   * strip the pin from every entry of everyone who has not set one — forever,
+   * and without a single error anywhere.
+   *
+   * WHAT WOULD BREAK EACH ARM: treating a failed read as "no home region" fails
+   * A and B; treating an absent `home` as a failed read fails C; disabling the
+   * controls without saying why fails the description half; a `title` instead
+   * of an association fails it too (the control at the end of section 8
+   * measures that distinction); a hard-coded `aria-describedby` pointing at an
+   * element that is not rendered computes to nothing and fails the resolving
+   * half.
+   */
+  it("disables the coordinate controls with a reason, and leaves them live when there is simply no home region", async () => {
+    const fake = fakeStudioSession();
+
+    /* A. NO privacy.ttl AT ALL — §9: "on a Pod that has never had a
+       privacy.ttl, every entry is written with no coordinate", and that is what
+       a brand-new deployment does by default. */
+    podFake({ settings: 404 });
+    await renderEditor(fake.session);
+
+    requireCoordinateControls();
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(LABEL.latitude),
+        "the latitude control never explained why it is dead",
+      ).toHaveAccessibleDescription(NO_SETTINGS_REASON),
+    );
+    for (const [what, control] of coordinateControls()) {
+      expect(
+        control,
+        `the ${what} control takes input although the settings could not be read`,
+      ).toBeDisabled();
+    }
+
+    // The reason is an ASSOCIATION that resolves — see the control at the end
+    // of section 8: a `title` computes to a description too, and a dangling
+    // IDREF computes to "" while looking correct in the markup.
+    const ids = describedByIdsOf(screen.getByLabelText(LABEL.latitude));
+    expect(ids, "the reason is not associated with the control (a title is not enough)").not.toEqual(
+      [],
+    );
+    expect(
+      ids.filter((id) => document.getElementById(id) === null),
+      "the description points at ids nothing in the document has",
+    ).toEqual([]);
+
+    // And the rest of the form is untouched: an unreadable settings document
+    // costs the owner a map pin, not an editor.
+    expect(screen.getByLabelText(LABEL.headline)).toBeEnabled();
+    expect(saveButton()).toBeEnabled();
+    cleanup();
+
+    /* B. A HALF-WRITTEN HOME REGION. It parses, it is our own resource, and it
+       is exactly the shape §7.6 says "publishes coordinates from the owner's
+       doorstep while reporting success" if it is read leniently. */
+    podFake({ settings: HALF_HOME_TTL });
+    await renderEditor(fake.session);
+
+    requireCoordinateControls();
+    await waitFor(() =>
+      expect(screen.getByLabelText(LABEL.latitude)).toHaveAccessibleDescription(
+        NO_SETTINGS_REASON,
+      ),
+    );
+    for (const [what, control] of coordinateControls()) {
+      expect(control, `the ${what} control takes input on a half-written home region`).toBeDisabled();
+    }
+    cleanup();
+
+    /* C. THE ALLOW-CASE: valid settings, no home region. Live, and publishing.
+       Asserted at the wire rather than as an attribute, because "enabled" is
+       satisfied by a control wired to nothing. */
+    const pod = podFake({ settings: NO_HOME_TTL });
+    await renderEditor(fake.session);
+
+    fillNewEntry();
+    await typeCoordinate(TYPED);
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "nothing was saved under settings with no home region").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+    const geo = geoNodeOf(quads, put!.url);
+    expect(
+      geo,
+      'settings that say "I have no home to protect" published no coordinate: this is the failure that strips every pin from a diary that never set a home region',
+    ).toBeDefined();
+    expect(Number(oneObject(quads, geo!, SCHEMA.latitude)?.value)).toBe(SNAP_500.lat);
+    expect(pod.wire()).not.toContain(TYPED.lat);
+  });
+
+  /**
+   * The other half of failing closed, and the one that decides whether this is
+   * a privacy feature or an outage: §9 — "The entry is still written… it is the
+   * geometry that is absent, not the entry."
+   *
+   * WHAT WOULD BREAK IT: refusing the save outright when the settings are
+   * unreadable; reporting the save as failed; publishing a coordinate anyway
+   * because the form happened to hold one.
+   */
+  it("still writes the entry when the settings cannot be read, with no geometry on it", async () => {
+    const pod = podFake({ settings: 404 });
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session);
+
+    /* THE PREMISE, AND WITHOUT IT THIS TEST IS THE DELETED PIN AGAIN. "No
+       coordinate predicate on the wire" is trivially true of an editor with no
+       coordinate control at all — it was true of every save in this file until
+       today. Requiring the controls to exist, and to be held, is what makes the
+       assertions below about a save that HAD a coordinate to publish and did
+       not publish it. */
+    requireCoordinateControls();
+    await waitFor(() =>
+      expect(screen.getByLabelText(LABEL.latitude)).toHaveAccessibleDescription(
+        NO_SETTINGS_REASON,
+      ),
+    );
+    expect(screen.getByLabelText(LABEL.latitude)).toBeDisabled();
+
+    fillNewEntry();
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "an unreadable privacy.ttl stopped the entry being written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+    expect(oneObject(quads, `${put!.url}#it`, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(quads.filter((q) => q.predicate.value === predicate), predicate).toEqual([]);
+    }
+
+    // The save is a save. §10's report is unaffected by a settings document
+    // that has nothing to do with it.
+    expect(outcomeText()).toMatch(/saved|published/i);
+  });
+
+  /**
+   * THE FORM AS A WHOLE, once. The family query is the one section 0 measures;
+   * here it is used to say that the editor grew exactly the three controls it
+   * was meant to grow — a fourth (a "GPS" paste box, a "position" field, a
+   * hidden `lng`) would be a second path to the same triple, and the fuzzing
+   * would only be in front of one of them.
+   */
+  it("has exactly three coordinate controls, and they are the three that were designed", async () => {
+    const fake = fakeStudioSession();
+    const { container } = await renderEditor(fake.session);
+
+    // The in-scope fields are still found by the same accessible query, so this
+    // is not a form that failed to render.
+    expect(screen.getAllByLabelText(LABEL.headline)).toHaveLength(1);
+    expect(screen.getAllByLabelText(LABEL.slug)).toHaveLength(1);
+
+    // Exactly one of each, named individually so a missing one says which.
+    requireCoordinateControls();
+    // Filtered to form controls: a `<legend>` naming the group is not a fourth
+    // input, and this assertion is about inputs.
+    const coordinateish = screen
+      .queryAllByLabelText(COORDINATE_FIELD)
+      .filter((el) => el.matches("input, textarea, select"));
+    expect(
+      coordinateish.map((el) => el.getAttribute("id") ?? el.tagName),
+      "a fourth coordinate control: the fuzzing stands in front of three inputs and nothing stands in front of that one",
+    ).toHaveLength(3);
+
+    // And every control is nameable, because a control this file's queries
+    // cannot find is a control none of the tests above can be said to cover —
+    // a hidden input included, which is how a raw coordinate would ride along.
+    const controls = [...container.querySelectorAll("input, textarea, select")];
+    expect(controls.length).toBeGreaterThan(0);
+    const unlabelled = controls.filter((c) => {
+      const labels = (c as HTMLInputElement).labels;
+      return (labels === null || labels.length === 0) && c.getAttribute("aria-label") === null;
+    });
+    expect(unlabelled.map((c) => `${c.tagName}#${c.getAttribute("id") ?? ""}`)).toEqual([]);
   });
 });
 
@@ -948,10 +1882,66 @@ describe("entry editor — the entry it hands to saveEntry", () => {
     expect(oneObject(quads, subject, DY.travelModeFrom)?.value).toBe(TRAVEL_MODE.Flight);
     expect(oneObject(quads, subject, DCTERMS.creator)?.value).toBe(entry.creator);
     expect(oneObject(quads, subject, SCHEMA.datePublished)?.value).toBe(entry.datePublished);
-    // The place, including its coordinates: they were stored fuzzed and must
-    // survive an edit exactly as they are. This is the one place a coordinate
-    // legitimately appears, and it appears because it was already on the Pod.
-    expect(oneObject(quads, subject, SCHEMA.contentLocation)?.value).toBe(`${put.url}#place`);
+    /**
+     * The place, including its coordinates: they were stored fuzzed and must
+     * survive an edit exactly as they are. This is the one place a coordinate
+     * legitimately appears, and it appears because it was already on the Pod.
+     *
+     * THE VALUES, NOT JUST THE POINTER. Until section 1 landed this asserted
+     * only that `schema:contentLocation` still pointed at `#place`, which an
+     * editor that re-fuzzed the untouched pair on every save passes while
+     * walking the pin across the map one save at a time. §9 puts the snap at
+     * the moment of TYPING, and lib/pod/fuzz.ts is deliberately not idempotent
+     * across saves — the control at the bottom of this test is that fact,
+     * stated as an assertion rather than assumed.
+     *
+     * Compared as NUMBERS. Turtle has no canonical form for a decimal and
+     * "35.6938" and "35.69380" are the same value; a byte comparison here
+     * would be a test of the serialiser.
+     */
+    const place = oneObject(quads, subject, SCHEMA.contentLocation)?.value;
+    expect(place).toBe(`${put.url}#place`);
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe(SPEC_PLACE_NAME);
+
+    // Non-vacuous: the §7.3 fixture really does carry a coordinate, so the
+    // assertions below are about one that survived rather than one that never
+    // existed. Read out of the fixture, never typed here.
+    const stored = entry.place?.geo;
+    expect(stored, "the §7.3 fixture carries no coordinate to preserve").toBeDefined();
+    expect(stored!.precisionMeters, "the fixture's pin is not a fuzzed one").toBe(500);
+
+    const geo = geoNodeOf(quads, put.url);
+    expect(geo, "the edit dropped the #geo node the fixture arrived with").toBeDefined();
+    for (const [predicate, expected] of [
+      [SCHEMA.latitude, stored!.lat],
+      [GEO.lat, stored!.lat],
+      [SCHEMA.longitude, stored!.long],
+      [GEO.long, stored!.long],
+    ] as const) {
+      const term = oneObject(quads, geo!, predicate);
+      expect(Number(term?.value), predicate).toBe(expected);
+      // §6: xsd:decimal, never float — the same rule the write path is held to
+      // everywhere else, checked on the values that merely passed through.
+      expect(datatypeOf(term), predicate).toBe(XSD.decimal);
+    }
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe(
+      String(stored!.precisionMeters),
+    );
+
+    /* WHAT WOULD BREAK THE FOUR ASSERTIONS ABOVE: an editor that ran the stored
+       pair back through `fuzzForPublication` on a save that never touched it.
+       This is that production change, computed rather than described, so the
+       assertions are demonstrably capable of failing — snapping an already
+       snapped pair to the same grid MOVES it. */
+    const resnapped = snapToPrecision(stored!.lat, stored!.long, stored!.precisionMeters!);
+    expect(
+      Number(resnapped.lat),
+      "re-snapping is a no-op on this fixture, so the latitude assertion above cannot fail",
+    ).not.toBe(stored!.lat);
+    expect(
+      Number(resnapped.long),
+      "re-snapping is a no-op on this fixture, so the longitude assertion above cannot fail",
+    ).not.toBe(stored!.long);
   });
 
   /**
@@ -1751,7 +2741,14 @@ describe("entry editor — the pre-flight guard", () => {
 
       // NOTHING left the machine: no entry PUT, no index GET, no revalidation
       // POST, and no ACL call either.
-      expect(pod.requests).toEqual([]);
+      //
+      // The mount read of §7.6 is not part of "the save sent nothing" — it
+      // happened before the form was touched — so it is excluded BY NAME and
+      // then counted, rather than swallowed by a laxer assertion. The count is
+      // also what makes the empty list above non-vacuous: the fake demonstrably
+      // records what reaches it.
+      expect(pod.saveTraffic()).toEqual([]);
+      expect(pod.of("GET", SETTINGS_URL), "the §7.6 read is not once per save").toHaveLength(1);
       expect(accessCalls).toEqual([]);
 
       // And the owner is told WHICH field, not merely that something is wrong.
@@ -1768,6 +2765,11 @@ describe("entry editor — the pre-flight guard", () => {
 
       const put = pod.entryPut();
       expect(put).toBeDefined();
+      // AND THE FILTER USED ABOVE HIDES ONLY THE MOUNT READ. The same
+      // `saveTraffic()` that was empty before the field was supplied carries
+      // this PUT — by identity, so a helper that started dropping everything
+      // would fail here rather than making the refusal assertion vacuous.
+      expect(pod.saveTraffic(), "saveTraffic() filters out the save's own traffic").toContain(put);
       const quads = quadsOf(put!.body, put!.url);
       expect(oneObject(quads, `${put!.url}#it`, SCHEMA.headline)?.value).toBe(
         "Rain on the Philosopher's Path",
@@ -1794,7 +2796,10 @@ describe("entry editor — the pre-flight guard", () => {
     setText(LABEL.occurredAt, "2026-04-02T16:20");
     await clickSaveAndWait();
 
-    expect(pod.requests).toEqual([]);
+    // The save sent nothing — the §7.6 mount read excluded by name and counted
+    // beside it, for the reason `saveTraffic` gives.
+    expect(pod.saveTraffic()).toEqual([]);
+    expect(pod.of("GET", SETTINGS_URL), "the §7.6 read is not once per save").toHaveLength(1);
     expect(outcomeText()).toMatch(/slug|address|file/i);
     expect(outcomeText()).toMatch(/headline|title/i);
 
@@ -1804,6 +2809,9 @@ describe("entry editor — the pre-flight guard", () => {
 
     const put = pod.entryPut();
     expect(put).toBeDefined();
+    // The filter hides only the mount read: this PUT is in `saveTraffic()`,
+    // which is what keeps the empty assertion above a real one.
+    expect(pod.saveTraffic(), "saveTraffic() filters out the save's own traffic").toContain(put);
     expect(put!.url).toBe(`${JAPAN.entriesContainer}2026-04-02-kyoto.ttl`);
     const quads = quadsOf(put!.body, put!.url);
     const subject = `${put!.url}#it`;
@@ -1980,15 +2988,29 @@ describe("entry editor — stale cache versus clean save, by role", () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
- * The key scheme, `wig.draft.v1.<webId>.<scope>`.
+ * The key scheme, `wig.draft.v2.<webId>.<scope>`.
  *
  * Three parts, three failures they prevent: the VERSION so a future shape can
- * be given v2 instead of half-restoring a payload it cannot use; the WEBID so
- * one machine with two accounts does not hand the second person the first
- * person's unfinished text; the SCOPE so the entry being created and the entry
- * being edited are different drafts.
+ * be given a new one instead of half-restoring a payload it cannot use; the
+ * WEBID so one machine with two accounts does not hand the second person the
+ * first person's unfinished text; the SCOPE so the entry being created and the
+ * entry being edited are different drafts.
+ *
+ * **`v1` → `v2` ON 2026-09-06, WHICH IS THE VERSION SEGMENT DOING ITS JOB.**
+ * The draft was exactly nine fields; the coordinate controls (section 1) make
+ * it twelve, and a `v1` payload restored into the new form would fill nine of
+ * them and leave a coordinate the owner never typed — or, worse, leave the
+ * three new fields undefined and have the editor read them as empty while the
+ * banner claimed the draft was restored. Invisible is the correct outcome for a
+ * payload whose shape has moved on, and it is what `lib/studio/drafts.ts` says
+ * the segment is for: "a future shape can be given v2 and this one's payloads
+ * become invisible rather than half-restorable". Section 8h pins it, with the
+ * allow-case: the same bytes under the current key ARE offered.
  */
-const draftKeyFor = (webId: string, scope: string) => `wig.draft.v1.${webId}.${scope}`;
+const draftKeyFor = (webId: string, scope: string) => `wig.draft.v2.${webId}.${scope}`;
+
+/** The key a build before 2026-09-06 wrote. Used only to prove it is ignored. */
+const legacyDraftKeyFor = (webId: string, scope: string) => `wig.draft.v1.${webId}.${scope}`;
 
 /** The scope of a create — there is no resource yet to name. */
 const NEW_SCOPE = "new";
@@ -1996,11 +3018,22 @@ const NEW_SCOPE = "new";
 /** A second person signing in on the same browser. */
 const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
 
-/** Exactly the nine fields, sorted. A tenth is how the ETag gets in. */
+/**
+ * Exactly the twelve fields, sorted. A thirteenth is how the ETag gets in.
+ *
+ * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
+ * coordinate controls, and they are the reason the key moved to `v2`. All three
+ * hold what the FORM holds — strings, empty when nothing has been typed and
+ * when no precision could be preset — rather than what the Pod would get; see
+ * section 8h for the decision and its justification.
+ */
 const DRAFT_FIELDS = [
   "headline",
+  "lat",
+  "long",
   "mode",
   "occurred",
+  "precision",
   "savedAt",
   "slug",
   "status",
@@ -2019,6 +3052,13 @@ type StoredDraft = {
   tagsText: string;
   mode: string;
   status: string;
+  /** As typed, not as published — section 8h. */
+  lat: string;
+  long: string;
+  /** The precision control's value, in metres, as a string: it is a form value
+   *  like the rest, and "" is what there is to keep when the settings could not
+   *  be read and the control was never live. */
+  precision: string;
   savedAt: string;
 };
 
@@ -2031,6 +3071,11 @@ const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
   tagsText: "walking, rain",
   mode: "Train",
   status: "published",
+  // Empty by default: most of this section is about text, and a draft with no
+  // coordinate in it is the common one — the owner types the story first.
+  lat: "",
+  long: "",
+  precision: "500",
   savedAt: "2026-04-02T19:00:00+09:00",
   ...over,
 });
@@ -3477,7 +4522,15 @@ describe("entry editor — the form is held until the banner is answered", () =>
       pod.entryPut(),
       "a click on the held Save button wrote the entry to the Pod",
     ).toBeUndefined();
-    expect(pod.requests, "the held Save button reached the Pod at all").toEqual([]);
+    // Everything the CLICK sent, which is nothing. The §7.6 read the editor
+    // makes on mount happened before the button was touched and is excluded by
+    // name, then counted — see `saveTraffic`. `pastTheWindow()` above means
+    // that read has long since settled, so the count is not a race.
+    expect(pod.saveTraffic(), "the held Save button reached the Pod at all").toEqual([]);
+    expect(
+      pod.of("GET", SETTINGS_URL),
+      "the held Save button re-read the privacy settings",
+    ).toHaveLength(1);
     expect(
       store.calls.remove,
       "the click settled the draft: the copy that survived the crash is gone, unread",
@@ -3504,6 +4557,10 @@ describe("entry editor — the form is held until the banner is answered", () =>
 
     const put = pod.entryPut();
     expect(put, "the Save button does not work even after Restore").toBeDefined();
+    // The filter hides only the mount read: this PUT is in `saveTraffic()`, so
+    // the empty assertion above is about a click that sent nothing rather than
+    // about a helper that reports nothing.
+    expect(pod.saveTraffic(), "saveTraffic() filters out the save's own traffic").toContain(put);
     expect(put!.url).toBe(ARRIVAL_URL);
     // The restored text is what went out, so this really was a save of the
     // draft the banner was offering.
@@ -4092,6 +5149,260 @@ describe("entry editor — the draft key after a create succeeds", () => {
       "the text typed during the save is in neither the Pod nor storage",
     ).toEqual([CREATED_KEY]);
     expect(parseDraft(store.items.get(CREATED_KEY)!).story).toBe(IN_FLIGHT);
+  });
+});
+
+/* ─────────────────────────────── 8h. the coordinate in a local draft ──────
+ *
+ * THE DECISION, TAKEN HERE AND STATED SO IT CAN BE ARGUED WITH: **the draft
+ * keeps the coordinate the owner TYPED, not the one that would be published.**
+ *
+ * §9 says the studio "discards the precise original", and it is worth being
+ * precise about what that sentence is protecting. Its own first line gives the
+ * threat model: "Resources are publicly readable… anyone can fetch the raw
+ * triple." `localStorage` is not a resource, is not readable by anyone else,
+ * and never leaves the browser the owner typed into — it is the same trust
+ * boundary as the React state the value is already sitting in, and as the input
+ * element still showing it. Discarding it there would not close a hole; it
+ * would close the feature: the field is the one thing in this form an owner
+ * cannot retype from memory a day later, which is exactly what
+ * `docs/decisions.md` §10 says autosave exists for.
+ *
+ * THE ALTERNATIVE WAS CONSIDERED AND IS WORSE, and not by a little. Persisting
+ * the SNAPPED pair means a restored form shows a coordinate the owner did not
+ * type, cannot refine, and cannot tell apart from one they did — and it freezes
+ * a decision made under settings that may since have changed, since the snap is
+ * a function of `dy:defaultPrecisionMeters` and of a home region that moves
+ * when the owner moves house. Re-fuzzing it on save would then be idempotent
+ * and therefore invisible, which is the wrong kind of harmless: nothing would
+ * ever go wrong loudly.
+ *
+ * WHAT MAKES IT TESTABLE RATHER THAN A PREFERENCE: the two choices differ in
+ * exactly one observable, the bytes at the key, so the first test below reads
+ * them. Nothing else in the file can tell them apart — a save from a restored
+ * draft publishes the same triple either way, because snapping a snapped value
+ * returns it unchanged.
+ *
+ * AND THE FENCE AROUND IT IS UNMOVED. The three fields that may never be
+ * persisted are still the ETag, `dcterms:created` and `schema:datePublished`
+ * (lib/studio/drafts.ts), and `DRAFT_FIELDS` is what enforces it: twelve, no
+ * more.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+describe("entry editor — the coordinate in a local draft", () => {
+  const KEY = draftKeyFor(OWNER, NEW_SCOPE);
+
+  /**
+   * FLUSHED BY THE UNMOUNT rather than by advancing a clock, which is 8f's
+   * mechanism ("flushes the pending window on unmount instead of dropping it")
+   * and is what lets this run on REAL timers. It has to: the settings arrive
+   * over the network, `typeCoordinate` waits for them, and section 8's fake
+   * clock does not fake microtasks but does stop everything that waits on a
+   * timer. A test that faked time here would type into a control that was still
+   * disabled and assert against whatever the pending state left behind.
+   *
+   * WHAT WOULD BREAK IT: writing `fuzzForPublication`'s output into the draft
+   * instead of the form state; dropping the coordinate from the payload
+   * altogether; persisting it under a field name `readDraft` strips.
+   */
+  it("keeps what was typed, not what would be published", async () => {
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: store.storage });
+
+    // The coordinate FIRST, because it is the one that has to wait for the
+    // settings: everything after it is synchronous, so the debounce window that
+    // opens here is still open when the unmount flushes it.
+    await typeCoordinate(TYPED);
+    fillNewEntry();
+    cleanup();
+
+    expect(store.calls.set, "nothing was kept at all").not.toEqual([]);
+    const written = store.calls.set.at(-1)!;
+    expect(written.key).toBe(KEY);
+
+    const payload = parseDraft(written.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+
+    // THE DECISION.
+    expect(payload.lat, "the draft does not hold the latitude the owner typed").toBe(TYPED.lat);
+    expect(payload.long).toBe(TYPED.long);
+    expect(payload.precision, "the precision the form was showing was not kept").toBe("500");
+
+    // …and the other choice, spelled out so that switching to it fails here
+    // rather than silently: the published pair is not what is on disk.
+    expect(written.value, "the draft holds the SNAPPED pair, not the typed one").not.toContain(
+      String(SNAP_500.lat),
+    );
+    expect(written.value).not.toContain(String(SNAP_500.long));
+
+    // The fence: none of the three that may never be persisted.
+    for (const forbidden of ["etag", "created", "datePublished"]) {
+      expect(Object.keys(payload), forbidden).not.toContain(forbidden);
+    }
+  });
+
+  /**
+   * THE VERSION SEGMENT, DOING THE ONE THING IT IS THERE FOR.
+   *
+   * A `v1` payload is nine fields; the form is now twelve. Restoring it would
+   * fill nine controls and leave three in whatever state the editor's own
+   * defaults left them — a coordinate field the owner never typed into, sitting
+   * next to text they recognise, on a form whose banner has just told them
+   * their draft was restored. `lib/studio/drafts.ts`: "a future shape can be
+   * given v2 and this one's payloads become invisible rather than
+   * half-restorable."
+   *
+   * THE ALLOW-CASE IS THE SAME BYTES AT THE CURRENT KEY, which is what stops
+   * this passing for an editor that offers nothing at all — the failure mode
+   * that would take the whole feature with it and look like a clean pass.
+   *
+   * WHAT WOULD BREAK IT: leaving `draftKey` at `v1`; reading both keys "to be
+   * kind"; migrating a v1 payload forward, which is the same half-restore in a
+   * politer coat.
+   */
+  it("does not offer a draft left behind under the previous key version", async () => {
+    const fake = fakeStudioSession();
+    // Deliberately a payload that is perfectly valid under the CURRENT shape,
+    // so the only thing making it invisible is the key it is under.
+    const payload = JSON.stringify(seededDraft({ lat: TYPED.lat, long: TYPED.long }));
+
+    const stale = fakeStorage({ [legacyDraftKeyFor(OWNER, NEW_SCOPE)]: payload });
+    await renderEditor(fake.session, { storage: stale.storage });
+
+    expect(
+      screen.queryAllByRole("region", { name: /draft/i }),
+      "a draft written by the previous build was offered: nine fields into a twelve-field form",
+    ).toEqual([]);
+    // And it looked in the right place, so this is a key that moved rather than
+    // an editor that stopped reading drafts.
+    expect(stale.calls.get, "the editor never looked for a draft at all").toContain(KEY);
+    expect(stale.calls.get).not.toContain(legacyDraftKeyFor(OWNER, NEW_SCOPE));
+    cleanup();
+
+    /* THE ALLOW-CASE. */
+    const current = fakeStorage({ [KEY]: payload });
+    await renderEditor(fake.session, { storage: current.storage });
+    expect(
+      screen.getAllByRole("region", { name: /draft/i }),
+      "the same bytes under the current key were not offered either: this editor offers nothing",
+    ).toHaveLength(1);
+  });
+
+  /**
+   * THE ROUND TRIP, END TO END: what was typed comes back into the control as
+   * typed, and what leaves for the Pod is still the snapped pair. The first
+   * half is the observable difference the decision above turns on; the second
+   * is the guarantee that keeping the precise value locally costs nothing at
+   * the wire.
+   *
+   * WHAT WOULD BREAK IT: restoring into the wrong control, or not at all;
+   * restoring the value but not putting it through the fuzz on the save that
+   * follows — which is the shape that would put a typed coordinate on a
+   * world-readable resource by way of `localStorage`.
+   */
+  it("Restore puts the typed coordinate back, and the save still publishes the snapped one", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const store = fakeStorage({
+      [KEY]: JSON.stringify(seededDraft({ lat: TYPED.lat, long: TYPED.long, precision: "500" })),
+    });
+    await renderEditor(fake.session, { storage: store.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "no draft was offered: the editor is reading a key this file no longer writes (v1 rather than v2), or is not reading one at all",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    requireCoordinateControls();
+    await waitFor(() => expect(screen.getByLabelText(LABEL.latitude)).toBeEnabled());
+    expect(
+      (screen.getByLabelText(LABEL.latitude) as HTMLInputElement).value,
+      "Restore did not put the kept latitude back into the control",
+    ).toBe(TYPED.lat);
+    expect((screen.getByLabelText(LABEL.longitude) as HTMLInputElement).value).toBe(TYPED.long);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+    const geo = geoNodeOf(quads, put!.url);
+    expect(geo, "a restored coordinate published nothing").toBeDefined();
+    expect(Number(oneObject(quads, geo!, SCHEMA.latitude)?.value)).toBe(SNAP_500.lat);
+    expect(Number(oneObject(quads, geo!, SCHEMA.longitude)?.value)).toBe(SNAP_500.long);
+    expect(
+      pod.wire(),
+      "the coordinate went from localStorage to the Pod without passing through the fuzz",
+    ).not.toContain(TYPED.lat);
+    expect(pod.wire()).not.toContain(TYPED.long);
+  });
+
+  /**
+   * 8e's hold, extended to the three controls that were not there when it was
+   * written. Same defect, same fix: one storage slot, so only one of the banner
+   * and the autosave may hold the pen, and the owner cannot type past an
+   * unanswered offer.
+   *
+   * THE DISCARD AT THE END IS NOT DECORATION. Under an unreadable settings
+   * document these three controls are disabled too (section 1), so "disabled
+   * while a banner is up" is a state this editor can reach for a completely
+   * different reason — including "the settings read has not come back yet".
+   * Answering the banner and watching them come alive is what makes the hold
+   * attributable to the banner.
+   *
+   * WHAT WOULD BREAK IT: leaving the coordinate controls outside the
+   * `<fieldset disabled>`; wiring their `disabled` to the settings alone.
+   */
+  it("holds the coordinate controls while a draft is offered, and holds nothing when there is nothing to answer", async () => {
+    const fake = fakeStudioSession();
+
+    /* THE ALLOW-CASE: no draft, so nothing to answer, so nothing held. */
+    const live = fakeStorage();
+    await renderEditor(fake.session, { storage: live.storage });
+    expect(screen.queryAllByRole("region", { name: /draft/i })).toEqual([]);
+    requireCoordinateControls();
+    await waitFor(() => expect(screen.getByLabelText(LABEL.latitude)).toBeEnabled());
+    for (const [what, control] of coordinateControls()) {
+      expect(control, `the ${what} control is held although no draft was offered`).toBeEnabled();
+    }
+    expect(typeAsUser(LABEL.latitude, TYPED.lat)).toBe(true);
+    cleanup();
+
+    /* THE PIN. */
+    const seeded = JSON.stringify(seededDraft());
+    const store = fakeStorage({ [KEY]: seeded });
+    await renderEditor(fake.session, { storage: store.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "no draft was offered, so there is no hold to observe: the editor is reading a key this file no longer writes (v1 rather than v2)",
+    ).toHaveLength(1);
+    const banner = offered[0];
+    for (const [what, control] of coordinateControls()) {
+      expect(control, `the ${what} control is still live while a draft is offered`).toBeDisabled();
+    }
+    expect(
+      typeAsUser(LABEL.latitude, "35.9"),
+      "the browser would have refused this keystroke",
+    ).toBe(false);
+    expect(
+      store.items.get(KEY),
+      "the offered draft was overwritten by the form behind the banner",
+    ).toBe(seeded);
+
+    /* AND THE HOLD WAS THE BANNER'S. */
+    fireEvent.click(within(banner).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.getByLabelText(LABEL.latitude)).toBeEnabled());
+    for (const [what, control] of coordinateControls()) {
+      expect(control, `the ${what} control is still held after Discard`).toBeEnabled();
+    }
+    expect(typeAsUser(LABEL.latitude, TYPED.lat)).toBe(true);
   });
 });
 

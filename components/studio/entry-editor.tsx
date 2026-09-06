@@ -22,31 +22,57 @@
  * causes carries a precondition (§10).
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * THERE IS NO COORDINATE INPUT HERE, AND THAT IS DELIBERATE.
+ * THE COORDINATE CONTROLS, AND THE ORDER OF EVENTS THAT MAKES THEM SAFE.
  *
  * §9: "the studio applies fuzzing before the write and discards the precise
  * original", because "resources are publicly readable … anyone can fetch the
- * raw triple". Fuzzing is phase 3 and does not exist anywhere under lib/. A
- * field for a coordinate today would write an unfuzzed one to a publicly
- * readable resource — a privacy invariant broken, not a feature missing, and
- * unfixable after the fact. An entry being EDITED keeps whatever place it
- * already had, coordinates included: those were fuzzed when they were stored.
+ * raw triple". So the fuzz happens HERE, before the `Entry` below is built —
+ * `saveEntry` never sees a precise coordinate, and nothing downstream could
+ * catch one if it did, because by then the precise value exists only in this
+ * component's state and in the input the owner is looking at.
  *
- * test/entry-editor.test.tsx pins both halves — no coordinate control in the
- * DOM, no coordinate predicate on the wire for a create. Both pins are meant to
- * be deleted deliberately when fuzzing lands.
+ * Until 2026-09-06 this file had no coordinate input at all and said so at
+ * length: fuzzing did not exist under lib/, so a latitude field would have put
+ * a true coordinate on a world-readable resource — a privacy invariant broken
+ * rather than a feature missing, and unfixable after the fact. `lib/pod/fuzz.ts`
+ * and `readPrivacySettings` now exist, and this is their caller.
  *
- * PHOTOS are phase 3 for the same reason: they need the resize/EXIF pipeline.
+ * FOUR RULES, EACH OF WHICH IS A DIFFERENT WAY TO LEAK:
+ *
+ *   1. What reaches `place.geo` is the `FuzzResult`, never the form state.
+ *   2. A `drop` means NO `geo` AT ALL — not a coarser one. §9 step 2 explains
+ *      why at length: a hundred entries "fuzzed to 2 km" resolve to one cell
+ *      whose centroid is the house, and each new entry sharpens it. The place
+ *      name survives; it is the geometry that is absent, not the entry.
+ *   3. It FAILS CLOSED. Settings that are absent, unreadable or schema-invalid
+ *      leave the three controls dead with the reason on screen and associated,
+ *      rather than live and refused at save time — `sameWebId`'s posture. Valid
+ *      settings with NO home region are a different fact and stay live: §7.6
+ *      calls that "I have no home to protect", and reading it as a failure
+ *      would silently strip the pin from every entry of everyone who never set
+ *      one.
+ *   4. AN UNTOUCHED COORDINATE IS NOT RE-FUZZED. A stored pair was already
+ *      snapped when it was written, and it is not necessarily on today's grid —
+ *      `snapToPrecision(35.6938, 139.7034, 500)` is 35.69423/139.70348, not the
+ *      §7.3 fixture's own pair — so re-snapping on every save walks the pin.
+ *      Leave both boxes empty and the place travels through untouched, exactly
+ *      as `created` and `datePublished` do.
+ *
+ * PHOTOS are phase 3 for the same reason they always were: they need the
+ * resize/EXIF pipeline. A photo's GPS is a coordinate like any other and goes
+ * through §9 steps 1–4, but there is no photo input to drive yet.
  * An entry being edited carries its existing photos through untouched.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * PLAIN CONTROLS ON PURPOSE. TODO.md keeps layout deliberately unstyled until
  * phase 7, and native `<select>`, `<input>` and `<textarea>` need no Radix on a
- * screen with eight controls on it. Every one of them has a real `<label>`.
+ * screen with eleven controls on it. Every one of them has a real `<label>`.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { documentUrlOf } from "@/lib/pod/entry-model";
+import { fuzzForPublication } from "@/lib/pod/fuzz";
+import { readPrivacySettings } from "@/lib/pod/read";
 import { describe } from "@/lib/pod/result";
 import { Status, TravelMode } from "@/lib/pod/schema";
 import { saveEntry } from "@/lib/pod/save-entry";
@@ -54,7 +80,12 @@ import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import { SCHEMA_VERSION } from "@/lib/vocab";
 import type { ReactNode } from "react";
-import type { Entry, Status as EntryStatus, TravelMode as Mode } from "@/lib/pod/schema";
+import type {
+  Entry,
+  PrivacySettings,
+  Status as EntryStatus,
+  TravelMode as Mode,
+} from "@/lib/pod/schema";
 import type { SaveEntryReport } from "@/lib/pod/save-entry";
 import type { Precondition } from "@/lib/pod/write";
 import type { Draft, StorageLike } from "@/lib/studio/drafts";
@@ -97,6 +128,27 @@ export interface EntryEditorProps {
    *  one in the browser, and every Pod request below goes through it. */
   session: StudioSessionLike;
   trips: EditorTrip[];
+  /**
+   * `/travel/settings/privacy.ttl` (§7.6), resolved by whoever knows where the
+   * Pod is — `privacySettingsUrl(podRoot)` in lib/pod/read.ts. It joins
+   * `indexUrl` and `entriesContainer` as a URL this component is GIVEN, because
+   * this component reads no config: `POD_ROOT` is not `NEXT_PUBLIC_` and
+   * `lib/config.ts` throws the moment it is reached in a browser.
+   *
+   * **REQUIRED, AND THAT IS THE POINT.** Optional would mean a shell that
+   * forgot to pass it produced an editor that failed closed for ever — no error
+   * anywhere, no test red anywhere, coordinates simply never published, which
+   * is indistinguishable from a Pod with no `privacy.ttl` on it. Nothing
+   * renders a wire nobody passed, so tsc is the only check that covers this
+   * one.
+   *
+   * A URL rather than the parsed settings, because THE READ FAILING IS THE CASE
+   * THAT MATTERS (§9's fail-closed rule) and only a URL can 404. It is read
+   * over the session's own fetch: the resource is owner-only, so an anonymous
+   * GET is a 401 on a real Pod — and on ESS a 401 does not even distinguish
+   * private from missing (§13).
+   */
+  settingsUrl: string;
   /**
    * Absent means CREATE. Present means EDIT, and `etag` is the one from THE
    * READ THAT PRODUCED THIS STATE (§10) — `null` when the server sent none,
@@ -207,6 +259,111 @@ function entryUrlIn(trip: EditorTrip, slug: string): string {
     ? trip.entriesContainer
     : `${trip.entriesContainer}/`;
   return `${container}${encodeURIComponent(slug)}.ttl`;
+}
+
+/* ═════════════════════════════════════════════════════════ the coordinate ══ */
+
+/**
+ * WHAT THE SETTINGS READ (§7.6) LEFT BEHIND, in the three states the controls
+ * have to distinguish. `checking` and `closed` both hold the controls, and they
+ * are separate anyway: one is a wait and the other is an answer, and telling
+ * the owner "your privacy settings could not be read" while the request is
+ * still in flight is a lie that resolves itself.
+ */
+type SettingsGate =
+  | { kind: "checking" }
+  | { kind: "ready"; settings: PrivacySettings }
+  | { kind: "closed"; detail: string };
+
+/**
+ * The grids offered besides the owner's own default.
+ *
+ * **NO "EXACT" OPTION, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT.**
+ * `fuzzForPublication` is the total boundary §9 asks for: it is the one place
+ * that checks the home region, and it has no exact mode — `snapToPrecision`
+ * refuses anything that is not a positive integer of metres. An "exact" option
+ * could therefore only be implemented by going AROUND that function, and going
+ * around it goes around the home-region drop as well. The one entry an owner is
+ * most likely to mark "exact" is the one taken at home.
+ *
+ * Coarser than the owner's default is always available; finer is only ever
+ * their own setting.
+ */
+const PRECISION_GRIDS = [100, 1000, 10_000] as const;
+
+/** The value of the precision control, in metres, or `null` when it holds
+ *  nothing a grid can be built from. `xsd:integer`, so a fractional metre is
+ *  refused here rather than rounded on the owner's behalf (§6). */
+function gridOf(text: string): number | null {
+  if (text.trim() === "") return null;
+  const metres = Number(text);
+  return Number.isInteger(metres) && metres > 0 ? metres : null;
+}
+
+/** `500` → `~500 m`, `10000` → `~10 km`. The tilde is the honest part: what is
+ *  published is a cell of about this size, not a distance from anywhere. */
+function precisionLabel(metres: number): string {
+  return metres >= 1000 && metres % 100 === 0 ? `~${metres / 1000} km` : `~${metres} m`;
+}
+
+/**
+ * THE ONE END OF THE ASSOCIATION BETWEEN THE DEAD COORDINATE CONTROLS AND THE
+ * SENTENCE SAYING WHY, for the reason `HOLD_REASON_ID` below is a constant: an
+ * `aria-describedby` naming an id nothing renders computes to the empty string,
+ * with no error and nothing on screen to show for it, and the control is back
+ * to announcing itself as unavailable and no reason.
+ *
+ * It goes on each of the three controls and NOT on a fieldset around them. That
+ * spelling reads better and is heard by nobody — a `<legend>` names a group and
+ * nothing propagates a group's DESCRIPTION to its members. Measured for the
+ * Save button's own hold, forty lines further down this file.
+ */
+const COORDINATE_NOTE_ID = "entry-coordinate-note";
+
+/**
+ * §9, and it has to be SAID: "an entry silently losing its map pin becomes a
+ * bug report, whereas 'you have not set a home region yet' is a one-time setup
+ * step with an obvious fix."
+ *
+ * This is the common case rather than the rare one. `initialiseContainers()`
+ * creates `/travel/settings/` and deliberately writes no document into it, so
+ * every fresh deployment reads a 404 here until the owner sets a home region.
+ */
+const NO_SETTINGS_NOTE =
+  "This entry will be saved without a map pin: your privacy settings could not be read, so " +
+  "there is no home region to check a coordinate against. Set a home region and a default " +
+  "precision on your Pod, then reopen this editor.";
+
+/** Deliberately shares no vocabulary with the sentence above — same rule as the
+ *  clean-save message: while the answer is still outstanding the owner must not
+ *  be told what it is. */
+const CHECKING_NOTE = "Waiting for the rules that decide what may be published with an entry.";
+
+/** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
+ *  type for it, and this file imports no Zod. */
+type EntryPlace = NonNullable<Entry["place"]>;
+
+/**
+ * The place to write, given whatever the entry already had and whatever the
+ * fuzz allowed.
+ *
+ * A DROP IS A REMOVAL, NOT AN OMISSION, which is the half that is easy to miss
+ * on an EDIT: the entry being edited may already carry a `#geo`, and spreading
+ * the old place in and merely failing to add a new one leaves the previous
+ * coordinate on a world-readable resource — a leak that outlives the edit made
+ * to remove it.
+ *
+ * A place with nothing left in it is no place at all rather than an empty
+ * `<#place>` node, which would be a `schema:Place` asserting nothing.
+ */
+function placeFor(existing: EntryPlace | undefined, geo: EntryPlace["geo"]): EntryPlace | undefined {
+  if (geo !== undefined) return { ...existing, geo };
+  if (existing === undefined) return undefined;
+  // Copy-and-delete rather than naming the other fields: a `Place` that grows
+  // one must not lose it every time a coordinate is dropped.
+  const rest: EntryPlace = { ...existing };
+  delete rest.geo;
+  return Object.values(rest).some((value) => value !== undefined) ? rest : undefined;
 }
 
 /* ══════════════════════════════════════════════════ what the owner is told ══ */
@@ -377,18 +534,24 @@ export const DRAFT_DEBOUNCE_MS = 800;
  *  name, so every create in this browser shares one draft. */
 const NEW_DRAFT_SCOPE = "new";
 
-/** The eight fields the FORM holds — `Draft` minus the stamp, which is put on
+/** The eleven fields the FORM holds — `Draft` minus the stamp, which is put on
  *  at the moment of the write and never earlier (§6). */
 type DraftText = Omit<Draft, "savedAt">;
 
 /**
- * Have the eight fields moved between two snapshots?
+ * Have the eleven fields moved between two snapshots?
  *
  * Field by field rather than `JSON.stringify`, which would answer "different"
- * for the same eight values in a different key order. The consequence of a
+ * for the same eleven values in a different key order. The consequence of a
  * false "different" is not cosmetic: it is a local copy written back for text
  * the Pod already holds, which is exactly the resurrected draft the clear after
  * a save exists to prevent.
+ *
+ * The three coordinate fields are in here for the same reason the other eight
+ * are: they are what the form holds. A comparison that skipped them would call
+ * a form whose only change was the latitude "unchanged" and drop that change
+ * from the local copy — the one field on this screen nobody can retype from
+ * memory a day later.
  */
 const sameText = (a: DraftText, b: DraftText) =>
   a.tripIri === b.tripIri &&
@@ -398,7 +561,10 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.occurred === b.occurred &&
   a.tagsText === b.tagsText &&
   a.mode === b.mode &&
-  a.status === b.status;
+  a.status === b.status &&
+  a.lat === b.lat &&
+  a.long === b.long &&
+  a.precision === b.precision;
 
 /**
  * The browser's own storage, or `null` where there is none to be had.
@@ -446,7 +612,13 @@ const HOLD_REASON_ID = "entry-draft-hold";
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-export default function EntryEditor({ session, trips, initial, storage }: EntryEditorProps) {
+export default function EntryEditor({
+  session,
+  trips,
+  settingsUrl,
+  initial,
+  storage,
+}: EntryEditorProps) {
   const existing = initial?.entry;
 
   const [tripIri, setTripIri] = useState(() =>
@@ -459,6 +631,32 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
   const [tagsText, setTagsText] = useState(existing?.tags.join(", ") ?? "");
   const [mode, setMode] = useState<Mode | "">(existing?.travelModeFrom ?? "");
   const [status, setStatus] = useState<EntryStatus>(existing?.status ?? "draft");
+  /**
+   * THE COORDINATE, AS TYPED — and EMPTY on an edit, even for an entry that
+   * already has one.
+   *
+   * Prefilling from `existing.place.geo` is the obvious spelling and is the
+   * bug. What is stored there is the PUBLISHED pair, already snapped, and not
+   * necessarily on the grid the settings name today: putting it in the box
+   * makes it indistinguishable from something the owner typed, so every save
+   * re-snaps it and the pin walks. Measured on the §7.3 fixture —
+   * `snapToPrecision(35.6938, 139.7034, 500)` is 35.69423/139.70348, half a
+   * cell from where it started.
+   *
+   * Empty therefore means "leave the coordinate alone", which is the same
+   * treatment `created` and `datePublished` get and is said on the control's
+   * own hint. Typing means "replace it", and typing something inside the home
+   * region means "remove it" — see `save()`.
+   */
+  const [lat, setLat] = useState("");
+  const [long, setLong] = useState("");
+  /**
+   * The grid in metres, as the select's value. `""` until §7.6 answers, which
+   * is also the state the control keeps for ever when it cannot be read: there
+   * is deliberately no built-in default, because "a fallback is a distance this
+   * project would be choosing for someone else's front door".
+   */
+  const [precision, setPrecision] = useState("");
 
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
@@ -486,6 +684,123 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
   });
   const [outcome, setOutcome] = useState<Announcement | null>(null);
   const [saving, setSaving] = useState(false);
+  const [gate, setGate] = useState<SettingsGate>({ kind: "checking" });
+
+  /* ─────────────────────────────────────────────── §7.6, read on mount ─── */
+
+  /**
+   * ON MOUNT, NOT AT SAVE TIME, and that is the fail-closed posture rather than
+   * an optimisation. §9 makes every coordinate write conditional on this
+   * document, so a form that took the input and refused it afterwards would
+   * have accepted a coordinate it was never going to publish and said nothing
+   * until the owner pressed Save. The controls are dead or live according to
+   * the answer, which means the answer has to arrive first.
+   *
+   * MEMOISED ON THE URL, WHICH IS WHAT MAKES IT ONE READ. The App Router runs
+   * the studio under StrictMode in development, so this effect is invoked
+   * twice; a `live` flag alone would cancel the first invocation's promise and
+   * a ref that merely said "already started" would leave the second with
+   * nothing to await, so nothing would ever be set. Holding the PROMISE — the
+   * shape components/studio/studio-shell.tsx uses for `enumerateTrips`, and
+   * `restoreSession`'s for the same reason — makes both invocations await the
+   * same request.
+   *
+   * `session.fetch`, NEVER THE AMBIENT ONE. §7.6 is owner-only: anonymously
+   * this is a 401, and on ESS a 401 does not even distinguish private from
+   * missing. Either way it lands in the `closed` branch, which is the right
+   * answer to both.
+   */
+  const settingsRead = useRef<{ url: string; result: ReturnType<typeof readPrivacySettings> } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (settingsRead.current?.url !== settingsUrl) {
+      settingsRead.current = {
+        url: settingsUrl,
+        result: readPrivacySettings(settingsUrl, { fetch: session.fetch }),
+      };
+    }
+    let live = true;
+    void settingsRead.current.result.then((result) => {
+      if (!live) return;
+      /**
+       * ONE FACT IS NOT THE OTHER (§7.6, §9). A `Result` that is not ok is "the
+       * settings could not be read" and closes the controls; settings that ARE
+       * ok but carry no `home` are "I have no home to protect", which is a
+       * legitimate configuration where every coordinate is still snapped and
+       * none is ever dropped. Collapsing the second into the first strips the
+       * pin from every entry of everyone who never set a home region, silently
+       * and for ever, and `fuzzForPublication` cannot catch it because it never
+       * gets asked.
+       */
+      if (!result.ok) {
+        setGate({ kind: "closed", detail: describe(result.error) });
+        return;
+      }
+      setGate({ kind: "ready", settings: result.value });
+      // The owner's own default, taken VERBATIM rather than mapped onto the
+      // option list — see the select below.
+      setPrecision(String(result.value.defaultPrecisionMeters));
+    });
+    return () => {
+      live = false;
+    };
+  }, [settingsUrl, session]);
+
+  /** The three controls take input only against settings this app trusts.
+   *  Everything else on the form is unaffected: an unreadable privacy.ttl costs
+   *  the owner a map pin, not an editor. */
+  const coordinatesLive = gate.kind === "ready";
+  /** §7.6's `dy:defaultPrecisionMeters`, or `""` where there is none to be had.
+   *  There is no built-in fallback, deliberately. */
+  const presetPrecision = gate.kind === "ready" ? String(gate.settings.defaultPrecisionMeters) : "";
+
+  /** Why the three controls are dead, or `null` when they are not. A note that
+   *  outlived its condition would be a hold announced on every encounter with a
+   *  control nothing is holding. */
+  const coordinateNote =
+    gate.kind === "ready" ? null : gate.kind === "checking" ? CHECKING_NOTE : NO_SETTINGS_NOTE;
+
+  /**
+   * The ids one coordinate control describes itself by: its own hint, if it has
+   * one, and the note above while there is one.
+   *
+   * Built rather than written out because BOTH HALVES ARE SILENT WHEN WRONG. An
+   * id that names nothing computes to the empty string, and an attribute left
+   * on permanently reads as correct markup while announcing a reason that has
+   * stopped being true. `undefined` rather than `""` for the same reason: no
+   * attribute at all is the honest spelling of "nothing to say".
+   */
+  const coordinateHelp = (ownHintId?: string): string | undefined => {
+    const ids = [ownHintId, coordinateNote === null ? undefined : COORDINATE_NOTE_ID].filter(
+      (id): id is string => id !== undefined,
+    );
+    return ids.length === 0 ? undefined : ids.join(" ");
+  };
+
+  /**
+   * What the precision control offers: the fixed grids, the owner's own default
+   * from §7.6, and whatever the form is currently holding.
+   *
+   * **THE SETTINGS VALUE JOINS THE LIST; IT IS NOT MAPPED ONTO IT.** §7.6's own
+   * fixture is 500 m, which is none of the fixed grids, and rounding it either
+   * way is wrong in a way the wire cannot show: coarser publishes a pin further
+   * from the truth than the owner asked for while `dy:precisionMeters` reports
+   * the distance as deliberate, and finer is simply a leak. `Set` because a
+   * default that happens to equal a fixed grid must not appear twice.
+   *
+   * The CURRENT value is in here too, so a draft restored from a build with a
+   * different list still shows the number it is about to publish at. What the
+   * control shows and what `fuzzForPublication` is given have to be the same
+   * number (§9 step 3).
+   */
+  const precisionOptions = useMemo(() => {
+    const grids = new Set<number>(PRECISION_GRIDS);
+    if (gate.kind === "ready") grids.add(gate.settings.defaultPrecisionMeters);
+    const held = gridOf(precision);
+    if (held !== null) grids.add(held);
+    return [...grids].sort((a, b) => a - b);
+  }, [gate, precision]);
 
   /** The offset the stored timestamp carries, kept across the edit. See
    *  toOffsetDateTime for why it is not recomputed from this machine. */
@@ -576,7 +891,19 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
    * render" is spelled. Writing to a ref during the render itself is the thing
    * that is not allowed; writing to one in an effect is ordinary.
    */
-  const text: DraftText = { tripIri, slug, headline, story, occurred, tagsText, mode, status };
+  const text: DraftText = {
+    tripIri,
+    slug,
+    headline,
+    story,
+    occurred,
+    tagsText,
+    mode,
+    status,
+    lat,
+    long,
+    precision,
+  };
   const live = useRef({ store, webId, scope, text });
   useEffect(() => {
     live.current = { store, webId, scope, text };
@@ -607,7 +934,7 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the nine fields of `Draft` and nothing else. The ETag, the
+   * What goes in is the twelve fields of `Draft` and nothing else. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
    * this state (§10), a draft outlives that read by however long the browser was
@@ -624,7 +951,20 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
         { webId, scope },
         // The caller stamps the moment; the store holds no clock, so this is the
         // same spelling every other timestamp in this file gets (§6).
-        { tripIri, slug, headline, story, occurred, tagsText, mode, status, savedAt: nowWithOffset() },
+        {
+          tripIri,
+          slug,
+          headline,
+          story,
+          occurred,
+          tagsText,
+          mode,
+          status,
+          lat,
+          long,
+          precision,
+          savedAt: nowWithOffset(),
+        },
       );
       /**
        * IT KEEPS TRYING ON LATER WINDOWS, and that is deliberate rather than an
@@ -657,7 +997,22 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
     return () => {
       clearTimeout(handle);
     };
-  }, [store, webId, scope, tripIri, slug, headline, story, occurred, tagsText, mode, status]);
+  }, [
+    store,
+    webId,
+    scope,
+    tripIri,
+    slug,
+    headline,
+    story,
+    occurred,
+    tagsText,
+    mode,
+    status,
+    lat,
+    long,
+    precision,
+  ]);
 
   /**
    * AN UNMOUNT IS NOT A REASON TO THROW THE LAST 800ms AWAY.
@@ -793,6 +1148,25 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
     setTagsText(draft.tagsText);
     setMode(draft.mode);
     setStatus(draft.status);
+    /**
+     * The coordinate goes back AS IT WAS TYPED, which is what was kept — see
+     * the note on `Draft.lat` in lib/studio/drafts.ts. It is put through the
+     * fuzz on the save that follows, exactly as if it had just been typed: a
+     * value that reached the Pod by way of `localStorage` without passing the
+     * boundary would be the same leak by a longer route.
+     */
+    setLat(draft.lat);
+    setLong(draft.long);
+    /**
+     * WHAT THE CONTROL SHOWS HAS TO BE WHAT IS APPLIED (§9 step 3), so a
+     * precision the select cannot show is refused rather than restored. Two
+     * ways to get one: a draft kept while the settings were unreadable, which
+     * holds `""`, and a draft from a build whose option list has moved on.
+     * Restoring either would leave the number the owner can see and the number
+     * `fuzzForPublication` is given disagreeing, which is the shape §9 calls a
+     * lie in whichever direction is worse.
+     */
+    setPrecision(gridOf(draft.precision) === null ? presetPrecision : draft.precision);
     // Restored once. Leaving the banner up invites a second click that would
     // overwrite whatever the owner typed after the first.
     setOffered(null);
@@ -805,6 +1179,44 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
   function discard() {
     if (store !== null && webId !== undefined) clearDraft(store, { webId, scope });
     setOffered(null);
+  }
+
+  /**
+   * What may be published for a coordinate the owner typed, or `undefined` when
+   * nothing may be. §9 steps 1–3, and the whole of the decision is delegated:
+   * this function chooses no distance, checks no radius and rounds nothing.
+   *
+   * THE TWO GUARDS IN FRONT OF `fuzzForPublication` ARE NOT REDUNDANT WITH IT.
+   * It is total and fails closed on settings that do not parse, but it cannot
+   * see a gate that never opened — `checking` and `closed` have no settings to
+   * hand it at all — and it treats an unusable explicit precision as a drop
+   * rather than falling back to the default, which is the same answer these
+   * reach more directly. Both are fail-closed, so the worst either can do is
+   * publish nothing.
+   *
+   * BACK TO NUMBERS, WHICH `lib/pod/fuzz.ts` DELIBERATELY AVOIDED RETURNING.
+   * Its strings exist so that a naive float snap cannot publish
+   * `35.010000000000005`; the values coming back have already been through
+   * `toFixed`, and `Number` → `String` round-trips a short decimal to the same
+   * digits, which is what `decimalLexical` will spend on it. `GeoPoint` is
+   * typed in numbers and both serialisers read it, so this is where the two
+   * meet.
+   */
+  function fuzzed(point: { lat: number; long: number }): EntryPlace["geo"] {
+    if (gate.kind !== "ready") return undefined;
+    const grid = gridOf(precision);
+    if (grid === null) return undefined;
+
+    const result = fuzzForPublication(point, gate.settings, grid);
+    if (result.kind === "drop") return undefined;
+    return {
+      lat: Number(result.lat),
+      long: Number(result.long),
+      // From the RESULT, never from the select. §9 step 3 wants
+      // `dy:precisionMeters` to "match what was actually done", and the two
+      // differ the moment anything upstream of here changes its mind.
+      precisionMeters: result.precisionMeters,
+    };
   }
 
   async function save() {
@@ -861,6 +1273,40 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
       provenance.datePublished ?? (status === "published" ? stamp : undefined);
 
     /**
+     * §9, AND IT HAPPENS HERE — before the `Entry` below exists, so `saveEntry`
+     * is never handed a precise coordinate and the only copy of one is in this
+     * component's state and in the input the owner is looking at. "The studio
+     * applies fuzzing before the write and discards the precise original."
+     *
+     * THREE OUTCOMES, AND `undefined` MEANS TWO DIFFERENT THINGS, which is why
+     * `touchedCoordinate` is computed separately rather than inferred from a
+     * missing geometry:
+     *
+     *   nothing typed  → the place travels through UNTOUCHED, coordinates and
+     *                    all. They were snapped when they were stored and are
+     *                    not necessarily on today's grid, so re-snapping them
+     *                    would walk the pin on every save (see the note on the
+     *                    `lat` state).
+     *   snap           → the published pair replaces whatever was there.
+     *   drop           → the geometry is REMOVED. §9 step 2: not coarsened, and
+     *                    the place keeps its name — "it is the geometry that is
+     *                    absent, not the entry". On an edit that means deleting
+     *                    a `#geo` that is already on the Pod, which is the half
+     *                    an "add the new one" spelling silently skips.
+     *
+     * FAIL CLOSED ON EVERYTHING ELSE. A form that somehow holds a coordinate
+     * without trustworthy settings — a restored draft, a control re-enabled by
+     * hand — publishes none: `fuzzForPublication` refuses settings that do not
+     * parse, and the two guards above it refuse a gate that never opened and a
+     * precision that is not a positive integer of metres. Every one of those is
+     * a drop, and a drop still saves the entry.
+     */
+    const touchedCoordinate = lat.trim() !== "" || long.trim() !== "";
+    const place = touchedCoordinate
+      ? placeFor(existing?.place, fuzzed({ lat: Number(lat), long: Number(long) }))
+      : existing?.place;
+
+    /**
      * `dcterms:created` AND the fields this form does not offer are carried
      * through from the entry being edited. §7.3: created "is when the record
      * came into being and datePublished is when it became public. They differ
@@ -879,7 +1325,7 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
       occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, storedOffset),
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
-      place: existing?.place,
+      place,
       photos: existing?.photos ?? [],
       tags: parseTags(tagsText),
       created,
@@ -1162,6 +1608,125 @@ export default function EntryEditor({ session, trips, initial, storage }: EntryE
               onChange={(event) => setOccurred(event.target.value)}
             />
           </Field>
+
+          {/*
+            THE THREE COORDINATE CONTROLS, INSIDE THE HELD FIELDSET WITH THE
+            OTHERS. Nothing about them is special enough to stand outside it:
+            one storage slot, so an unanswered banner must not be typed past
+            here either, and a latitude typed behind the banner is a latitude
+            the local copy is not keeping.
+
+            THEY CARRY A SECOND, INDEPENDENT HOLD — `disabled={!coordinatesLive}`
+            — and the two COMPOSE rather than replace one another, exactly as
+            `saving` and the fieldset do on the Save button. The fieldset says
+            "answer the banner first"; this says "there are no settings to
+            publish a coordinate against". Respelling either as the other passes
+            every attribute assertion and reopens the case it was not spelled
+            for.
+
+            NO NESTED `<fieldset disabled>` AROUND THE THREE, tempting as it is:
+            it would carry the `disabled` once, and it would carry the REASON
+            nowhere. Nothing propagates a group's description to its members —
+            measured for the Save button's hold, and the same measurement
+            applies here — so the association has to be on each control
+            regardless, and a `<legend>` would add a fourth thing named
+            "coordinates" for the form's own queries to trip over.
+          */}
+          <Field
+            id="entry-latitude"
+            label="Latitude"
+            hint={
+              existing?.place?.geo === undefined
+                ? "Snapped to the precision below before it is saved. Your Pod never holds the point you type here."
+                : "Snapped to the precision below before it is saved. Leave both boxes empty to keep the coordinate this entry already has."
+            }
+          >
+            <input
+              id="entry-latitude"
+              name="entry-latitude"
+              type="number"
+              step="any"
+              inputMode="decimal"
+              className={CONTROL}
+              value={lat}
+              disabled={!coordinatesLive}
+              aria-describedby={coordinateHelp("entry-latitude-hint")}
+              onChange={(event) => setLat(event.target.value)}
+            />
+          </Field>
+
+          <Field id="entry-longitude" label="Longitude">
+            <input
+              id="entry-longitude"
+              name="entry-longitude"
+              type="number"
+              step="any"
+              inputMode="decimal"
+              className={CONTROL}
+              value={long}
+              disabled={!coordinatesLive}
+              aria-describedby={coordinateHelp()}
+              onChange={(event) => setLong(event.target.value)}
+            />
+          </Field>
+
+          {/* §9 step 3: whatever this says, `dy:precisionMeters` says the same
+              and the pair beside it is that grid's. The owner's own
+              `dy:defaultPrecisionMeters` is preselected and is in the list
+              VERBATIM — see `precisionOptions` for why it is not rounded onto
+              the fixed grids in either direction. */}
+          <Field
+            id="entry-precision"
+            label="Precision"
+            hint="How large a cell the point is published in. Coarser is never a leak; finer is."
+          >
+            <select
+              id="entry-precision"
+              name="entry-precision"
+              className={CONTROL}
+              value={precision}
+              disabled={!coordinatesLive}
+              aria-describedby={coordinateHelp("entry-precision-hint")}
+              onChange={(event) => setPrecision(event.target.value)}
+            >
+              {/* Only ever reachable with the control dead: §7.6 has no default
+                  and this app supplies none, so an empty value means the
+                  settings have not answered or could not be read. A controlled
+                  <select> whose value matches no option renders blank, which
+                  reads as a list someone forgot to fill in. */}
+              {precision === "" && <option value="">{"Unavailable"}</option>}
+              {precisionOptions.map((metres) => (
+                <option key={metres} value={String(metres)}>
+                  {precisionLabel(metres)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {/*
+            WHY THE THREE ABOVE ARE DEAD, ON SCREEN AND ASSOCIATED WITH THEM.
+            §9: "an entry silently losing its map pin becomes a bug report,
+            whereas 'you have not set a home region yet' is a one-time setup
+            step with an obvious fix."
+
+            Rendered exactly when something points at it — a live
+            `aria-describedby` naming an element that is not there computes to
+            the empty string, silently, and the control is back to announcing
+            itself as unavailable with no reason given.
+          */}
+          {coordinateNote !== null && (
+            <p id={COORDINATE_NOTE_ID} className="text-sm text-muted-foreground">
+              {coordinateNote}
+            </p>
+          )}
+          {/* The failure as `describe()` renders it — a URL and a status code.
+              Outside the association for the same reason the save's detail is
+              outside the announced region: the sentence above is what a person
+              can act on, and a screen reader should not read a Pod URL out
+              character by character to deliver it. */}
+          {gate.kind === "closed" && (
+            <p className="text-sm text-muted-foreground">{gate.detail}</p>
+          )}
 
           <Field id="entry-tags" label="Tags" hint="Separated by commas.">
             <input

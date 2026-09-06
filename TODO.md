@@ -863,8 +863,73 @@ In progress on branch `phase-2-studio`.
 
 - [ ] Client-side resize in a Web Worker: thumb, web, blur placeholder
 - [ ] EXIF read then strip; auto-place and auto-date from photo GPS
-- [ ] Coordinate fuzzing with a configurable home radius
-- [ ] Decide the originals question from the quota finding in phase 0
+- [x] **Coordinate fuzzing with a configurable home radius.** Landed 2026-09-06. `lib/pod/fuzz.ts`
+      (121 tests), `/travel/settings/privacy.ttl` with four new `dy:` terms, `readPrivacySettings`,
+      and three controls in the editor. 872 tests, 0 skipped; all eight checks plus `test:e2e`.
+
+      **Deterministic grid snap, not a random offset**, and the reason is the whole design: a
+      random offset redrawn on each write lets an observer average several publications back to
+      the true point. `snapToPrecision` is a pure function of its inputs, and idempotence —
+      `snap(snap(x)) === snap(x)` — is asserted directly rather than assumed.
+
+      **Inside the home radius the coordinate is DROPPED, not coarsened.** Coarsening still pins
+      every home entry inside one known cell, and a handful of them identify the cell whose
+      centroid is the owner's home. The place name survives; only the geometry goes.
+
+      **The settings live in the owner's Pod, owner-only**, because the two obvious alternatives
+      both leak: `/studio` builds `○ (Static)`, so a build-time prop bakes home coordinates into
+      publicly-readable prerendered HTML, and `localStorage` is per-browser, so a new device has
+      no home region and the protection fails open exactly while travelling. Note the Pod ROOT
+      does travel through that static page as a prop, and that is fine — the public site already
+      reads it unauthenticated.
+
+      **It fails closed, and the two failure cases are deliberately different.** Absent,
+      unreadable or schema-invalid settings → no coordinate published at all, controls disabled
+      with a stated reason. Valid settings with **no home region** → coordinates publish, snapped.
+      Conflating them would silently drop every coordinate forever.
+
+      Three things found by measurement that a later reader would otherwise simplify away:
+      - **The longitude step must divide 360°**, not merely scale by `cos φ`. An arbitrary step
+        leaves a seam at the antimeridian and breaks idempotence — measured:
+        `snap(12, -180, 20000)` → `179.95` → re-snap → `179.87`. The polar collapse then falls
+        out of the same expression at `N === 1`, with no special case.
+      - **The meridian needs the same treatment for a different reason.** A plain
+        `precisionMeters / M_PER_DEG_LAT` step puts `round(90/step)*step` at **90.000055** for a
+        50 m grid — a published latitude that is not a latitude.
+      - **Quantise before wrapping.** The antimeridian cell is exactly 180 in decimal but can
+        arrive as `179.99999999999997`, publish as `"180.000"`, and re-snap across to `"-180.000"`.
+
+      Also fixed on the way: **`acl:default` inherits recursively**, so the new container picked
+      up `travel/`'s public default and an anonymous GET of `privacy.ttl` returned **200 with the
+      home latitude in the body** — measured before and after. And `validate:fixtures` checked
+      neither `dy:homeLat`/`dy:homeLong` (its geo rule matched on substrings that miss them) nor
+      integers at all, so `dy:homeRadiusMeters 3000.0` was a valid fixture.
+
+      The two tests pinning the ABSENCE of coordinate input are gone, deliberately, as their
+      docblocks said they should be. What replaced them is the assertion that matters: the typed
+      pair appears **nowhere** in the outgoing request body.
+
+      - [ ] **No "exact" option in the precision select, and adding one needs care.** It was in
+            the approved design and was left out: "exact" is the one path around
+            `fuzzForPublication`, which is also the only thing that checks the home region — so
+            it would publish the front door for the entry most likely to be marked exact.
+            `lib/pod/schema.ts` already contemplates `dy:precisionMeters 0` meaning "this point
+            is exact", so the safe shape is for `fuzzForPublication` to accept 0 — snapping
+            nothing while still applying the home check — rather than for the editor to bypass it.
+            That is a fuzz-module change with its own tests.
+      - [ ] **`test/studio-trip-loading.test.tsx:632`'s docblock overclaims** and it predates this
+            work. It says it catches StrictMode double-invocation; deleting the shell's `started`
+            ref memo leaves all 22 tests green, because `enumerating` is false on first mount
+            (`view.status` is `restoring`, the fake's `handleIncomingRedirect` being async) so the
+            effect body never runs twice. Only the re-entrancy mode is caught. Making the shell's
+            memo observable means altering restore timing that 22 tests stand on.
+- [x] **The originals question: do not upload originals.** Phase-0 question 5 came back
+      **unanswerable** — PodSpaces is Developer Preview and explicitly not for production, so its
+      quota limits would not be representative of anything. §9 already recorded that the
+      recommended default "stands on its own merits", and it does: every view uses the web-sized
+      derivative anyway, and an original at a public URL keeps full GPS and device metadata.
+      Uploading originals with metadata intact was never a third option. If archival originals
+      are ever wanted, they are stripped too.
 
 ## Phase 4 — map and timeline
 

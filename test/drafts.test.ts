@@ -12,7 +12,7 @@
  *   type StorageLike  = { getItem(k): string | null; setItem(k, v): void;
  *                         removeItem(k): void }
  *   type DraftAddress = { webId: string; scope: string }
- *   type Draft        = exactly nine fields — see FIELDS below
+ *   type Draft        = exactly twelve fields — see FIELDS below
  *
  *   draftKey(at: DraftAddress): string
  *   readDraft(storage: StorageLike, at: DraftAddress): Draft | null
@@ -123,15 +123,27 @@ const AT_NEW: DraftAddress = { webId: OWNER, scope: NEW };
 const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
 
 /**
- * The nine fields, sorted. Asserted as a SET rather than field by field,
- * because "exactly these" is the property that matters: a tenth field is how
- * the ETag gets in, and a missing one is a field the editor silently stops
+ * The twelve fields, sorted. Asserted as a SET rather than field by field,
+ * because "exactly these" is the property that matters: a thirteenth field is
+ * how the ETag gets in, and a missing one is a field the editor silently stops
  * restoring.
+ *
+ * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
+ * editor's coordinate controls, and they are why the key moved to `v2` — nine
+ * fields restored into a twelve-field form is the half-restore the version
+ * segment exists to prevent. All three hold what the FORM holds: strings, empty
+ * when nothing has been typed, because a half-written entry with no coordinate
+ * yet is the common draft and a schema that demanded a number here would refuse
+ * to back it up. test/entry-editor.test.tsx section 8h owns the decision that
+ * what is kept is the coordinate as TYPED rather than as published.
  */
 const FIELDS = [
   "headline",
+  "lat",
+  "long",
   "mode",
   "occurred",
+  "precision",
   "savedAt",
   "slug",
   "status",
@@ -152,6 +164,9 @@ const DRAFT: Draft = {
   tagsText: "walking, rain",
   mode: "Train",
   status: "draft",
+  lat: "35.026345",
+  long: "135.794782",
+  precision: "500",
   savedAt: "2026-04-02T19:00:00+09:00",
 };
 
@@ -202,10 +217,10 @@ const QUOTA = new DOMException("The quota has been exceeded.", "QuotaExceededErr
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe("draftKey", () => {
-  it("is wig.draft.v1.<webId>.<scope>", async () => {
+  it("is wig.draft.v2.<webId>.<scope>", async () => {
     const { draftKey } = await loadDrafts();
-    expect(draftKey(AT_NEW)).toBe(`wig.draft.v1.${OWNER}.${NEW}`);
-    expect(draftKey(AT_ENTRY)).toBe(`wig.draft.v1.${OWNER}.${ENTRY_URL}`);
+    expect(draftKey(AT_NEW)).toBe(`wig.draft.v2.${OWNER}.${NEW}`);
+    expect(draftKey(AT_ENTRY)).toBe(`wig.draft.v2.${OWNER}.${ENTRY_URL}`);
   });
 
   /**
@@ -224,14 +239,15 @@ describe("draftKey", () => {
     );
     // Two people are different drafts.
     expect(draftKey(AT_NEW)).not.toBe(draftKey({ webId: SOMEONE_ELSE, scope: NEW }));
-    // And the version is IN the key, so a future shape can be given v2 and this
-    // one's payloads become invisible rather than half-restorable.
-    expect(draftKey(AT_NEW)).toContain(".v1.");
+    // And the version is IN the key, which is how the coordinate fields could
+    // be added at all: v1's nine-field payloads became invisible rather than
+    // half-restorable the moment this became v2.
+    expect(draftKey(AT_NEW)).toContain(".v2.");
   });
 });
 
 describe("writeDraft / readDraft", () => {
-  it("round-trips exactly the nine fields, and stores them under the key", async () => {
+  it("round-trips exactly the twelve fields, and stores them under the key", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items, calls } = fakeStorage();
 
@@ -295,14 +311,16 @@ describe("writeDraft / readDraft", () => {
    */
   it("ignores a payload stored under a different version of the key", async () => {
     const { draftKey, readDraft } = await loadDrafts();
-    const v1 = draftKey(AT_NEW);
-    const v0 = v1.replace(".v1.", ".v0.");
+    const current = draftKey(AT_NEW);
+    // v1 is not hypothetical: it is what every build before 2026-09-06 wrote,
+    // and its payloads are nine-field ones that would half-fill today's form.
+    const previous = current.replace(".v2.", ".v1.");
     // The mutation really happened: a replace that missed would leave two
     // identical keys and make the assertion below vacuous.
-    expect(v0).not.toBe(v1);
+    expect(previous).not.toBe(current);
 
-    expect(readDraft(fakeStorage({ [v0]: VALID_JSON }).storage, AT_NEW)).toBeNull();
-    expect(readDraft(fakeStorage({ [v1]: VALID_JSON }).storage, AT_NEW)).toEqual(DRAFT);
+    expect(readDraft(fakeStorage({ [previous]: VALID_JSON }).storage, AT_NEW)).toBeNull();
+    expect(readDraft(fakeStorage({ [current]: VALID_JSON }).storage, AT_NEW)).toEqual(DRAFT);
   });
 });
 
@@ -356,10 +374,10 @@ describe("what a draft must never carry", () => {
    * persisted shape, the schema starts keeping it and this fails. It also
    * settles the unknown-key question for the whole module — the schema STRIPS
    * what it does not know rather than rejecting the value, so a payload from a
-   * slightly different build still restores its nine fields instead of being
+   * slightly different build still restores its twelve fields instead of being
    * thrown away. test/entry-editor.test.tsx leans on that choice.
    */
-  it("restores none of them, and still restores the nine that are legitimate", async () => {
+  it("restores none of them, and still restores the twelve that are legitimate", async () => {
     const { draftKey, readDraft } = await loadDrafts();
     const payload = JSON.stringify({
       ...DRAFT,
@@ -373,7 +391,7 @@ describe("what a draft must never carry", () => {
     const { storage } = fakeStorage({ [draftKey(AT_NEW)]: payload });
     const back = readDraft(storage, AT_NEW);
 
-    // The allow-case: the legitimate nine came back, so this is not a reader
+    // The allow-case: the legitimate twelve came back, so this is not a reader
     // that refused the whole payload and passed by returning nothing.
     expect(back).toEqual(DRAFT);
     expect(Object.keys(back!).sort()).toEqual(FIELDS);

@@ -124,6 +124,38 @@ export const DY = {
   originalUrl: dy("originalUrl"),
   track: dy("track"),
   tag: dy("tag"),
+
+  /* ------------------------------------------------------------------------
+   * Privacy settings (§3, §7.6). The ONLY dy: terms in this file that are never
+   * publicly readable — they live in one owner-only resource, because the home
+   * region is the thing being protected and publishing its centre and radius
+   * would hand a reader the answer the fuzzing exists to withhold.
+   *
+   * `homeLong`, matching `long` and `centerLong` above. It was `homeLon` until
+   * 2026-09-06 — deliberately, and this comment used to say so — and the rename
+   * happened for the reason the old note gave: a predicate is permanent the
+   * moment anything writes one, and nothing had. There is no writer for
+   * `privacy.ttl` in this codebase, `initialiseContainers()` deliberately
+   * creates the container empty, and `dy:` is still example.org so no live Pod
+   * holds one. §3 and §14 record the decision, which was the owner's.
+   *
+   * That window is closed now. All four of these are fixed.
+   * --------------------------------------------------------------------- */
+
+  /** xsd:decimal, never float — the home centre, stored at FULL precision.
+   *  The one coordinate in this project that is not fuzzed before the write,
+   *  because this resource is not published and a fuzzed centre would fuzz the
+   *  boundary rather than the thing inside it (§7.6). */
+  homeLat: dy("homeLat"),
+  homeLong: dy("homeLong"),
+  /** xsd:integer. Inside this radius §9 drops the coordinate ENTIRELY rather
+   *  than coarsening it, so an absent value must never be read as zero: that
+   *  is a home region of no area, i.e. no protection, reported as success. */
+  homeRadiusMeters: dy("homeRadiusMeters"),
+  /** xsd:integer. The grid a coordinate outside the home region is snapped to,
+   *  and the value written to dy:precisionMeters alongside the result. Required
+   *  — there is deliberately no built-in default (§7.6). */
+  defaultPrecisionMeters: dy("defaultPrecisionMeters"),
 } as const;
 
 /* -------------------------------------------------------------------------- */

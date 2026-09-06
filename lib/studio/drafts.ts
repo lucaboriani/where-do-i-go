@@ -38,7 +38,8 @@
  * worst, if the resource has cycled back to a matching tag, an overwrite of an
  * edit made elsewhere. A restored `created` would overwrite §7.3's "when the
  * record came into being" with whenever the draft happened to be saved. The
- * schema below is the fence: nine fields, and the parse is what reaches storage.
+ * schema below is the fence: twelve fields, and the parse is what reaches
+ * storage.
  */
 import * as z from "zod";
 import { Status, TravelMode } from "@/lib/pod/schema";
@@ -73,23 +74,33 @@ export interface DraftAddress {
 }
 
 /**
- * `wig.draft.v1.<webId>.<scope>`.
+ * `wig.draft.v2.<webId>.<scope>`.
  *
- * Three parts, three collisions they prevent. The VERSION: a future shape can be
- * given `v2` and this one's payloads become invisible rather than
+ * Three parts, three collisions they prevent. The VERSION: a shape that has
+ * moved on gets a new number and the old payloads become invisible rather than
  * half-restorable. The WEBID: one machine with two accounts must not hand the
  * second person the first person's unfinished text. The SCOPE: the entry being
  * created and the entry being edited are different drafts, and so are two
  * different entries.
+ *
+ * **`v1` → `v2` ON 2026-09-06, WHICH IS THE VERSION SEGMENT DOING ITS JOB** and
+ * not a rename. The draft was nine fields; `lat`, `long` and `precision` make
+ * it twelve. A v1 payload is a perfectly valid JSON object under the schema
+ * below — unknown keys are stripped, missing ones are not invented — so without
+ * the bump it would restore nine controls and leave three showing whatever the
+ * editor's own defaults left there, under a banner that has just told the owner
+ * their draft came back. A coordinate the owner did not type, next to text they
+ * recognise, is worse than no offer at all: invisible is the correct outcome
+ * for a payload whose shape has moved on.
  */
-export const draftKey = (at: DraftAddress): string => `wig.draft.v1.${at.webId}.${at.scope}`;
+export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
 
 /**
  * Exactly what the form holds mid-sentence, and nothing else.
  *
  * NOT `.strict()`, and that is load-bearing rather than an oversight: unknown
  * keys are STRIPPED. A payload written by a slightly different build, or one a
- * curious owner edited in devtools, still restores its nine legitimate fields
+ * curious owner edited in devtools, still restores its twelve legitimate fields
  * instead of being thrown away — and the stripping is also what guarantees an
  * `etag` handed in by a caller spreading the editor's state can neither be
  * written nor read back, since the parse output is what reaches storage and what
@@ -119,6 +130,35 @@ const Draft = z.object({
   tagsText: z.string(),
   mode: z.union([TravelMode, z.literal("")]),
   status: Status,
+  /**
+   * THE COORDINATE AS TYPED, NOT AS IT WOULD BE PUBLISHED, and strings for the
+   * same reason every field above is one: this is what the form holds, and an
+   * `<input type="number">` hands back a string.
+   *
+   * §9's "the studio discards the precise original" is about the POD — its own
+   * first line gives the threat model, "resources are publicly readable… anyone
+   * can fetch the raw triple". `localStorage` is not a resource, never leaves
+   * the browser that typed into it, and is the same trust boundary as the React
+   * state and the input element still showing the value. Discarding it here
+   * would close no hole and would close the feature: a coordinate is the one
+   * thing on this form nobody can retype from memory a day later, which is
+   * exactly the loss `docs/decisions.md` §10 says autosave exists for.
+   *
+   * Persisting the SNAPPED pair instead was considered and is worse: a restored
+   * form would show a coordinate the owner never typed, cannot refine and
+   * cannot tell from one they did, frozen against settings that may since have
+   * changed. Re-fuzzing it on save would be idempotent and therefore invisible.
+   *
+   * EMPTY IS THE COMMON CASE. A half-written entry with no coordinate yet is
+   * the draft this feature exists for, so a schema demanding a number here
+   * would refuse to back up the most ordinary draft there is.
+   */
+  lat: z.string(),
+  long: z.string(),
+  /** The precision control's value, in metres, as a string. `""` is what there
+   *  is to keep when the settings could not be read and the control was never
+   *  live — see §9's fail-closed rule. */
+  precision: z.string(),
   /**
    * THE ONE FIELD THAT MUST CARRY AN OFFSET (§6), refused without one on read
    * AND on write. It is what the banner's `<time dateTime>` is built from, and
