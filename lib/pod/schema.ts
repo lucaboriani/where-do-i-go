@@ -54,6 +54,7 @@ export const Photo = z.object({
   /** A `data:` URI placeholder, budgeted by lib/media/targets.ts. */
   blurDataUrl: z.string().optional(),
 });
+export type Photo = z.infer<typeof Photo>;
 
 export const Trip = z.object({
   iri: z.url(),
