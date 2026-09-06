@@ -169,13 +169,35 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
       quads.push(quad(node, namedNode(SCHEMA.height), int(photo.height)));
     }
     /**
-     * schema:encodingFormat, schema:dateCreated and dy:originalUrl are in the
-     * §7.3 fixture and are NOT written here, because `Entry` has no field for
-     * any of them. They arrive in phase 3 with the media pipeline, which is
-     * what produces them. Listed out loud rather than left as a silent gap:
-     * test/entry-write.test.ts enumerates exactly these three, so adding a
-     * fourth omission turns the suite red instead of quietly losing a triple.
+     * A media type is a code, not prose — plain, like the slug and the country
+     * code above. §7.3 spells it `"image/webp"` with no tag, and a tagged
+     * literal would be a different RDF term from the one the fixture shows.
+     *
+     * It is written from the type the encoded blob ACTUALLY has, never from the
+     * type that was requested: `convertToBlob` answers an unsupported request
+     * with PNG rather than an error (§7.3 notes). That is the uploader's job;
+     * this function writes whatever it is handed.
      */
+    if (photo.encodingFormat) {
+      quads.push(quad(node, namedNode(SCHEMA.encodingFormat), literal(photo.encodingFormat)));
+    }
+    if (photo.dateCreated) {
+      quads.push(quad(node, namedNode(SCHEMA.dateCreated), dt(photo.dateCreated)));
+    }
+    /**
+     * Also a plain literal, and NOT language-tagged. §6 asks for a language tag
+     * on human-readable literals; base64 is not human-readable in any language,
+     * and tagging it would assert that it is prose in some tongue.
+     *
+     * dy:originalUrl is deliberately never written: phase 3 decided against
+     * uploading originals, and §3 records the term as reserved rather than
+     * live. If a fourth photo predicate is ever added and left unwritten, say
+     * so here — test/entry-write.test.ts asserts that NOTHING in §7.3 is
+     * missing, so a silent omission turns the suite red rather than vanishing.
+     */
+    if (photo.blurDataUrl) {
+      quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
+    }
   });
 
   const writer = new Writer({

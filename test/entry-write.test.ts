@@ -388,25 +388,28 @@ describe("serialiseEntry — the inverse of readEntry", () => {
     expect(extra).toEqual([]);
 
     /**
-     * The other direction is not absolute, because `Entry` is a read model and
-     * does not carry every triple §7.3 shows. It must still be an ENUMERATED
-     * list, or "we lost something" degrades into "we lose whatever we lose".
+     * NOTHING is missing any more. This list used to hold three photo
+     * predicates the media pipeline had not yet produced: the pipeline now
+     * writes `schema:encodingFormat` and `schema:dateCreated`, and
+     * `dy:originalUrl` left the fixture because nothing writes it — phase 3
+     * decided against uploading originals, and §3 keeps the term reserved
+     * rather than live.
      *
-     * The three below are photo metadata that arrives in phase 3 with the media
-     * pipeline. `dcterms:created` and `dcterms:creator` are deliberately NOT on
-     * this list even though `Entry` has no field for either today: §7.3 says in
-     * so many words that created and datePublished "are not redundant … created
-     * is when the record came into being and datePublished is when it became
-     * public. They differ by however long the draft sat." An edit that drops
-     * `dcterms:created` destroys that, silently, on the first save after
-     * publication. So the model has to grow the two fields — which is a schema
-     * change, not a vocabulary change: DCTERMS.created and DCTERMS.creator are
-     * already in lib/vocab.ts and readTrip already reads created.
+     * The list stays computed and enumerated rather than collapsing into
+     * `expect(missing).toEqual([])`, because the failure it must catch is "we
+     * quietly stopped writing a triple", and it must name the predicate when it
+     * does. An empty array is now the assertion that says so.
+     *
+     * `dcterms:created` and `dcterms:creator` were once on this list, back when
+     * `Entry` had no field for either. They are absent for the opposite reason
+     * today: the model grew all three provenance fields and `serialiseEntry`
+     * writes them. That was load-bearing rather than tidy — §7.3 says created
+     * and datePublished "are not redundant … they differ by however long the
+     * draft sat", so an edit that dropped created would have destroyed the
+     * difference silently on the first save after publication.
      */
     const missingPredicates = [...new Set(missing.map((t) => t.split(" ")[1]))].sort();
-    expect(missingPredicates).toEqual(
-      [`N|${SCHEMA.encodingFormat}`, `N|${SCHEMA.dateCreated}`, `N|${DY.originalUrl}`].sort(),
-    );
+    expect(missingPredicates).toEqual([]);
   });
 
   it("emits fragments and no blank nodes", async () => {

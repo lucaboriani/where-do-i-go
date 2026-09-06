@@ -232,6 +232,12 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
         width: take(integer(p, SCHEMA.width, url)),
         height: take(integer(p, SCHEMA.height, url)),
         sortOrder: take(integer(p, DY.sortOrder, url)),
+        // Plain literals, both of them: a media type is a code and base64 is
+        // not prose, so neither carries a language tag and `langText` would be
+        // the wrong reader for either.
+        encodingFormat: p.typed(SCHEMA.encodingFormat)?.value,
+        dateCreated: take(offsetDateTime(p, SCHEMA.dateCreated, url)),
+        blurDataUrl: p.typed(DY.blurDataUrl)?.value,
       }))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 

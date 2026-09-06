@@ -47,6 +47,12 @@ export const Photo = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   sortOrder: z.number().int().optional(),
+  /** The blob's ACTUAL media type, e.g. "image/webp" (§6.1). */
+  encodingFormat: z.string().optional(),
+  /** From EXIF DateTimeOriginal. Offset required, like every other timestamp. */
+  dateCreated: z.iso.datetime({ offset: true }).optional(),
+  /** A `data:` URI placeholder, budgeted by lib/media/targets.ts. */
+  blurDataUrl: z.string().optional(),
 });
 
 export const Trip = z.object({

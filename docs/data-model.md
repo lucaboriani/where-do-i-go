@@ -137,7 +137,15 @@ Index read model (flat by design, see §7.4):
 Media and misc:
 
 - `dy:coverImage` (IRI) — curated, not derived
-- `dy:originalUrl` (IRI) — the unresized upload, if kept
+- `dy:blurDataUrl` (`xsd:string`) — a tiny inline placeholder image as a `data:` URI. A plain
+  literal, deliberately not language-tagged: base64 is not human-readable in any language, so §6's
+  language-tag rule does not reach it. It rides in the entry so the placeholder arrives with the
+  HTML and costs no second request; a budget in `lib/media/targets.ts` drops it rather than let it
+  bloat a publicly readable resource.
+- `dy:originalUrl` (IRI) — the unresized upload, if kept. **Nothing writes this.** Phase 3 decided
+  against uploading originals: every view uses the web-sized derivative anyway, and an original at
+  a public URL keeps full GPS and device metadata. The term stays reserved rather than deleted,
+  because rule 4 makes a `dy:` term permanent and this is the record of what the namespace holds.
 - `dy:track` (IRI) — a GeoJSON or GPX file resource
 - `dy:tag` (`xsd:string`) — used on both trips and entries
 
@@ -514,14 +522,14 @@ was a mistake at rush hour. Ate standing up at a counter with six seats."""@en ;
 
 <#photo-1>
     a schema:ImageObject ;
-    schema:contentUrl     <../../../media/6f2a1c8e/web.jpg> ;
-    schema:thumbnailUrl   <../../../media/6f2a1c8e/thumb.jpg> ;
+    schema:contentUrl     <../../../media/6f2a1c8e/web.webp> ;
+    schema:thumbnailUrl   <../../../media/6f2a1c8e/thumb.webp> ;
     schema:caption        "Counter seating, no menu."@en ;
     schema:width          1600 ;
     schema:height         1067 ;
-    schema:encodingFormat "image/jpeg" ;
+    schema:encodingFormat "image/webp" ;
     schema:dateCreated    "2026-03-29T21:38:02+09:00"^^xsd:dateTime ;
-    dy:originalUrl        <../../../media/6f2a1c8e/orig.jpg> ;
+    dy:blurDataUrl        "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==" ;
     dy:sortOrder          1 .
 ```
 
@@ -544,6 +552,12 @@ Notes on this shape:
   generic Linked Data tool understands WGS84. `schema:` remains the one your code reads.
 - **`dy:precisionMeters` drives rendering**, so "somewhere in Kyoto" and "this exact ramen
   counter" do not look identical on the map. Small values get a pin, large values a soft circle.
+- **The derivatives are WebP.** Roughly a third smaller than JPEG at equal quality, which is
+  storage and bandwidth on someone's Pod forever. The encoder falls back to JPEG where WebP is
+  unavailable, and `schema:encodingFormat` is written from the type the encoded blob ACTUALLY
+  has — never from the type that was requested, because `convertToBlob` answers an unsupported
+  request with PNG instead of an error.
+- **`dy:originalUrl` is gone from this example** because nothing writes it; see §3.
 
 ### 7.4 Index — `/travel/trips/2026-japan/entries.ttl`
 
