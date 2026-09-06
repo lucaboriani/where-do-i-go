@@ -105,7 +105,14 @@ import { TAGS } from "@/lib/pod/tags";
 import { resetSessionRestore, type StudioSessionLike } from "@/lib/studio/session";
 import { triples } from "./graph";
 import { server, servePod } from "./msw";
+import { Photo } from "@/lib/pod/schema";
 import type { Entry } from "@/lib/pod/schema";
+/* Section 10. The picked file is a real JPEG with real EXIF, built byte by byte
+   by the same fixture test/media-exif.test.ts reads back — so the container
+   hash and the metadata read are over bytes rather than over an empty File. */
+import { exifJpeg } from "./fixtures/exif-jpeg";
+import { readMetadata } from "@/lib/media/exif";
+import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 
 /**
  * FIXED, AND NOT THE MACHINE'S.
@@ -669,6 +676,19 @@ async function renderEditor(
      * error, which is the only check that covers a wire nobody rendered.
      */
     settingsUrl?: string;
+    /**
+     * THE MEDIA PIPELINE (section 10). Injected so a test can supply output it
+     * knows byte for byte; `undefined` is what ships, and the editor creates a
+     * real one lazily — a worker at mount would be a thread and a chunk for the
+     * majority of edits, which touch no photo at all.
+     *
+     * OPTIONAL, UNLIKE `settingsUrl`, and for the opposite reason. A forgotten
+     * `settingsUrl` fails closed invisibly; a forgotten pipeline cannot happen,
+     * because the default IS the real one. The default is also what makes this
+     * a seam rather than a mock: jsdom has no `createImageBitmap` and no
+     * `OffscreenCanvas`, so the worker cannot run here at all.
+     */
+    pipeline?: Pipeline;
   } = {},
 ) {
   const Editor = await loadEditor();
@@ -680,6 +700,21 @@ async function renderEditor(
         initial={props.initial}
         storage={props.storage}
         settingsUrl={props.settingsUrl ?? SETTINGS_URL}
+        /**
+         * WHERE THE MEDIA CONTAINER IS (§4: one global `travel/media/`, outside
+         * any trip). A prop rather than config, for the reason the editor's own
+         * docblock gives about `settingsUrl`: `POD_ROOT` is not `NEXT_PUBLIC_`
+         * and `lib/config.ts` throws the moment it is reached in a browser. The
+         * shell already holds it — it is what `privacySettingsUrl(podRoot)` is
+         * built from — so this is one more thing it passes down, not one more
+         * thing it has to learn.
+         *
+         * REQUIRED ON THE COMPONENT, for the same reason `settingsUrl` is:
+         * nothing renders a wire nobody passed, so tsc is the only check that
+         * covers a shell that forgot it.
+         */
+        podRoot={POD}
+        pipeline={props.pipeline}
       />
     </StrictMode>,
   );
@@ -710,6 +745,12 @@ const LABEL = {
   latitude: /latitude/i,
   longitude: /longitude/i,
   precision: /precision/i,
+  /* Section 10. In here rather than beside its own tests so that 8b's shadowing
+     loop covers it: that loop demands exactly one match per entry, which is the
+     guard this control wants — a `<section aria-label="Photos">` wrapper around
+     the list would otherwise shadow the file input, and the failure would read
+     "found multiple elements" from somewhere else entirely. */
+  photos: /photos?\b/i,
 };
 
 function setText(label: RegExp, value: string) {
@@ -3019,13 +3060,22 @@ const NEW_SCOPE = "new";
 const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
 
 /**
- * Exactly the twelve fields, sorted. A thirteenth is how the ETag gets in.
+ * Exactly the thirteen fields, sorted. A fourteenth is how the ETag gets in.
  *
  * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
  * coordinate controls, and they are the reason the key moved to `v2`. All three
  * hold what the FORM holds — strings, empty when nothing has been typed and
  * when no precision could be preset — rather than what the Pod would get; see
  * section 8h for the decision and its justification.
+ *
+ * `photos` ARRIVED WITH THE PICKER (section 10) AND THE KEY DID NOT MOVE, which
+ * is the same version test answered the other way: no `v2` payload can carry a
+ * photo, because there was no control to attach one with, so an older draft
+ * restores an empty list rather than a half-restore. It is here — and therefore
+ * required in every draft this editor writes, including the ones written by the
+ * tests above that pick nothing — because the FENCE is what this set is: a key
+ * the editor forgets is a photo it silently stops restoring, and an extra one
+ * is how the ETag gets in.
  */
 const DRAFT_FIELDS = [
   "headline",
@@ -3033,6 +3083,7 @@ const DRAFT_FIELDS = [
   "long",
   "mode",
   "occurred",
+  "photos",
   "precision",
   "savedAt",
   "slug",
@@ -3059,6 +3110,17 @@ type StoredDraft = {
    *  like the rest, and "" is what there is to keep when the settings could not
    *  be read and the control was never live. */
   precision: string;
+  /**
+   * The photos already on the Pod — section 10's picker uploads on pick, so a
+   * draft holds URLs and JSON and never a Blob.
+   *
+   * SEEDED EMPTY EVERYWHERE IN THIS SECTION, AND SEEDED AT ALL FOR A REASON:
+   * the failed-save pair below asserts `Object.keys` against `DRAFT_FIELDS` on
+   * "whichever copy is at the key, the seeded one or one the live window
+   * wrote". A seed that was a field short would make that assertion a race
+   * between two shapes rather than a statement about a restorable draft.
+   */
+  photos: Photo[];
   savedAt: string;
 };
 
@@ -3076,6 +3138,7 @@ const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
   lat: "",
   long: "",
   precision: "500",
+  photos: [],
   savedAt: "2026-04-02T19:00:00+09:00",
   ...over,
 });
@@ -5512,5 +5575,501 @@ describe("as source", () => {
     // scan, so a regex that had stopped matching would fail here first.
     expect(body).toMatch(/login\s*:\s*Session\[["']login["']\]/);
     expect(body).toMatch(/logout\s*:\s*Session\[["']logout["']\]/);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 10. PHOTOS — THE PICKER (task 7).
+ *
+ * THE RED STEP. Nothing in components/studio/entry-editor.tsx answers to a
+ * photo control today; line 61-64 of it still says photos are phase 3.
+ *
+ * WHAT IS FAKED, AND WHERE. Two new seams, and only two:
+ *
+ *   the pipeline   INJECTED as a `Pipeline` prop — `{ process, dispose }` from
+ *                  lib/media/pipeline.ts. Not mocked as a module, and not the
+ *                  real one: the real one spawns a Web Worker that calls
+ *                  `createImageBitmap` and `OffscreenCanvas.convertToBlob`,
+ *                  neither of which jsdom has. The prop defaults to a lazily
+ *                  created real pipeline, which is what ships; every test here
+ *                  passes a fake whose output is known byte for byte, so
+ *                  "the derivative was uploaded" and "the ORIGINAL was
+ *                  uploaded" are different assertions rather than two readings
+ *                  of one opaque blob.
+ *   the media PUTs MSW, at the HTTP layer, exactly like every other Pod write
+ *                  in this file. `uploadPhoto` is NOT mocked: the precondition
+ *                  (`If-None-Match: *`), the credential and the content type
+ *                  are asserted on the real outgoing requests, because a spy on
+ *                  `uploadPhoto` would pass against an editor that hand-rolled
+ *                  a blind PUT of its own.
+ *
+ * WHAT IS DELIBERATELY NOT HERE:
+ *
+ *   `schema:dateCreated` ON A NEW PHOTO. §6 requires a UTC offset on every
+ *   xsd:dateTime, and lib/media/exif.ts yields an offset-less wall clock —
+ *   EXIF's DateTimeOriginal has no zone and OffsetTimeOriginal is usually
+ *   absent (§11.5). Stage 1 therefore cannot produce a valid one, so no test
+ *   below expects it. The absence is not asserted either: `Photo.safeParse` in
+ *   the draft test refuses an offset-less one, which is the check that matters,
+ *   and a stage-2 implementation that supplies a real offset must not go red
+ *   for having done the right thing. Carrying an EXISTING one through is a
+ *   different question and is scenario 4's.
+ *
+ *   THE EXIF GPS → COORDINATE WIRE. A photo's GPS goes through §9 steps 1-4
+ *   like any other coordinate, and that is its own task. The fake pipeline runs
+ *   the REAL `readMetadata` over the REAL fixture bytes so the seam is faithful
+ *   when it arrives, but nothing below asserts on it.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * The photo control's accessible name.
+ *
+ * IT MOVED INTO `LABEL` WITH THE PICKER, as the note here asked: 8b's shadowing
+ * loop iterates `Object.entries(LABEL)` and demands exactly one match per entry,
+ * which is exactly the guard this control wants — a `<section
+ * aria-label="Photos">` wrapper would otherwise shadow the file input and the
+ * failure would read "found multiple elements" from inside `fillNewEntry`. This
+ * alias is kept so the tests below read as they were written.
+ */
+const PHOTOS_LABEL = LABEL.photos;
+
+/**
+ * A real JPEG with real EXIF, built byte by byte by test/fixtures/exif-jpeg.ts.
+ *
+ * Not an empty `new File([], …)`: the container path is `sha256(source)[0..16]`
+ * and the metadata read is over these bytes, so a file with no bytes would make
+ * both of those vacuous.
+ */
+const jpegFile = (name: string) => {
+  // Copied out of the view rather than passed straight in, the same way
+  // test/media-exif.test.ts's `bytesOf` does it: `exifJpeg` returns
+  // `Uint8Array<ArrayBufferLike>`, and `BlobPart` demands `ArrayBuffer` — a
+  // SharedArrayBuffer could not back a Blob, so tsc refuses the wider type.
+  const bytes = exifJpeg({ orientation: 1, dateTimeOriginal: "2026:03:29 21:38:02" });
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new File([buffer], name, { type: "image/jpeg" });
+};
+
+/** Distinctive and tiny, so "which blob reached the Pod" is answerable by
+ *  length alone — and so neither can be confused with the source JPEG. */
+const WEB_BYTES = [0x57, 0x45, 0x42, 0x50, 0x21];
+const THUMB_BYTES = [0x54, 0x48, 0x21];
+/** Inside BLUR_BUDGET_BYTES. It rides in the entry's Turtle and in the draft's
+ *  JSON, which is the whole reason a placeholder is a string and not bytes. */
+const BLUR =
+  "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+
+const blobOf = (bytes: number[], type: string) => new Blob([new Uint8Array(bytes)], { type });
+
+/**
+ * A pipeline that succeeds, with output nobody has to guess at.
+ *
+ * `metadata` comes from the REAL `readMetadata` over the REAL file bytes rather
+ * than from a literal: the fake's job is to stand in for the worker, not to
+ * stand in for the EXIF reader, and a hand-written metadata object would let a
+ * GPS wire be built against a shape lib/media/exif.ts does not produce.
+ */
+function fakePipeline() {
+  const processed: number[] = [];
+  const disposals: number[] = [];
+  const pipeline: Pipeline = {
+    async process(file: Blob): Promise<PipelineResult> {
+      const bytes = await file.arrayBuffer();
+      processed.push(bytes.byteLength);
+      return {
+        web: { blob: blobOf(WEB_BYTES, "image/webp"), width: 1600, height: 1067 },
+        thumb: { blob: blobOf(THUMB_BYTES, "image/webp"), width: 400, height: 267 },
+        blurDataUrl: BLUR,
+        metadata: readMetadata(bytes),
+      };
+    },
+    dispose() {
+      disposals.push(Date.now());
+    },
+  };
+  return { pipeline, processed, disposals };
+}
+
+/**
+ * A pipeline that refuses the file, REJECTING rather than resolving an error
+ * value — that is `createPipeline`'s own contract: it rejects with
+ * `new Error(data.message)` when the worker reports `ok: false`.
+ */
+function failingPipeline(message: string): Pipeline {
+  return {
+    process: () => Promise.reject(new Error(message)),
+    dispose() {},
+  };
+}
+
+/** The reason the owner must be given. Distinctive on purpose: it comes from
+ *  the FAKE, so finding it on screen asserts that the real reason travels,
+ *  rather than asserting this file's idea of how a failure is worded. */
+const DECODE_FAILURE = "the decoder could not read this file";
+
+/**
+ * The one global media container (§4), at the HTTP layer.
+ *
+ * THE REQUEST BODY IS NOT RECORDED, AND CANNOT USEFULLY BE. Measured, not
+ * assumed: a jsdom `Blob` handed to the fetch this environment provides arrives
+ * at the handler as the nine bytes of the string `"undefined"` — verified
+ * against a real `uploadPhoto` call before this section was written. So no
+ * assertion about uploaded BYTES is possible here for any implementation, and
+ * one that looked like it worked would be asserting on that string. What
+ * survives is what the URL and the headers say, which is where the rules live
+ * anyway: the container is content-addressed from the source, the file name and
+ * the content type come from the DERIVATIVE's blob (never from what was asked
+ * for), and every write carries `If-None-Match: *`.
+ */
+function mediaFake(script: { status?: number } = {}) {
+  const puts: { url: string; headers: Record<string, string> }[] = [];
+  server.use(
+    http.put(`${POD}/travel/media/:hash/:file`, ({ request }) => {
+      const headers: Record<string, string> = {};
+      request.headers.forEach((v, k) => (headers[k.toLowerCase()] = v));
+      puts.push({ url: request.url, headers });
+      return new HttpResponse(null, {
+        status: script.status ?? 201,
+        headers: { etag: '"media-1"' },
+      });
+    }),
+  );
+  return {
+    puts,
+    /** The file names, since the hash is the file's business and not this
+     *  test's — and the names are derived from the blob's type, so they are
+     *  also how "a derivative was uploaded" is told from "the JPEG was". */
+    names: () => new Set(puts.map((p) => new URL(p.url).pathname.split("/").pop()!)),
+    containers: () => [...new Set(puts.map((p) => new URL(p.url).pathname.replace(/[^/]+$/, "")))],
+  };
+}
+
+/** §7.3's own path shape, asserted rather than assumed: content-addressed,
+ *  16 hex characters, and named from the BLOB's type (never from what was
+ *  asked for — `convertToBlob` returns PNG when it cannot encode WebP). */
+const MEDIA_PATH = /^\/travel\/media\/[0-9a-f]{16}\/(web|thumb)\.webp$/;
+
+const pickPhoto = (file: File) => {
+  const input = screen.getByLabelText(PHOTOS_LABEL);
+  fireEvent.change(input, { target: { files: [file] } });
+};
+
+/* ─────────────────────────────────────────────── 10a. a photo that works ── */
+
+describe("entry editor — a picked photo", () => {
+  /**
+   * UPLOAD ON PICK, and the assertion that says so is the `src`.
+   *
+   * An editor that held the File and uploaded at save time would also render an
+   * `<img>` — from `URL.createObjectURL`, a `blob:` URL that dies with the page
+   * and cannot be autosaved. So "shown as attached" is asserted as "shown FROM
+   * THE POD": the element the owner sees points at the resource that now
+   * exists, which is the only version of "attached" that survives a reload.
+   */
+  it("uploads a picked photo and shows it as attached", async () => {
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const source = jpegFile("beach.jpg");
+    await renderEditor(fake.session, { pipeline: rig.pipeline });
+
+    pickPhoto(source);
+
+    const shown = await screen.findByRole("img", { name: /beach\.jpg/i });
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    /* THE FILE REALLY WENT THROUGH THE PIPELINE, with all of its bytes. */
+    expect(rig.processed, "the pipeline was not given the picked file").toEqual([source.size]);
+    expect(source.size, "the JPEG fixture is empty, so nothing below is a real trace").
+      toBeGreaterThan(0);
+
+    /* BOTH DERIVATIVES, ONE CONTAINER, EACH WITH ITS PRECONDITION. */
+    for (const put of media.puts) {
+      const url = new URL(put.url);
+      expect(url.origin).toBe(new URL(POD).origin);
+      expect(url.pathname).toMatch(MEDIA_PATH);
+      expect(put.headers["if-none-match"], `a blind PUT of ${url.pathname}`).toBe("*");
+      expect(
+        put.headers.authorization,
+        `${url.pathname} was written without the session credential`,
+      ).toBe(CREDENTIAL);
+      expect(put.headers["content-type"], `${url.pathname} was typed from the request, not the blob`)
+        .toMatch(/^image\/webp\b/);
+    }
+    expect(media.containers(), "the two derivatives went to different containers").toHaveLength(1);
+
+    /**
+     * WHAT WAS UPLOADED IS THE DERIVATIVE, NOT THE ORIGINAL — the media rules:
+     * originals are never uploaded, and a photo's GPS leaves with them.
+     *
+     * PINNED ON THE NAMES AND THE CONTENT TYPES, not on the bytes, and the
+     * reason is in `mediaFake`'s docblock: a Blob body is unreadable in this
+     * environment. It is not a weaker claim than it looks. Both come from the
+     * DERIVATIVE's blob — `extensionFor(web.blob.type)` and the mime handed to
+     * `putGuarded` — so a picked JPEG that went up untouched would be
+     * `image/jpeg` at `.../web.jpg`, and both assertions would fail. The
+     * `rig.processed` check above is the other half: the file went through the
+     * pipeline rather than around it.
+     */
+    expect(media.names(), "the derivatives are not named from the encoded blob").toEqual(
+      new Set(["web.webp", "thumb.webp"]),
+    );
+
+    /* SHOWN FROM THE POD. */
+    const src = shown.getAttribute("src") ?? "";
+    expect(src, "the attached photo is shown from a local object URL, not from the Pod").not.
+      toMatch(/^blob:/);
+    expect(new URL(src, window.location.href).pathname).toMatch(MEDIA_PATH);
+
+    /* STRUCTURALLY SETTLED, not worded. A settled photo is a `status`; a failed
+       one is an `alert` (10b). Asserting the pair is what keeps either from
+       being satisfied by a screen that announces everything the same way. */
+    expect(screen.queryAllByRole("alert"), "a photo that worked raised an alert").toEqual([]);
+    expect(
+      screen.getAllByRole("status"),
+      "nothing announced that the photo had settled",
+    ).not.toHaveLength(0);
+  });
+});
+
+/* ──────────────────────────────────────────── 10b. a photo that does not ── */
+
+describe("entry editor — a photo that fails", () => {
+  /**
+   * ONE UNREADABLE FILE MUST NOT COST THE OWNER THE PROSE THEY JUST WROTE.
+   *
+   * Three claims, and the third is the one the brief left out. Without it this
+   * test passes over a real defect: an editor that renders an optimistic slot
+   * with a local preview URL, announces the failure, and then saves that slot
+   * anyway writes `schema:contentUrl <blob:…>` into a public resource — a photo
+   * that 404s for every reader, on an entry that reports itself saved.
+   */
+  it("keeps the entry saveable when a photo fails, and leaves it out of what is saved", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { pipeline: failingPipeline(DECODE_FAILURE) });
+
+    pickPhoto(jpegFile("broken.jpg"));
+
+    /* ANNOUNCED, AS AN ALERT, CARRYING THE REASON THE PIPELINE GAVE. */
+    const alerts = await screen.findAllByRole("alert");
+    expect(
+      alerts.map((a) => a.textContent ?? "").join(" "),
+      "the failure was announced without saying why",
+    ).toMatch(new RegExp(DECODE_FAILURE, "i"));
+
+    /* NOTHING WAS UPLOADED: a photo the pipeline refused has no bytes to put. */
+    expect(media.puts, "a photo that never decoded was uploaded anyway").toEqual([]);
+
+    /* AND THE ENTRY IS STILL SAVEABLE. The form fills with the failure on
+       screen, which is the state the owner is actually in. */
+    fillNewEntry();
+    expect(saveButton(), "one bad photo took the Save button with it").toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    // NOT `clickSaveAndWait`: it waits for `outcomeText()` to be non-empty and
+    // the photo's own alert already made it so, so it would return before the
+    // save had done anything. Wait for the request instead.
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const subject = `${put.url}#it`;
+
+    /* THE MUTATION HALF FIRST: this really is a save that happened, so the
+       emptiness below is an absence and not a request that never went out. */
+    expect(oneObject(quads, subject, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    expect(
+      objectsOf(quads, subject, SCHEMA.image).map((t) => t.value),
+      "a photo that failed reached the saved entry",
+    ).toEqual([]);
+    expect(put.body, "the failed file's name was written into the entry").not.toContain(
+      "broken.jpg",
+    );
+    expect(put.body, "an optimistic local preview URL was saved as a photo").not.toContain("blob:");
+  });
+});
+
+/* ──────────────────────────────────────────── 10c. what the draft holds ──── */
+
+describe("entry editor — a photo in the autosaved draft", () => {
+  /**
+   * THE DECIDING ARGUMENT FOR UPLOAD-ON-PICK, stated as the invariant rather
+   * than as bytes.
+   *
+   * `localStorage` takes strings. A `File` or a `Blob` in the draft object
+   * serialises to `{}` — it does not throw, and it does not print
+   * "[object Blob]" — so the draft is written, reports success, and restores a
+   * photo with no URL on it. That is why the assertion is `Photo.safeParse`:
+   * what came back out of storage has to be a photo this app could render.
+   *
+   * NOT FROZEN TO BYTES, AND NOT ON A FAKE CLOCK. `savedAt` moves with a real
+   * debounce and comparing the stored string against a literal is how this
+   * project has already written tests that race a timer. The storage is the
+   * injected fake (section 8's), so nothing here touches the file-wide
+   * `window.localStorage` and nothing can leak into the next test.
+   */
+  it("stores a usable photo in the autosaved draft, and no Blob", async () => {
+    const media = mediaFake();
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: store.storage,
+    });
+
+    fillNewEntry();
+    pickPhoto(jpegFile("beach.jpg"));
+    await screen.findByRole("img", { name: /beach\.jpg/i });
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    const key = draftKeyFor(OWNER, NEW_SCOPE);
+    let raw = "";
+    await waitFor(
+      () => {
+        const stored = store.items.get(key);
+        expect(stored, "no draft was autosaved at all").toBeDefined();
+        const held = JSON.parse(stored!) as { photos?: unknown[] };
+        expect(held.photos, "the autosaved draft carries no photos").toHaveLength(1);
+        raw = stored!;
+      },
+      { timeout: DEBOUNCE * 6, interval: 25 },
+    );
+
+    const draft = JSON.parse(raw) as { photos: unknown[] };
+    const held = draft.photos[0] as Record<string, unknown>;
+
+    /* A BLOB SERIALISES TO `{}`, so this is the assertion that catches it. */
+    expect(
+      typeof held.contentUrl,
+      "the stored photo has no contentUrl — which is what a Blob serialises to",
+    ).toBe("string");
+    expect(new URL(String(held.contentUrl)).pathname).toMatch(MEDIA_PATH);
+
+    /* USABLE, by the app's own definition of the word. */
+    const parsed = Photo.safeParse(held);
+    expect(
+      parsed.success || JSON.stringify(parsed.error?.issues),
+      "the stored photo does not round-trip into a Photo",
+    ).toBe(true);
+
+    /* ALL THREE DERIVATIVES AND THE DIMENSIONS, which the media rules require
+       to be stored — the placeholder is a string precisely so it can ride in
+       JSON and in Turtle rather than as bytes. */
+    expect(new URL(String(held.thumbnailUrl)).pathname).toMatch(MEDIA_PATH);
+    expect(held.width).toBe(1600);
+    expect(held.height).toBe(1067);
+    expect(held.encodingFormat).toBe("image/webp");
+    expect(held.blurDataUrl).toBe(BLUR);
+
+    /* AND NO BYTES ANYWHERE IN IT. */
+    expect(raw, "a Blob was stringified into the draft").not.toContain("[object Blob]");
+    expect(raw, "a local object URL was persisted; it dies with the page").not.toContain("blob:");
+  });
+});
+
+/* ─────────────────────────────────── 10d. an edit that touches no photo ──── */
+
+describe("entry editor — photos an edit did not touch", () => {
+  /**
+   * THE SAME RULE `created`, `datePublished` AND THE PLACE ALREADY FOLLOW: an
+   * edit that rewrites the resource without them destroys them silently, and
+   * for photos it destroys the binaries' only reference as well.
+   *
+   * AGAINST THE §7.3 FIXTURE, not a hand-built entry: the normative block is
+   * the contract (§11 guardrail 6) and it carries exactly one photo with all
+   * nine of its predicates populated, including a `schema:dateCreated` that
+   * already has an offset on it. Carrying that through is a different question
+   * from minting one, which stage 1 cannot do.
+   */
+  it("carries an existing entry's photos through an edit that does not touch them", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+
+    // NON-VACUOUS: the fixture really does carry a photo to preserve. Without
+    // this the assertions below are about an entry that never had one.
+    expect(entry.photos, "the §7.3 fixture carries no photo to preserve").toHaveLength(1);
+    const kept = entry.photos[0]!;
+    expect(kept.dateCreated, "the fixture's photo carries no dateCreated").toBeDefined();
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      pipeline: fakePipeline().pipeline,
+    });
+
+    /**
+     * THE ANCHOR. "an edit that does not touch photos" is only a claim about a
+     * form that HAS a photo control; without this the test passes just as
+     * happily on a build with no picker at all, which is exactly the shape of
+     * vacuous pass this file keeps having to guard against.
+     */
+    expect(
+      screen.queryAllByLabelText(PHOTOS_LABEL),
+      "the editor has no photo control, so there is nothing to leave untouched",
+    ).toHaveLength(1);
+
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+    const subject = `${put.url}#it`;
+
+    // The mutation half: this is a save that changed something.
+    expect(oneObject(quads, subject, SCHEMA.headline)?.value).toBe(
+      "First night in Shinjuku, revisited",
+    );
+
+    const images = objectsOf(quads, subject, SCHEMA.image).map((t) => t.value);
+    expect(images, "the edit dropped the photo the entry arrived with").toEqual([
+      `${put.url}#photo-1`,
+    ]);
+    const node = images[0]!;
+
+    // A fragment, never a blank node (§11 guardrail 2).
+    expect(quads.every((q) => q.subject.termType !== "BlankNode")).toBe(true);
+    expect(quads.every((q) => q.object.termType !== "BlankNode")).toBe(true);
+
+    expect(oneObject(quads, node, SCHEMA.contentUrl)?.value).toBe(kept.contentUrl);
+    expect(oneObject(quads, node, SCHEMA.thumbnailUrl)?.value).toBe(kept.thumbnailUrl);
+
+    const caption = oneObject(quads, node, SCHEMA.caption);
+    expect(caption?.value).toBe(kept.caption?.value);
+    expect(languageOf(caption), "the caption lost its language tag").toBe(kept.caption?.language);
+
+    for (const [predicate, expected] of [
+      [SCHEMA.width, kept.width],
+      [SCHEMA.height, kept.height],
+      [DY.sortOrder, kept.sortOrder],
+    ] as const) {
+      const term = oneObject(quads, node, predicate);
+      expect(Number(term?.value), predicate).toBe(expected);
+      expect(datatypeOf(term), predicate).toBe(XSD.integer);
+    }
+
+    expect(oneObject(quads, node, SCHEMA.encodingFormat)?.value).toBe(kept.encodingFormat);
+    expect(oneObject(quads, node, DY.blurDataUrl)?.value).toBe(kept.blurDataUrl);
+
+    const dateCreated = oneObject(quads, node, SCHEMA.dateCreated);
+    expect(dateCreated?.value).toBe(kept.dateCreated);
+    expect(datatypeOf(dateCreated)).toBe(XSD.dateTime);
+    expect(dateCreated?.value, "the photo's timestamp lost its offset").toMatch(
+      /[+-]\d{2}:\d{2}$/,
+    );
+
+    /* AND THE DENORMALISED ROW KEEPS ITS THUMBNAIL. §7.4's index is what the
+       public trip page renders from; an entry whose photo survived in the
+       document but not in the row loses its picture on every listing. */
+    const index = pod.indexPut()!;
+    const { quads: rowQuads, row } = indexRowOf(index.body, JAPAN.indexUrl, put.url);
+    expect(row, "the edited entry has no row in the index it was written to").toBeDefined();
+    expect(oneObject(rowQuads, row!, DY.thumbnail)?.value).toBe(kept.thumbnailUrl);
   });
 });

@@ -12,7 +12,7 @@
  *   type StorageLike  = { getItem(k): string | null; setItem(k, v): void;
  *                         removeItem(k): void }
  *   type DraftAddress = { webId: string; scope: string }
- *   type Draft        = exactly twelve fields — see FIELDS below
+ *   type Draft        = exactly thirteen fields — see FIELDS below
  *
  *   draftKey(at: DraftAddress): string
  *   readDraft(storage: StorageLike, at: DraftAddress): Draft | null
@@ -123,8 +123,8 @@ const AT_NEW: DraftAddress = { webId: OWNER, scope: NEW };
 const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
 
 /**
- * The twelve fields, sorted. Asserted as a SET rather than field by field,
- * because "exactly these" is the property that matters: a thirteenth field is
+ * The thirteen fields, sorted. Asserted as a SET rather than field by field,
+ * because "exactly these" is the property that matters: a fourteenth field is
  * how the ETag gets in, and a missing one is a field the editor silently stops
  * restoring.
  *
@@ -136,6 +136,15 @@ const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
  * yet is the common draft and a schema that demanded a number here would refuse
  * to back it up. test/entry-editor.test.tsx section 8h owns the decision that
  * what is kept is the coordinate as TYPED rather than as published.
+ *
+ * `photos` ARRIVED WITH THE EDITOR'S PICKER, and the key did NOT move with it —
+ * the one time the version test is answered "no". A `v2` payload cannot carry a
+ * photo, because there was no control to attach one with, so an older draft
+ * restores an empty list: the truth about that draft rather than a default
+ * standing in for something lost. It is a `Photo[]` and not a form string
+ * because the editor uploads on pick and then holds URLs; see the field's own
+ * docblock in lib/studio/drafts.ts, and section 6 below for the empty-list
+ * default.
  */
 const FIELDS = [
   "headline",
@@ -143,6 +152,7 @@ const FIELDS = [
   "long",
   "mode",
   "occurred",
+  "photos",
   "precision",
   "savedAt",
   "slug",
@@ -167,6 +177,9 @@ const DRAFT: Draft = {
   lat: "35.026345",
   long: "135.794782",
   precision: "500",
+  // The common draft: text typed, no photo attached yet. The photo-carrying
+  // cases are section 6's, where they are the subject rather than the setting.
+  photos: [],
   savedAt: "2026-04-02T19:00:00+09:00",
 };
 
@@ -247,7 +260,7 @@ describe("draftKey", () => {
 });
 
 describe("writeDraft / readDraft", () => {
-  it("round-trips exactly the twelve fields, and stores them under the key", async () => {
+  it("round-trips exactly the thirteen fields, and stores them under the key", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items, calls } = fakeStorage();
 
@@ -563,5 +576,101 @@ describe("a storage that fails", () => {
     // The allow-case: the same draft with the offset restored is accepted.
     expect(writeDraft(storage, AT_NEW, DRAFT)).toBe(true);
     expect(readDraft(storage, AT_NEW)).toEqual(DRAFT);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 6. THE PHOTOS A DRAFT CARRIES — and the version segment left alone.
+ *
+ * The only field here that is not a string off a form control, because by the
+ * time one is in this list it is not a file any more: the editor uploads on
+ * pick and holds a `Photo`. That ordering is what makes the local copy possible
+ * at all — a `File` or a `Blob` serialises to `{}` through JSON without
+ * throwing, so the write would report success and the restore would hand back a
+ * photo with no URL on it.
+ *
+ * THE VERSION TEST, ANSWERED "NO" FOR THE FIRST TIME. `v1` → `v2` happened
+ * because a v1 payload restored nine controls and left three showing the
+ * editor's own defaults. Nothing like that can happen here: no `v2` payload can
+ * contain a photo, because there was no control to attach one with. An empty
+ * list is the truth about such a draft rather than a default standing in for
+ * something lost — and a bump would have thrown away real unsaved prose in
+ * exchange for nothing. The first test below is what holds that decision.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("the photos in a draft", () => {
+  /** Exactly what `uploadPhoto` returns: URLs on the Pod, the web derivative's
+   *  dimensions, the blob's real media type, and a `data:` placeholder that
+   *  rides in JSON precisely because it is a string and not bytes. */
+  const PHOTO = {
+    contentUrl: "https://me.solidcommunity.net/travel/media/9f2b1c4d5e6a7b80/web.webp",
+    thumbnailUrl: "https://me.solidcommunity.net/travel/media/9f2b1c4d5e6a7b80/thumb.webp",
+    width: 1600,
+    height: 1067,
+    encodingFormat: "image/webp",
+    blurDataUrl: "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
+  };
+
+  it("round-trips a photo with everything the editor has to show again", async () => {
+    const { readDraft, writeDraft } = await loadDrafts();
+    const { storage } = fakeStorage();
+    const withPhoto: Draft = { ...DRAFT, photos: [PHOTO] };
+
+    expect(writeDraft(storage, AT_NEW, withPhoto)).toBe(true);
+    const back = readDraft(storage, AT_NEW);
+    // Field by field would let a missing thumbnail or a lost width through as a
+    // pass; the whole object is what the editor renders from.
+    expect(back).toEqual(withPhoto);
+    expect(Object.keys(back!).sort()).toEqual(FIELDS);
+  });
+
+  /**
+   * THE DECISION THE KEY DID NOT MOVE FOR. A payload written before the picker
+   * existed is a v2 payload with no `photos`, and it must still restore its
+   * prose — that is the whole point of not bumping.
+   *
+   * WHAT WOULD BREAK IT: making the field required (the draft becomes invisible
+   * and the owner loses text the Pod never saw), or bumping the key to `v3`
+   * (the same loss by a different route).
+   */
+  it("restores a draft written before photos existed, with an empty list", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.photos;
+    // The fixture really is missing the field, or the rest of this test is
+    // about a payload that has one.
+    expect(Object.keys(before)).not.toContain("photos");
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(back, "a draft written before the picker is no longer restorable").not.toBeNull();
+    expect(back!.photos, "the missing field did not default to an empty list").toEqual([]);
+    // The mutation half: the text the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+  });
+
+  /**
+   * A HAND-EDITED PHOTO TAKES THE WHOLE PAYLOAD DOWN, exactly as a hand-edited
+   * `status` does, and that asymmetry with "unknown keys are stripped" is the
+   * point: losing one local draft is recoverable, and a mangled
+   * `schema:contentUrl` on a world-readable resource is not.
+   */
+  it("refuses a draft whose photo is not a photo", async () => {
+    const { draftKey, readDraft, writeDraft } = await loadDrafts();
+    const { storage, items } = fakeStorage();
+
+    const mangled = { ...DRAFT, photos: [{ ...PHOTO, contentUrl: "not a url" }] } as Draft;
+    expect(writeDraft(storage, AT_NEW, mangled)).toBe(false);
+    expect(items.size, "an unreadable draft was stored anyway").toBe(0);
+
+    // And on the way back out, for a value that reached storage some other way.
+    items.set(draftKey(AT_NEW), JSON.stringify(mangled));
+    expect(readDraft(storage, AT_NEW)).toBeNull();
+
+    // The allow-case, so this is not a reader that refuses everything.
+    expect(writeDraft(storage, AT_NEW, { ...DRAFT, photos: [PHOTO] })).toBe(true);
+    expect(readDraft(storage, AT_NEW)?.photos).toEqual([PHOTO]);
   });
 });
