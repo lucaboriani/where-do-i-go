@@ -146,11 +146,27 @@ about.
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
+lib/media/**
 ```
 
-then `npm run test:e2e` must pass too. That is the auth seam, and it is where this test's
-failures live: it drives a real Solid login round trip through the local Community Solid Server
-— redirect, consent, authorization code, `handleIncomingRedirect`, owner studio.
+then `npm run test:e2e` must pass too. **Two seams, not one.**
+
+The first line is the auth seam, and it is where this test's failures live: it drives a real
+Solid login round trip through the local Community Solid Server — redirect, consent,
+authorization code, `handleIncomingRedirect`, owner studio.
+
+`lib/media/**` is the media seam, added 2026-09-06 because the gate had a hole with a name.
+The pass-through shortcut — "the source is already small, skip the re-encode" — lives in
+`lib/media/pipeline.worker.ts`, and taking it uploads the owner's unstripped EXIF, GPS
+included, into a publicly readable container. A change to that file **alone** touches none of
+the four paths on the first line, so neither the gate nor CI would have asked for the one test
+that catches it, and it need never have run.
+
+That test is also the only place in this repository where the bytes that actually reach the Pod
+are read back and inspected. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no
+encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"undefined"` —
+measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
+order, and none of them can check one pixel or one EXIF tag.
 
 It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
 this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
@@ -325,7 +341,7 @@ dev                  # Next dev server
 build                # production build
 start                # serve the production build (`next start`); smoke-testing a build locally
 test                 # vitest
-test:e2e             # playwright, login flow only
+test:e2e             # playwright: the login redirect, and the media pipeline's real bytes
 lint                 # eslint
 typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
@@ -344,7 +360,13 @@ checks IRI resolution, and rejects blank nodes and wrong datatypes.
 - Unit tests against an in-memory fake Pod at the repository interface.
 - HTTP-level tests with MSW.
 - Integration tests against the local Community Solid Server.
-- Playwright only for the Solid login redirect, which cannot be meaningfully unit-tested.
+- Playwright only for what cannot be meaningfully tested faster — never a slow duplicate of a
+  fast test. Two flows clear that bar, as of 2026-09-06: the Solid login redirect, which cannot
+  be unit-tested at all, and the media pipeline's uploaded bytes, which cannot be inspected
+  anywhere else. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no encoder, and a
+  jsdom `Blob` reaches MSW as the nine bytes of `"undefined"` — measured 2026-09-06. The rule
+  has not been relaxed; the set of things that clear it grew by one, and the next addition has
+  to earn it the same way, by measurement.
 - Compare RDF by **graph isomorphism**, never bytes. Turtle has no canonical form; a
   byte-comparison test will be permanently red.
 

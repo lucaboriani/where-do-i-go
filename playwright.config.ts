@@ -2,15 +2,27 @@ import { defineConfig } from "@playwright/test";
 import { E2E, appEnv } from "./e2e/environment";
 
 /**
- * Playwright, for one flow only.
+ * Playwright, for two flows: the Solid login redirect, and the media pipeline.
  *
- * CLAUDE.md, Testing: "Playwright only for the Solid login redirect, which
- * cannot be meaningfully unit-tested." That is the whole remit. The studio's
- * states — restoring, signed-out, owner, not-owner, the expiry subscription —
- * are covered by 23 component tests in test/studio-shell.test.tsx that run in
- * about a second. Re-driving them in a browser would be a slow duplicate of a
- * fast test, which is worse than no test: it costs minutes per run and finds
- * nothing the fast one does not.
+ * CLAUDE.md, Testing: "Playwright only for what cannot be meaningfully tested
+ * faster — never a slow duplicate of a fast test." That is the whole remit, and
+ * it is a bar each flow has to clear rather than a licence to add a third. The
+ * studio's states — restoring, signed-out, owner, not-owner, the expiry
+ * subscription — are covered by 23 component tests in test/studio-shell.test.tsx
+ * that run in about a second. Re-driving them in a browser would be a slow
+ * duplicate of a fast test, which is worse than no test: it costs minutes per
+ * run and finds nothing the fast one does not.
+ *
+ * The login redirect clears the bar because a real OIDC round trip cannot be
+ * unit-tested at all. e2e/media-pipeline.spec.ts clears it for a different
+ * reason, and one that was measured rather than assumed (2026-09-06): jsdom has
+ * no createImageBitmap, no OffscreenCanvas and no encoder, and a jsdom Blob
+ * reaches MSW as the NINE BYTES of the string "undefined". So the fast tests
+ * can pin file names, content types, IRIs and call order — and cannot see one
+ * pixel or one EXIF tag of what is actually uploaded. This file is the only
+ * place the real bytes are read back, and the defect that justifies it is the
+ * pass-through shortcut in lib/media/pipeline.worker.ts, which would put the
+ * owner's unstripped GPS into a publicly readable container.
  *
  * WHY THIS FILE HAD TO EXIST AT ALL. Without a config, Playwright falls back to
  * scanning the repository, finds test/*.test.ts, tries to load the Vitest
