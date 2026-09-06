@@ -12,7 +12,7 @@
  *   type StorageLike  = { getItem(k): string | null; setItem(k, v): void;
  *                         removeItem(k): void }
  *   type DraftAddress = { webId: string; scope: string }
- *   type Draft        = exactly thirteen fields — see FIELDS below
+ *   type Draft        = exactly sixteen fields — see FIELDS below
  *
  *   draftKey(at: DraftAddress): string
  *   readDraft(storage: StorageLike, at: DraftAddress): Draft | null
@@ -123,8 +123,8 @@ const AT_NEW: DraftAddress = { webId: OWNER, scope: NEW };
 const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
 
 /**
- * The thirteen fields, sorted. Asserted as a SET rather than field by field,
- * because "exactly these" is the property that matters: a fourteenth field is
+ * The sixteen fields, sorted. Asserted as a SET rather than field by field,
+ * because "exactly these" is the property that matters: a seventeenth field is
  * how the ETag gets in, and a missing one is a field the editor silently stops
  * restoring.
  *
@@ -137,8 +137,19 @@ const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
  * to back it up. test/entry-editor.test.tsx section 8h owns the decision that
  * what is kept is the coordinate as TYPED rather than as published.
  *
+ * `placeName`, `locality` AND `country` ARRIVED WITH THE EDITOR'S PLACE
+ * CONTROLS on 2026-09-06, and the key did NOT move for them either. §9 is why
+ * they exist at all: inside the home radius the coordinate is dropped rather
+ * than coarsened, and the mitigation is that "the entry is still written, with
+ * its place name if it has one" — which needed a control that could give it
+ * one. They are form strings like the nine before them, empty when nothing has
+ * been typed, and section 7 below holds the decision not to bump: no `v2`
+ * payload can carry a place name, because there was no control to type one
+ * into, so an older draft restores three empty boxes rather than three
+ * defaults standing in for something lost.
+ *
  * `photos` ARRIVED WITH THE EDITOR'S PICKER, and the key did NOT move with it —
- * the one time the version test is answered "no". A `v2` payload cannot carry a
+ * the first time the version test was answered "no". A `v2` payload cannot carry a
  * photo, because there was no control to attach one with, so an older draft
  * restores an empty list: the truth about that draft rather than a default
  * standing in for something lost. It is a `Photo[]` and not a form string
@@ -147,12 +158,15 @@ const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
  * default.
  */
 const FIELDS = [
+  "country",
   "headline",
   "lat",
+  "locality",
   "long",
   "mode",
   "occurred",
   "photos",
+  "placeName",
   "precision",
   "savedAt",
   "slug",
@@ -177,6 +191,12 @@ const DRAFT: Draft = {
   lat: "35.026345",
   long: "135.794782",
   precision: "500",
+  // The place, as the form holds it: three strings, and the country a CODE
+  // rather than a name — lib/pod/entry-model.ts writes it untagged for the same
+  // reason the slug is untagged, so what the form keeps is what it will send.
+  placeName: "Gion, Kyoto",
+  locality: "Kyoto",
+  country: "JP",
   // The common draft: text typed, no photo attached yet. The photo-carrying
   // cases are section 6's, where they are the subject rather than the setting.
   photos: [],
@@ -260,7 +280,7 @@ describe("draftKey", () => {
 });
 
 describe("writeDraft / readDraft", () => {
-  it("round-trips exactly the thirteen fields, and stores them under the key", async () => {
+  it("round-trips exactly the sixteen fields, and stores them under the key", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items, calls } = fakeStorage();
 
@@ -387,10 +407,10 @@ describe("what a draft must never carry", () => {
    * persisted shape, the schema starts keeping it and this fails. It also
    * settles the unknown-key question for the whole module — the schema STRIPS
    * what it does not know rather than rejecting the value, so a payload from a
-   * slightly different build still restores its twelve fields instead of being
+   * slightly different build still restores its sixteen fields instead of being
    * thrown away. test/entry-editor.test.tsx leans on that choice.
    */
-  it("restores none of them, and still restores the twelve that are legitimate", async () => {
+  it("restores none of them, and still restores the sixteen that are legitimate", async () => {
     const { draftKey, readDraft } = await loadDrafts();
     const payload = JSON.stringify({
       ...DRAFT,
@@ -672,5 +692,95 @@ describe("the photos in a draft", () => {
     // The allow-case, so this is not a reader that refuses everything.
     expect(writeDraft(storage, AT_NEW, { ...DRAFT, photos: [PHOTO] })).toBe(true);
     expect(readDraft(storage, AT_NEW)?.photos).toEqual([PHOTO]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 7. THE PLACE A DRAFT NAMES — and, again, the version segment left alone.
+ *
+ * Three more form strings, and the reason they exist is §9 rather than
+ * convenience: inside the home radius the coordinate is dropped entirely, and
+ * the whole mitigation for that is "the entry is still written, with its place
+ * name if it has one — it is the geometry that is absent, not the entry". Until
+ * the studio grew these controls there was never a name to keep, so an entry
+ * written near home was placeless. A draft that dropped them on the way to
+ * storage would put the owner right back there after a crash.
+ *
+ * THE VERSION TEST, ANSWERED "NO" A SECOND TIME. A bump exists to prevent the
+ * HALF-RESTORE: a field the payload cannot carry, showing whatever the editor's
+ * own defaults left in it, under a banner that has just said the draft came
+ * back. No `v2` payload can carry a place name, because there was no control to
+ * type one into, so an older draft restores three empty boxes — the truth about
+ * that draft. Bumping would throw away real unsaved prose in exchange for
+ * nothing.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("the place fields in a draft", () => {
+  /**
+   * The round trip, and the empty case with it — a half-written entry whose
+   * owner has not said where they were yet is the ordinary draft, so `""` has
+   * to survive as `""` rather than being dropped or refused.
+   *
+   * WHAT WOULD BREAK IT: leaving the fields out of the schema, where unknown
+   * keys are STRIPPED silently and the write still reports success; making them
+   * `.optional()`, which turns an empty box into an absent field and loses the
+   * difference between "nowhere in particular" and "left alone" that the editor
+   * depends on.
+   */
+  it("round-trips the three place fields, including empty ones", async () => {
+    const { readDraft, writeDraft } = await loadDrafts();
+    const { storage } = fakeStorage();
+
+    expect(writeDraft(storage, AT_NEW, DRAFT)).toBe(true);
+    const back = readDraft(storage, AT_NEW);
+    expect(back?.placeName, "the place name did not survive the round trip").toBe("Gion, Kyoto");
+    expect(back?.locality).toBe("Kyoto");
+    expect(back?.country).toBe("JP");
+    expect(Object.keys(back!).sort()).toEqual(FIELDS);
+
+    // The common draft: text typed, nothing said about where yet.
+    const nowhere: Draft = { ...DRAFT, placeName: "", locality: "", country: "" };
+    expect(writeDraft(storage, AT_NEW, nowhere)).toBe(true);
+    expect(readDraft(storage, AT_NEW)).toEqual(nowhere);
+  });
+
+  /**
+   * THE DECISION THE KEY DID NOT MOVE FOR, in the only form that can be
+   * observed: a payload written before these controls existed still restores
+   * its prose, with three empty strings where the place would be.
+   *
+   * WHAT WOULD BREAK IT: bumping the key to `v3` (every unsaved draft on every
+   * machine becomes invisible, which is the loss this feature exists to
+   * prevent); or leaving the fields required with no default, which refuses the
+   * whole payload and loses the same text by a quieter route.
+   */
+  it("restores a draft written before the place fields existed, with three empty strings", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.placeName;
+    delete before.locality;
+    delete before.country;
+    // The fixture really is missing them, or the rest of this test is about a
+    // payload that has them.
+    for (const field of ["placeName", "locality", "country"]) {
+      expect(Object.keys(before), field).not.toContain(field);
+    }
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(
+      back,
+      "a draft written before the place controls is no longer restorable: the key moved, or the fields are required",
+    ).not.toBeNull();
+    expect(back!.placeName, "the missing field did not default to an empty string").toBe("");
+    expect(back!.locality).toBe("");
+    expect(back!.country).toBe("");
+    // The mutation half: the text the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+    // And the coordinate, which is the field the key DID move for: a v2 payload
+    // carries it, so this is a restore of everything except the three new boxes.
+    expect(back!.lat).toBe(DRAFT.lat);
   });
 });

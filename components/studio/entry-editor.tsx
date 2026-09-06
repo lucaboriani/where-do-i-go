@@ -405,28 +405,82 @@ const CHECKING_NOTE = "Waiting for the rules that decide what may be published w
  *  type for it, and this file imports no Zod. */
 type EntryPlace = NonNullable<Entry["place"]>;
 
+/** The three things this form can SAY about a place, as terms rather than as
+ *  form strings: the empty box has already become `undefined` by the time one
+ *  of these is built, because `""` is not a name — see `placeTextOf`. */
+type PlaceText = Pick<EntryPlace, "name" | "locality" | "country">;
+
 /**
- * The place to write, given whatever the entry already had and whatever the
- * fuzz allowed.
+ * The place to write, given whatever the entry already had, whatever the fuzz
+ * allowed, and whatever the three text controls are holding.
  *
- * A DROP IS A REMOVAL, NOT AN OMISSION, which is the half that is easy to miss
- * on an EDIT: the entry being edited may already carry a `#geo`, and spreading
- * the old place in and merely failing to add a new one leaves the previous
- * coordinate on a world-readable resource — a leak that outlives the edit made
- * to remove it.
+ * `undefined` IS A REMOVAL, NOT AN OMISSION, ON ALL FOUR FIELDS. That is the
+ * half that is easy to miss on an EDIT: the entry being edited may already
+ * carry a `#geo` or a `schema:name`, and spreading the old place in and merely
+ * failing to add a new value leaves the old one on a world-readable resource —
+ * a leak, or a name the owner has deleted from the form and cannot delete from
+ * their Pod, either way outliving the edit made to remove it.
+ *
+ * THE FOUR ARE REMOVED INDEPENDENTLY, which is why the geometry and the text
+ * arrive as separate arguments and are never folded into one flag. Clearing a
+ * name must not take the coordinate with it, and §9's drop must not take the
+ * name: "it is the geometry that is absent, not the entry." The original
+ * comment here said the same thing about growth — "a `Place` that grows one
+ * must not lose it every time a coordinate is dropped" — and the copy-and-
+ * delete shape below is still what keeps that true for a fifth field this form
+ * does not hold.
  *
  * A place with nothing left in it is no place at all rather than an empty
  * `<#place>` node, which would be a `schema:Place` asserting nothing.
  */
-function placeFor(existing: EntryPlace | undefined, geo: EntryPlace["geo"]): EntryPlace | undefined {
-  if (geo !== undefined) return { ...existing, geo };
-  if (existing === undefined) return undefined;
-  // Copy-and-delete rather than naming the other fields: a `Place` that grows
-  // one must not lose it every time a coordinate is dropped.
-  const rest: EntryPlace = { ...existing };
-  delete rest.geo;
-  return Object.values(rest).some((value) => value !== undefined) ? rest : undefined;
+function placeFor(
+  existing: EntryPlace | undefined,
+  geo: EntryPlace["geo"],
+  text: PlaceText,
+): EntryPlace | undefined {
+  // Start from what the entry already had, so a field this form does not hold
+  // survives; then let this save's answer overwrite it, `undefined` included.
+  const place: EntryPlace = { ...existing, ...text, geo };
+  // Copy-and-DELETE rather than naming the survivors: a key present with an
+  // `undefined` value is not the same as an absent one — `Object.values` below
+  // would still see it, and an entry whose place was emptied would be written
+  // as a bare `<#place>`.
+  for (const field of ["name", "locality", "country", "geo"] as const) {
+    if (place[field] === undefined) delete place[field];
+  }
+  return Object.values(place).some((value) => value !== undefined) ? place : undefined;
 }
+
+/**
+ * The three boxes as RDF terms, with `""` MEANING REMOVE.
+ *
+ * The one place `""` and `undefined` are translated between, and the reason it
+ * is a function rather than three ternaries inlined in `save()`: they are
+ * different instructions on three fields, and a spelling that got one of them
+ * wrong would either publish `""@en` — an entry claiming to be somewhere called
+ * nothing — or make a name impossible to retract once written.
+ *
+ * TRIMMED, BECAUSE A BOX HOLDING ONE SPACE IS AN EMPTY BOX to everyone except
+ * `!==""`. `Place.name` requires a non-empty value, so an untrimmed blank would
+ * be refused by the schema at save time — a validation failure standing in for
+ * what the owner plainly meant, which is "take it off".
+ *
+ * THE LANGUAGE IS THE ENTRY'S OWN, exactly as the headline and the body get it,
+ * so an entry written in another language keeps its tag. `locality` and
+ * `country` carry none here: the locality is tagged by `text()` at
+ * serialisation, and the country is a CODE and is deliberately untagged —
+ * `"JP"@en` is a different RDF term from `"JP"`, so every consumer filtering on
+ * the plain literal would stop matching entries this studio wrote (§7.3).
+ */
+const placeTextOf = (
+  form: { placeName: string; locality: string; country: string },
+  language: string,
+): PlaceText => ({
+  name:
+    form.placeName.trim() === "" ? undefined : { value: form.placeName.trim(), language },
+  locality: form.locality.trim() === "" ? undefined : form.locality.trim(),
+  country: form.country.trim() === "" ? undefined : form.country.trim(),
+});
 
 /* ═══════════════════════════════════════════════════════════════ the photos ══ */
 
@@ -692,10 +746,10 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
   a.length === b.length && a.every((photo, at) => photo.contentUrl === b[at]?.contentUrl);
 
 /**
- * Have the twelve fields moved between two snapshots?
+ * Have the fifteen fields moved between two snapshots?
  *
  * Field by field rather than `JSON.stringify`, which would answer "different"
- * for the same twelve values in a different key order. The consequence of a
+ * for the same fifteen values in a different key order. The consequence of a
  * false "different" is not cosmetic: it is a local copy written back for text
  * the Pod already holds, which is exactly the resurrected draft the clear after
  * a save exists to prevent.
@@ -704,7 +758,9 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
  * are: they are what the form holds. A comparison that skipped them would call
  * a form whose only change was the latitude "unchanged" and drop that change
  * from the local copy — the one field on this screen nobody can retype from
- * memory a day later.
+ * memory a day later. So are the three place fields, and there the loss is the
+ * one §9 leans on: near home the coordinate is dropped and the NAME is all the
+ * entry has left to say where it was.
  *
  * So are the photos, and there the consequence is worse than retyping: a photo
  * attached while the Pod was answering is bytes that are already uploaded and
@@ -722,6 +778,9 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.lat === b.lat &&
   a.long === b.long &&
   a.precision === b.precision &&
+  a.placeName === b.placeName &&
+  a.locality === b.locality &&
+  a.country === b.country &&
   samePhotos(a.photos, b.photos);
 
 /**
@@ -817,6 +876,33 @@ export default function EntryEditor({
    * project would be choosing for someone else's front door".
    */
   const [precision, setPrecision] = useState("");
+
+  /**
+   * WHERE THE OWNER WAS, IN WORDS — and unlike the coordinate above, SEEDED
+   * FROM THE ENTRY BEING EDITED.
+   *
+   * The asymmetry is the whole of the "untouched versus removed" logic for
+   * text, so it is worth saying why it goes the other way. The stored
+   * coordinate must not be prefilled because what is on the Pod is the
+   * PUBLISHED pair, already snapped, and putting it in the box makes it
+   * indistinguishable from something typed — so every save re-snaps it and the
+   * pin walks. A name has no such transformation: what is on the Pod is exactly
+   * what was typed, so showing it costs nothing and buys the two things the
+   * coordinate has to buy with a separate `touchedCoordinate` flag. A box the
+   * owner never opens still holds the stored value, so saving writes it back
+   * unchanged — untouched. A box the owner EMPTIES holds `""`, which `save()`
+   * turns into `undefined` and `placeFor` turns into a removal.
+   *
+   * Prefilling is therefore not a convenience here; it is what makes the two
+   * instructions distinguishable at all. An editor that left these empty on an
+   * edit would delete the place name of every entry whose headline was
+   * corrected — silently, and only discoverable by reading the Pod.
+   */
+  const [placeName, setPlaceName] = useState(existing?.place?.name?.value ?? "");
+  const [locality, setLocality] = useState(existing?.place?.locality ?? "");
+  /** A CODE, not prose (§7.3) — `schema:addressCountry` is written untagged,
+   *  so what belongs in this box is `JP`, not `Japan`. */
+  const [country, setCountry] = useState(existing?.place?.country ?? "");
 
   /**
    * THE PHOTOS PICKED IN THIS EDITOR, and NOT the ones the entry arrived with.
@@ -1236,6 +1322,12 @@ export default function EntryEditor({
     lat,
     long,
     precision,
+    // Where the owner was, in words. Kept for the reason §9 makes sharpest: a
+    // crash near home would otherwise leave an entry with no coordinate AND no
+    // name, which is a placeless entry rather than a coarse one.
+    placeName,
+    locality,
+    country,
     /**
      * THE PHOTOS, AS `Photo` OBJECTS — which is only possible because the pick
      * uploaded them. A `File` here would serialise to `{}` without throwing,
@@ -1273,7 +1365,7 @@ export default function EntryEditor({
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the thirteen fields of `Draft` and nothing else — the twelve
+   * What goes in is the sixteen fields of `Draft` and nothing else — the fifteen
    * the form holds, plus the `savedAt` stamp put on below. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
@@ -1303,6 +1395,9 @@ export default function EntryEditor({
           lat,
           long,
           precision,
+          placeName,
+          locality,
+          country,
           photos: attached,
           savedAt: nowWithOffset(),
         },
@@ -1353,6 +1448,9 @@ export default function EntryEditor({
     lat,
     long,
     precision,
+    placeName,
+    locality,
+    country,
     // The ready photos, so attaching one arms a window like any other change.
     // Its identity moves on every slot transition, not only on a settle, so a
     // photo in flight restarts the window — which is what a debounce is for.
@@ -1513,6 +1611,21 @@ export default function EntryEditor({
      */
     setPrecision(gridOf(draft.precision) === null ? presetPrecision : draft.precision);
     /**
+     * THE PLACE TEXT GOES BACK VERBATIM, empties included — and the empties are
+     * the point rather than a corner case. A draft written before these
+     * controls existed has three empty strings put there by the schema's
+     * `.default("")`, which is why the key stayed at `v2`: it restores the
+     * truth about that draft instead of being refused outright and taking the
+     * owner's unsaved prose with it (lib/studio/drafts.ts).
+     *
+     * On an EDIT that means a restore can also empty a box that had a stored
+     * name in it, and that is correct: the draft is what the owner last had on
+     * the screen, and the banner they clicked said so.
+     */
+    setPlaceName(draft.placeName);
+    setLocality(draft.locality);
+    setCountry(draft.country);
+    /**
      * THE PHOTOS COME BACK ALREADY UPLOADED, which is the whole reason the pick
      * is the upload: these are URLs on the Pod, so a draft restored in a new tab
      * a day later still has its pictures. `readDraft` has already put every one
@@ -1659,6 +1772,13 @@ export default function EntryEditor({
      *                    a `#geo` that is already on the Pod, which is the half
      *                    an "add the new one" spelling silently skips.
      *
+     * THE THREE TEXT FIELDS HAVE THE SAME THREE OUTCOMES AND ARE DECIDED
+     * SEPARATELY, because a coordinate and a name are removed independently:
+     * §9's drop keeps the name — "the entry is still written, with its place
+     * name if it has one" — and clearing a name must leave the coordinate
+     * alone. Their "untouched" is carried by the controls themselves rather
+     * than by a flag; see the `placeName` state.
+     *
      * FAIL CLOSED ON EVERYTHING ELSE. A form that somehow holds a coordinate
      * without trustworthy settings — a restored draft, a control re-enabled by
      * hand — publishes none: `fuzzForPublication` refuses settings that do not
@@ -1667,9 +1787,21 @@ export default function EntryEditor({
      * a drop, and a drop still saves the entry.
      */
     const touchedCoordinate = lat.trim() !== "" || long.trim() !== "";
-    const place = touchedCoordinate
-      ? placeFor(existing?.place, fuzzed({ lat: Number(lat), long: Number(long) }))
-      : existing?.place;
+    const place = placeFor(
+      existing?.place,
+      /* "Nothing typed" is spelled as THE GEOMETRY THE ENTRY ALREADY HAD, which
+         `placeFor` carries through unchanged. It is deliberately not spelled as
+         `undefined`: that is the DROP, and collapsing the two would delete a
+         coordinate from the Pod every time an entry was edited without
+         retyping one. */
+      touchedCoordinate ? fuzzed({ lat: Number(lat), long: Number(long) }) : existing?.place?.geo,
+      /* AND THE TEXT NEEDS NO SUCH FLAG, which is the asymmetry the `placeName`
+         state's note explains rather than an omission here: these three
+         controls ARE seeded from the entry, so a box nobody opened already
+         holds the stored value and writing it back is the untouched case. What
+         `touchedCoordinate` has to reconstruct, the form carries. */
+      placeTextOf({ placeName, locality, country }, language),
+    );
 
     /**
      * `dcterms:created` AND the fields this form does not offer are carried
@@ -1982,6 +2114,78 @@ export default function EntryEditor({
               value={occurred}
               aria-describedby="entry-when-hint"
               onChange={(event) => setOccurred(event.target.value)}
+            />
+          </Field>
+
+          {/*
+            WHERE THE OWNER WAS, IN WORDS — the three fields §9's mitigation
+            leans on, and the reason they sit HERE, immediately above the
+            coordinate: a place is one subject, and the entry's answer to
+            "where" is these four controls together.
+
+            THEY ARE NOT HELD BY `coordinatesLive`, and that is the point of
+            putting them beside it rather than inside it. The coordinate
+            controls go dead when the privacy settings cannot be read, because
+            there is no home region to check a point against; a place NAME needs
+            no such check — it is prose the owner chose, published exactly as
+            typed — so an editor that dimmed these three alongside the
+            coordinate would leave an owner with no settings unable to say
+            anything at all about where they were. They are inside the draft
+            fieldset with everything else, for the reason everything else is:
+            one storage slot.
+
+            NO `aria-label` ON THIS BLOCK OR ANYTHING WRAPPING IT, and no
+            `<fieldset>`/`<legend>` grouping the four. `getByLabelText` matches
+            `aria-label` on ANY element; this file has already lost six tests to
+            a wrapper that shadowed a real control, and a legend reading
+            "Place" would be a fifth thing for the form's own queries to find.
+            The `<label>` inside each `Field` is the only name here.
+          */}
+          <Field
+            id="entry-place-name"
+            label="Place name"
+            hint="Kept even when the coordinate is not. Near your home region the point is dropped rather than blurred, and this name is then all the entry says about where it was."
+          >
+            <input
+              id="entry-place-name"
+              name="entry-place-name"
+              type="text"
+              className={CONTROL}
+              value={placeName}
+              aria-describedby="entry-place-name-hint"
+              onChange={(event) => setPlaceName(event.target.value)}
+            />
+          </Field>
+
+          <Field id="entry-locality" label="Town or city">
+            <input
+              id="entry-locality"
+              name="entry-locality"
+              type="text"
+              className={CONTROL}
+              value={locality}
+              onChange={(event) => setLocality(event.target.value)}
+            />
+          </Field>
+
+          {/* A CODE, NOT A NAME (§7.3): `schema:addressCountry "JP"`, written
+              untagged, because `"JP"@en` is a different RDF term from `"JP"`
+              and every consumer filtering on the plain literal would stop
+              matching. The hint is what stops the owner typing "Japan" here —
+              nothing downstream can tell the two apart. */}
+          <Field
+            id="entry-country"
+            label="Country"
+            hint="The two-letter code, such as JP or IT — not the country's name."
+          >
+            <input
+              id="entry-country"
+              name="entry-country"
+              type="text"
+              className={CONTROL}
+              value={country}
+              aria-describedby="entry-country-hint"
+              onChange={(event) => setCountry(event.target.value)}
             />
           </Field>
 

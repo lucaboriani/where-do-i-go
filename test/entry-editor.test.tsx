@@ -253,6 +253,10 @@ const SPEC_OCCURRED = "2026-03-29T21:40:00+09:00";
 /** The place the §7.3 entry names, and the coordinate it already carries —
  *  fuzzed to 500 m when it was stored, which is why it is allowed to be there. */
 const SPEC_PLACE_NAME = "Shinjuku, Tokyo";
+/** The rest of §7.3's address: prose and a code, and the two are written
+ *  differently on purpose (section 1b). */
+const SPEC_LOCALITY = "Tokyo";
+const SPEC_COUNTRY = "JP";
 
 /* ══════════════════════════════════════════════ §7.6 privacy settings ══ */
 
@@ -755,6 +759,22 @@ const LABEL = {
      the list would otherwise shadow the file input, and the failure would read
      "found multiple elements" from somewhere else entirely. */
   photos: /photos?\b/i,
+  /* Section 1b, and in here for the same reason `photos` is: 8b's shadowing
+     loop iterates `Object.entries(LABEL)` and demands exactly ONE match per
+     entry, which is the guard these three need most.
+
+     WHY THEY CANNOT COLLIDE, checked against the eleven above rather than
+     assumed. None of "place name", "locality" or "country" contains `trip`,
+     `headline`, `title`, `body`, `story`, `what happened`, `when`, `occurred`,
+     `date`, `slug`, `status`, `publish`, `draft`, `tag`, `mode`, `arriv`,
+     `latitude`, `longitude`, `precision` or `photo`; and none of the eleven
+     labels contains `place name`, `locality`, `town`, `city` or `country`.
+     They are also outside COORDINATE_FIELD — `locality` has no `lat` in it —
+     which matters, because "exactly three coordinate controls" counts by that
+     query, so a place field caught by it fails there instead of here. */
+  placeName: /place name/i,
+  locality: /locality|town|city/i,
+  country: /country/i,
 };
 
 function setText(label: RegExp, value: string) {
@@ -1720,6 +1740,516 @@ describe("entry editor — settings it cannot read", () => {
       return (labels === null || labels.length === 0) && c.getAttribute("aria-label") === null;
     });
     expect(unlabelled.map((c) => `${c.tagName}#${c.getAttribute("id") ?? ""}`)).toEqual([]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 1b. THE PLACE IT NAMES — the three fields §9 leans on and nothing could set.
+ *
+ * `Place.name`, `.locality` and `.country` are read by lib/pod/read.ts,
+ * serialised by lib/pod/entry-model.ts and carried through an edit by the save
+ * path above — and until this section there was no control anywhere in the
+ * studio that could put a value in any of them. The only way an entry had one
+ * was if some other tool wrote it.
+ *
+ * WHY THAT IS A HOLE RATHER THAN A MISSING NICETY. §9 step 2 drops the
+ * coordinate inside the home radius rather than coarsening it, and the stated
+ * mitigation for what that costs is: "The entry is still written, with its
+ * place name if it has one — it is the geometry that is absent, not the
+ * entry." An editor with no place-name control has no name to keep, so every
+ * entry the owner writes near home is placeless: no pin, no words, nothing.
+ * The docblock of the home-region test above says so in as many words — "the
+ * editor has no place-name control, so a create has no name to keep" — and
+ * drives its assertion off the §7.3 fixture for exactly that reason. The test
+ * below is the create that fixture was standing in for.
+ *
+ * THE THREE THINGS PINNED HERE, each a different failure:
+ *
+ *   1. a typed name reaches `<#place>` as `schema:name`, LANGUAGE-TAGGED (§6);
+ *   2. a place may be a NAME WITH NO GEOMETRY AT ALL — both because the owner
+ *      may simply not know the coordinate, and because that is precisely what
+ *      §9 leaves behind near home;
+ *   3. `schema:addressLocality` is language-tagged and `schema:addressCountry`
+ *      is a PLAIN literal. lib/pod/entry-model.ts already draws that
+ *      distinction — "a country CODE, not a country name — untagged for the
+ *      same reason the slug is" — and this pins it from the editor's side,
+ *      where the value is chosen.
+ *
+ * AND THE TWO HALVES OF "UNTOUCHED" VERSUS "REMOVED", which is the same
+ * three-outcome logic `touchedCoordinate` already implements for geometry and
+ * the same trap: an edit that never opens these boxes must carry the existing
+ * place through unchanged, and an edit that EMPTIES one must remove it rather
+ * than be read as having left it alone. `undefined` and `""` are different
+ * instructions, and an implementation that conflates them either erases the
+ * name of every entry edited from this form or makes a name impossible to
+ * retract once written.
+ *
+ * WHAT IS NOT PINNED HERE, deliberately: the shape of the country control. A
+ * two-letter text box and a select of ISO codes both satisfy `/country/i`, and
+ * `shownValue` reads either. What may not vary is that the value reaching the
+ * Pod is the untagged code §7.3 shows.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** `<#place>`, reached the way a reader reaches it rather than by fragment
+ *  name: a `<#place>` nothing points at is a place no consumer can navigate to,
+ *  which is the same defect `geoNodeOf` above exists to avoid. */
+const placeNodeOf = (quads: Quad[], url: string): string | undefined =>
+  oneObject(quads, `${url}#it`, SCHEMA.contentLocation)?.value;
+
+/** `<#address>`, reached through the place for the same reason. */
+function addressNodeOf(quads: Quad[], url: string): string | undefined {
+  const place = placeNodeOf(quads, url);
+  return place === undefined ? undefined : oneObject(quads, place, SCHEMA.address)?.value;
+}
+
+/** What a control is SHOWING, whichever element it turned out to be. The
+ *  country field may reasonably be a `<select>` of codes and the others text
+ *  inputs; every one of them answers `.value`. */
+const shownValue = (label: RegExp) =>
+  (screen.getByLabelText(label) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)
+    .value;
+
+/** The three controls, named so a failure says which one — `requireCoordinateControls`'s
+ *  reasoning exactly: a `waitFor` or a `setText` against a label that does not
+ *  exist spends a timeout and then reports a dump of the whole form, which
+ *  reads like a broken query rather than like a missing control. */
+function requirePlaceControls() {
+  for (const [what, label] of [
+    ["place name", LABEL.placeName],
+    ["locality", LABEL.locality],
+    ["country", LABEL.country],
+  ] as const) {
+    expect(
+      screen.queryAllByLabelText(label),
+      `the editor has no ${what} control`,
+    ).toHaveLength(1);
+  }
+}
+
+/** Every literal with nothing in it, by predicate. `""@en` is not a name, a
+ *  locality or a country: it is a triple that renders as blank everywhere and
+ *  reads as "this entry claims to be somewhere called nothing". */
+const emptyLiteralsIn = (quads: Quad[]): string[] =>
+  quads
+    .filter((q) => q.object.termType === "Literal" && q.object.value === "")
+    .map((q) => q.predicate.value);
+
+describe("entry editor — the place it names", () => {
+  /**
+   * §6, on the one predicate that carries prose about where the owner was.
+   *
+   * WHAT WOULD BREAK IT: holding the name in state and never composing it into
+   * the `Entry`; composing it only when a coordinate was typed too, which is
+   * the shape `placeFor`'s geometry-only signature invites; writing it as a
+   * plain literal, which puts a human-readable string beyond the reach of every
+   * language-aware consumer (§8's JSON-LD included).
+   */
+  it("puts a typed place name on <#place>, language-tagged", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "Gion, Kyoto");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "a place was named and nothing was written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(
+      place,
+      "a place name was typed and no <#place> was written: the name went nowhere",
+    ).toBe(`${put!.url}#place`);
+    expect(oneObject(quads, place!, RDF.type)?.value).toBe(SCHEMA.Place);
+
+    const name = oneObject(quads, place!, SCHEMA.name);
+    expect(name?.value, "the name that reached the Pod is not the one that was typed").toBe(
+      "Gion, Kyoto",
+    );
+    expect(
+      languageOf(name),
+      "§6: language-tag every human-readable literal — an untagged place name is one no consumer can place",
+    ).not.toBe("");
+
+    // Fragments, never blank nodes (§11 guardrail 4). `triples` throws on one.
+    expect(() => triples(put!.body, put!.url)).not.toThrow();
+  });
+
+  /**
+   * THE SCENARIO THIS WHOLE SECTION EXISTS FOR, in its simplest form: a place
+   * that is a NAME AND NOTHING ELSE.
+   *
+   * It is legitimate on its own terms — "Gion, Kyoto" is a perfectly good
+   * answer from an owner who never looked up a coordinate — and it is the
+   * shape §9 leaves behind near home, which the next test drives directly.
+   *
+   * WHAT WOULD BREAK IT: making `<#place>` conditional on geometry, so a name
+   * with no coordinate is silently discarded; inventing a `<#geo>` with empty
+   * or zero coordinates to hang the place off, which publishes a pin in the
+   * Gulf of Guinea; leaving `dy:lat` on the index row from a coordinate that
+   * was never typed.
+   */
+  it("writes a place that has a name and no geometry at all", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "Gion, Kyoto");
+    // AND DELIBERATELY NO COORDINATE. The latitude and longitude controls are
+    // live here — the settings are the normative ones — and are left alone.
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "a named place with no coordinate was not written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(place, "the place went with the coordinate that was never typed").toBeDefined();
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe("Gion, Kyoto");
+
+    expect(
+      geoNodeOf(quads, put!.url),
+      "a place with no coordinate was given a <#geo> node anyway",
+    ).toBeUndefined();
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(
+        quads.filter((q) => q.predicate.value === predicate),
+        `${predicate} on an entry whose coordinate was never typed`,
+      ).toEqual([]);
+    }
+
+    // And the index row says the same thing, since that is what the map reads.
+    const index = pod.indexPut();
+    expect(index, "the index was not written").toBeDefined();
+    const { quads: rows, row } = indexRowOf(index!.body, index!.url, put!.url);
+    expect(row).toBeDefined();
+    for (const predicate of [DY.lat, DY.long, DY.precisionMeters]) {
+      expect(objectsOf(rows, row!, predicate), `the index row carries ${predicate}`).toEqual([]);
+    }
+  });
+
+  /**
+   * §9's MITIGATION, DELIVERED ON A CREATE — the sentence the home-region test
+   * above could only assert against a fixture that already had a name.
+   *
+   * "Inside the home radius, drop the coordinate entirely… The entry is still
+   * written, with its place name if it has one — it is the geometry that is
+   * absent, not the entry."
+   *
+   * THE ALLOW-CASE IS IN THE SAME TEST and it is 5.9 km from the same centre,
+   * for the reason the home-region test gives: without it, an editor that
+   * dropped every coordinate — or one that refused to write a place whenever a
+   * coordinate was dropped — passes the first half and is indistinguishable
+   * from the right one.
+   *
+   * WHAT WOULD BREAK IT: composing the name into the place only on the branch
+   * where the geometry survives, which is what `placeFor`'s current signature
+   * invites — it takes the geometry and nothing else, so a name has no way in
+   * except through `existing`, and on a create there is no `existing`.
+   */
+  it("keeps the name when the coordinate is dropped inside the home region, and publishes both outside it", async () => {
+    const fake = fakeStudioSession();
+
+    /* THE DROP. */
+    const inside = podFake();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "The bar at the end of my street");
+    await typeCoordinate(INSIDE_HOME);
+    await clickSaveAndWait();
+
+    const put = inside.entryPut();
+    expect(put, "§9: it is the geometry that is absent, not the entry").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(
+      place,
+      "the place was dropped along with its geometry, so §9's mitigation delivers nothing",
+    ).toBeDefined();
+    expect(
+      oneObject(quads, place!, SCHEMA.name)?.value,
+      "the name the owner typed did not survive the drop: this is the hole §9 says is covered",
+    ).toBe("The bar at the end of my street");
+
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(
+        quads.filter((q) => q.predicate.value === predicate),
+        `${predicate} survived a drop`,
+      ).toEqual([]);
+    }
+    expect(inside.wire()).not.toContain(INSIDE_HOME.lat);
+    expect(inside.wire()).not.toContain(INSIDE_HOME.long);
+
+    cleanup();
+
+    /* THE ALLOW-CASE, 5.9 km away: the same form, the same settings, and this
+       one publishes the name AND the snapped pair. */
+    const outside = podFake();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "Parco Sempione");
+    await typeCoordinate(OUTSIDE_HOME);
+    await clickSaveAndWait();
+
+    const second = outside.entryPut()!;
+    const secondQuads = quadsOf(second.body, second.url);
+    const secondPlace = placeNodeOf(secondQuads, second.url);
+    expect(secondPlace, "the place vanished on the allow-case too").toBeDefined();
+    expect(oneObject(secondQuads, secondPlace!, SCHEMA.name)?.value).toBe("Parco Sempione");
+
+    const geo = geoNodeOf(secondQuads, second.url);
+    expect(
+      geo,
+      "a point 5.9 km outside a 3 km home region published nothing: this editor drops every coordinate, and the half of this test above proves nothing",
+    ).toBeDefined();
+    expect(Number(oneObject(secondQuads, geo!, SCHEMA.latitude)?.value)).toBe(SNAP_OUTSIDE_500.lat);
+    expect(Number(oneObject(secondQuads, geo!, SCHEMA.longitude)?.value)).toBe(
+      SNAP_OUTSIDE_500.long,
+    );
+  });
+
+  /**
+   * THE ASYMMETRY, PINNED FROM THE SIDE THAT CHOOSES THE VALUE.
+   *
+   * §7.3 writes `schema:addressLocality "Tokyo"@en` and `schema:addressCountry
+   * "JP"` — one is prose, the other is a code, and lib/pod/entry-model.ts
+   * already spells the difference out. Language-tagging the country would make
+   * `"JP"@en` a different RDF term from `"JP"`, so every consumer filtering on
+   * the plain literal silently stops matching entries this studio wrote.
+   *
+   * WHAT WOULD BREAK IT: running the country through the same `text()` helper
+   * as the locality "for consistency"; hanging the locality off `<#place>`
+   * directly instead of through `<#address>`, which is a predicate schema.org
+   * does not put there.
+   */
+  it("writes the locality language-tagged and the country as a plain literal", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "Gion, Kyoto");
+    setText(LABEL.locality, "Kyoto");
+    setText(LABEL.country, "JP");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "nothing was written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const address = addressNodeOf(quads, put!.url);
+    expect(
+      address,
+      "a locality and a country were typed and no <#address> was written",
+    ).toBe(`${put!.url}#address`);
+    expect(oneObject(quads, address!, RDF.type)?.value).toBe(SCHEMA.PostalAddress);
+
+    const locality = oneObject(quads, address!, SCHEMA.addressLocality);
+    expect(locality?.value).toBe("Kyoto");
+    expect(languageOf(locality), "§6: a locality is prose and carries a tag").not.toBe("");
+
+    const country = oneObject(quads, address!, SCHEMA.addressCountry);
+    expect(country?.value).toBe("JP");
+    expect(
+      languageOf(country),
+      '§7.3: a country CODE, not a country name — "JP"@en is a different term from "JP"',
+    ).toBe("");
+    expect(datatypeOf(country)).toBe(XSD.string);
+  });
+
+  /**
+   * AN EDIT THAT TOUCHES NO PLACE FIELD CARRIES THE PLACE THROUGH UNTOUCHED —
+   * the same rule `touchedCoordinate` already implements for geometry, and the
+   * regression these three controls create the moment they exist.
+   *
+   * Before them, the place could only travel through as `existing?.place`.
+   * With them, the form holds three strings that are composed into the `Entry`
+   * on every save, and a form that did not LOAD them from the entry composes
+   * three empty ones — so opening an entry and correcting a typo in the
+   * headline silently deletes its place name, its locality and its country.
+   * That is a data loss with no error, discoverable only by reading the Pod.
+   *
+   * THE CONTROLS ARE ASSERTED TO SHOW THE STORED VALUES, not merely the
+   * outgoing document, because that is the half that makes the carry-through
+   * real: an editor that kept a hidden copy of `existing.place` and wrote it
+   * back would pass the wire assertions while showing the owner an empty box
+   * they cannot edit and cannot clear.
+   *
+   * The premise comes off the normative fixture through the real reader, so a
+   * §7.3 that stopped carrying an address fails here rather than passing
+   * vacuously.
+   */
+  it("shows the stored place, and carries it through an edit that touches no place field", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+
+    expect(entry.place?.name?.value, "the §7.3 fixture no longer names a place").toBe(
+      SPEC_PLACE_NAME,
+    );
+    expect(entry.place?.locality, "the §7.3 fixture no longer carries a locality").toBe(
+      SPEC_LOCALITY,
+    );
+    expect(entry.place?.country, "the §7.3 fixture no longer carries a country").toBe(SPEC_COUNTRY);
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+
+    requirePlaceControls();
+    expect(shownValue(LABEL.placeName), "the stored place name was not loaded into the form").toBe(
+      SPEC_PLACE_NAME,
+    );
+    expect(shownValue(LABEL.locality)).toBe(SPEC_LOCALITY);
+    expect(shownValue(LABEL.country)).toBe(SPEC_COUNTRY);
+
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the edit was never written").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    // The mutation half: an editor that wrote the fixture back untouched would
+    // pass everything below while having saved nothing.
+    expect(oneObject(quads, `${put!.url}#it`, SCHEMA.headline)?.value).toBe(
+      "First night in Shinjuku, revisited",
+    );
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(place, "an edit to the headline deleted the entry's place").toBeDefined();
+    const name = oneObject(quads, place!, SCHEMA.name);
+    expect(name?.value, "an edit to the headline deleted the place name").toBe(SPEC_PLACE_NAME);
+    expect(languageOf(name)).not.toBe("");
+
+    const address = addressNodeOf(quads, put!.url);
+    expect(address, "an edit to the headline deleted the address").toBeDefined();
+    expect(oneObject(quads, address!, SCHEMA.addressLocality)?.value).toBe(SPEC_LOCALITY);
+    expect(oneObject(quads, address!, SCHEMA.addressCountry)?.value).toBe(SPEC_COUNTRY);
+  });
+
+  /**
+   * CLEARING A NAME REMOVES IT, which is a different instruction from leaving
+   * it alone and has to stay one.
+   *
+   * This is the distinction `placeFor` already draws for geometry, in the save
+   * path's own words: "nothing typed → the place travels through UNTOUCHED …
+   * drop → the geometry is REMOVED". Text needs it just as badly and in both
+   * directions. If `""` is read as "untouched", a name written by mistake — or
+   * one the owner no longer wants on a public resource — can never be taken
+   * off the Pod from this form. If `""` is written through as a literal, the
+   * entry claims to be somewhere called nothing.
+   *
+   * AND THE PLACE MUST SURVIVE ITS OWN NAME, because the coordinate is still
+   * there. That is `placeFor`'s existing copy-and-delete shape read the other
+   * way round: its comment says "a `Place` that grows one must not lose it
+   * every time a coordinate is dropped", and the same is true of a coordinate
+   * when a name is dropped.
+   *
+   * THE SECOND HALF IS THE ALLOW-CASE FOR THE FIRST: a create that never
+   * touches the three boxes must write no place text rather than three empty
+   * literals — which is the same rule, seen from the state every new entry
+   * starts in.
+   */
+  it("removes text that was cleared, keeps the geometry it did not touch, and writes no empty literals", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    const stored = entry.place?.geo;
+    expect(stored, "the §7.3 fixture carries no coordinate for this test to preserve").toBeDefined();
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+
+    requirePlaceControls();
+    // The premise: there really is something to clear.
+    expect(shownValue(LABEL.placeName)).toBe(SPEC_PLACE_NAME);
+    setText(LABEL.placeName, "");
+    setText(LABEL.locality, "");
+    setText(LABEL.country, "");
+    expect(shownValue(LABEL.placeName), "the control refused to be emptied").toBe("");
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "clearing the place stopped the entry being written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(
+      place,
+      "clearing the text took the whole place with it, coordinate and all",
+    ).toBeDefined();
+    expect(
+      objectsOf(quads, place!, SCHEMA.name),
+      "the cleared name is still on the Pod: an empty box was read as 'left alone'",
+    ).toEqual([]);
+    expect(
+      objectsOf(quads, place!, SCHEMA.address),
+      "the cleared address is still on the Pod",
+    ).toEqual([]);
+    expect(
+      emptyLiteralsIn(quads),
+      "an empty literal was published in place of a removal",
+    ).toEqual([]);
+
+    // The geometry this edit never touched is untouched — values and datatype
+    // both, since it is exactly the case §6 says is xsd:decimal and never float.
+    const geo = geoNodeOf(quads, put!.url);
+    expect(geo, "the untouched coordinate went with the cleared name").toBeDefined();
+    const lat = oneObject(quads, geo!, SCHEMA.latitude);
+    expect(Number(lat?.value)).toBe(stored!.lat);
+    expect(datatypeOf(lat)).toBe(XSD.decimal);
+    expect(Number(oneObject(quads, geo!, SCHEMA.longitude)?.value)).toBe(stored!.long);
+
+    cleanup();
+
+    /* THE ALLOW-CASE: the same three empty boxes, on a create that never
+       touched them. Nothing about the place at all — not an empty name, not an
+       empty address, not a <#place> with nothing on it. */
+    const bare = podFake();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    await clickSaveAndWait();
+
+    const created = bare.entryPut();
+    expect(created, "the create was never written").toBeDefined();
+    const createdQuads = quadsOf(created!.body, created!.url);
+    expect(
+      placeNodeOf(createdQuads, created!.url),
+      "an entry with nothing to say about its place was given a <#place> anyway",
+    ).toBeUndefined();
+    expect(emptyLiteralsIn(createdQuads), "empty literals on a create").toEqual([]);
   });
 });
 
@@ -3064,13 +3594,20 @@ const NEW_SCOPE = "new";
 const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
 
 /**
- * Exactly the thirteen fields, sorted. A fourteenth is how the ETag gets in.
+ * Exactly the sixteen fields, sorted. A seventeenth is how the ETag gets in.
  *
  * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
  * coordinate controls, and they are the reason the key moved to `v2`. All three
  * hold what the FORM holds — strings, empty when nothing has been typed and
  * when no precision could be preset — rather than what the Pod would get; see
  * section 8h for the decision and its justification.
+ *
+ * `placeName`, `locality` AND `country` ARRIVED WITH THE PLACE CONTROLS
+ * (section 1b), AND THE KEY DID NOT MOVE FOR THEM EITHER — the same answer as
+ * `photos`, for the same reason: no existing `v2` payload can carry a place
+ * name, because there was no control to type one into, so such a draft
+ * restores three empty boxes rather than three defaults standing in for
+ * something lost. Section 8i owns that decision.
  *
  * `photos` ARRIVED WITH THE PICKER (section 10) AND THE KEY DID NOT MOVE, which
  * is the same version test answered the other way: no `v2` payload can carry a
@@ -3082,12 +3619,15 @@ const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
  * is how the ETag gets in.
  */
 const DRAFT_FIELDS = [
+  "country",
   "headline",
   "lat",
+  "locality",
   "long",
   "mode",
   "occurred",
   "photos",
+  "placeName",
   "precision",
   "savedAt",
   "slug",
@@ -3114,6 +3654,12 @@ type StoredDraft = {
    *  like the rest, and "" is what there is to keep when the settings could not
    *  be read and the control was never live. */
   precision: string;
+  /** The three place-text controls (section 1b), as the FORM holds them:
+   *  strings, empty when nothing has been typed. `""` is not the same
+   *  instruction as absent — see 1b on removal versus untouched. */
+  placeName: string;
+  locality: string;
+  country: string;
   /**
    * The photos already on the Pod — section 10's picker uploads on pick, so a
    * draft holds URLs and JSON and never a Blob.
@@ -3142,6 +3688,13 @@ const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
   lat: "",
   long: "",
   precision: "500",
+  // Empty by default, like the coordinate above: a draft that names no place is
+  // the ordinary one. Present rather than absent because `DRAFT_FIELDS` is
+  // asserted against whichever copy is at the key, and a seed a field short
+  // would make that assertion a race between two shapes.
+  placeName: "",
+  locality: "",
+  country: "",
   photos: [],
   savedAt: "2026-04-02T19:00:00+09:00",
   ...over,
@@ -5252,7 +5805,7 @@ describe("entry editor — the draft key after a create succeeds", () => {
  *
  * AND THE FENCE AROUND IT IS UNMOVED. The three fields that may never be
  * persisted are still the ETag, `dcterms:created` and `schema:datePublished`
- * (lib/studio/drafts.ts), and `DRAFT_FIELDS` is what enforces it: twelve, no
+ * (lib/studio/drafts.ts), and `DRAFT_FIELDS` is what enforces it: sixteen, no
  * more.
  * ────────────────────────────────────────────────────────────────────────── */
 
@@ -5470,6 +6023,114 @@ describe("entry editor — the coordinate in a local draft", () => {
       expect(control, `the ${what} control is still held after Discard`).toBeEnabled();
     }
     expect(typeAsUser(LABEL.latitude, TYPED.lat)).toBe(true);
+  });
+});
+
+/* ─────────────────────────────────────── 8i. the place fields in a draft ──
+ *
+ * Three more strings off three more form controls, kept for the same reason
+ * the other nine are (`docs/decisions.md` §10: "losing a long entry in a hostel
+ * is what kills the habit") — and the version segment is deliberately NOT
+ * moved for them, which is the second time that test is answered "no".
+ *
+ * THE BAR `lib/studio/drafts.ts` SETS FOR A BUMP is the HALF-RESTORE: a field
+ * the payload cannot carry, showing whatever the editor's own default left in
+ * it, under a banner that has just told the owner their draft came back. That
+ * is what `v1` → `v2` was for — nine fields into a twelve-field form, with a
+ * coordinate the owner never typed sitting next to text they recognise. It
+ * cannot arise here: no existing `v2` payload can contain a place name,
+ * because there was no control to type one into, so such a draft restores
+ * three empty boxes — the truth about that draft, not a default standing in
+ * for something lost. Bumping would throw away real unsaved prose in exchange
+ * for nothing, exactly as it would have done for `photos`. The half of this
+ * pinned in the store itself is in test/drafts.test.ts §7.
+ *
+ * WHAT THIS TEST ASSERTS IS THE INVARIANT — a USABLE draft — rather than the
+ * bytes: the fields are kept, they come back into the controls, and a save
+ * made from the restored form puts the same place on the Pod. Bytes alone
+ * would pass for a draft that stored three strings nothing ever read back.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+describe("entry editor — the place fields in a local draft", () => {
+  const KEY = draftKeyFor(OWNER, NEW_SCOPE);
+
+  /**
+   * FLUSHED BY THE UNMOUNT rather than by advancing a clock — 8f's mechanism,
+   * and the same reason 8h uses it: this test reaches the network on the
+   * restore half, and a faked timer stops everything that waits on one.
+   *
+   * WHAT WOULD BREAK IT: keeping the three fields in React state and leaving
+   * them out of the payload; persisting them under names `readDraft` strips
+   * (unknown keys are stripped silently, so this is a failure with no error);
+   * restoring them into the wrong control, or not at all; restoring them into
+   * the form but leaving them out of the save that follows, which would show
+   * the owner a place name and publish an entry without one.
+   */
+  it("keeps the three place fields, and a restored draft still names its place", async () => {
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: store.storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "Gion, Kyoto");
+    setText(LABEL.locality, "Kyoto");
+    setText(LABEL.country, "JP");
+    cleanup();
+
+    expect(store.calls.set, "nothing was kept at all").not.toEqual([]);
+    const written = store.calls.set.at(-1)!;
+    expect(written.key).toBe(KEY);
+
+    const payload = parseDraft(written.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+    expect(payload.placeName, "the draft does not hold the place name that was typed").toBe(
+      "Gion, Kyoto",
+    );
+    expect(payload.locality).toBe("Kyoto");
+    expect(payload.country).toBe("JP");
+
+    // The fence is unmoved: none of the three that may never be persisted.
+    for (const forbidden of ["etag", "created", "datePublished"]) {
+      expect(Object.keys(payload), forbidden).not.toContain(forbidden);
+    }
+
+    /* AND IT IS USABLE — the bytes the editor itself wrote, offered back to a
+       fresh editor, restored, and saved. */
+    const pod = podFake();
+    const seeded = fakeStorage({ [KEY]: written.value });
+    await renderEditor(fake.session, { storage: seeded.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "the draft this editor had just written was not offered back to it",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    requirePlaceControls();
+    expect(shownValue(LABEL.placeName), "Restore did not put the place name back").toBe(
+      "Gion, Kyoto",
+    );
+    expect(shownValue(LABEL.locality)).toBe("Kyoto");
+    expect(shownValue(LABEL.country)).toBe("JP");
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(place, "a restored draft published no place at all").toBeDefined();
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe("Gion, Kyoto");
+
+    const address = addressNodeOf(quads, put!.url);
+    expect(address, "a restored draft published no address").toBeDefined();
+    expect(oneObject(quads, address!, SCHEMA.addressLocality)?.value).toBe("Kyoto");
+    expect(oneObject(quads, address!, SCHEMA.addressCountry)?.value).toBe("JP");
   });
 });
 

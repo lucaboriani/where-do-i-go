@@ -103,6 +103,17 @@ export interface DraftAddress {
  * standing in for something lost; it is the truth about that draft. Hence the
  * `[]` default below. Bumping would have thrown away real unsaved prose in
  * exchange for nothing.
+ *
+ * **`placeName`, `locality` AND `country` ARRIVED ON 2026-09-06 AND THE KEY DID
+ * NOT MOVE EITHER** — the third time that test is applied and the second time
+ * it is answered "no", for the identical reason. No `v2` payload can carry a
+ * place name, because the editor had no place controls when `v2` payloads were
+ * written, so such a draft restores three EMPTY boxes. That is the truth about
+ * that draft rather than a default standing in for something lost, and it is
+ * what the `.default("")` on each of the three below buys. Without the default
+ * they would be REQUIRED, `safeParse` would refuse the whole older payload, and
+ * the long entry the owner is trying not to lose would be lost by a quieter
+ * route than a version bump — same outcome, no marker in the key to explain it.
  */
 export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
 
@@ -111,7 +122,7 @@ export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.
  *
  * NOT `.strict()`, and that is load-bearing rather than an oversight: unknown
  * keys are STRIPPED. A payload written by a slightly different build, or one a
- * curious owner edited in devtools, still restores its thirteen legitimate
+ * curious owner edited in devtools, still restores its sixteen legitimate
  * fields instead of being thrown away — and the stripping is also what guarantees an
  * `etag` handed in by a caller spreading the editor's state can neither be
  * written nor read back, since the parse output is what reaches storage and what
@@ -170,6 +181,31 @@ const Draft = z.object({
    *  is to keep when the settings could not be read and the control was never
    *  live — see §9's fail-closed rule. */
   precision: z.string(),
+  /**
+   * WHERE THE OWNER WAS, IN WORDS — the three controls §9 leans on.
+   *
+   * §9 step 2 drops the coordinate entirely inside the home radius rather than
+   * coarsening it, and its stated mitigation is that "the entry is still
+   * written, with its place name if it has one". These are where that name is
+   * held between keystrokes, so a draft that dropped them would hand the owner
+   * back a placeless entry after exactly the crash this feature exists for.
+   *
+   * STRINGS, EXACTLY AS THE FORM HOLDS THEM, and `country` is a CODE rather
+   * than prose — `lib/pod/entry-model.ts` writes `schema:addressCountry`
+   * untagged for that reason. Nothing here is language-tagged: a tag is a fact
+   * about the triple, decided at save time from the entry's own language, and
+   * putting one in the draft would freeze it against a build that changes it.
+   *
+   * `.default("")` RATHER THAN `.optional()`, AND IT IS WHAT LETS THE KEY STAY
+   * AT `v2` — see `draftKey`. `""` is a real value here: it is the ordinary
+   * draft, whose owner has not said where they were yet, and in the editor it
+   * is also the instruction "remove this", which is a different instruction
+   * from "left alone". An `.optional()` would collapse the two, and a bare
+   * required `z.string()` would make every pre-place payload unreadable.
+   */
+  placeName: z.string().default(""),
+  locality: z.string().default(""),
+  country: z.string().default(""),
   /**
    * THE PHOTOS ALREADY ON THE POD, and the only field here that is not a string
    * off a form control — because by the time one is in this list it is not a
