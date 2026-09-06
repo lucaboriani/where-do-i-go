@@ -123,7 +123,7 @@ Work is **not done** until all of these pass. Run them, read the output, and onl
 and pass on an unsupported runtime, so a green result on the wrong Node proves less than it looks.
 
 ```
-npm run pod:dev &           # FIRST — see below. `npm test` silently skips 23 tests without it
+npm run pod:dev &           # FIRST — see below. Without it, `npm test` skips the integration tests
 npm test                  # vitest — unit, integration, guardrails
 npm run lint              # eslint, including the project guardrails
 npm run typecheck         # tsc --noEmit
@@ -136,11 +136,16 @@ npm run size:public       # what a public page actually ships
 
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
 integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
-skips rather than vacuous passes. But `npm test` then reports green having never run 23 of them,
-and the list above put the Pod requirement only against `build`, six lines too late. Verified
-2026-09-04: with a Pod up, those same 23 pass in about 3 seconds. They are real tests, not rot —
-which is precisely why a run that quietly omits them is the "half a check" this section warns
-about.
+skips rather than vacuous passes. But `npm test` then reports green having never run
+`test/pod-read.integration.test.ts` or `test/pod-access.integration.test.ts` at all, and the list
+above put the Pod requirement only against `build`, six lines too late. With a Pod up they pass
+in a few seconds. They are real tests, not rot — which is precisely why a run that quietly omits
+them is the "half a check" this section warns about.
+
+**The two file names are the durable form of that, and a count is not.** This paragraph said "23
+of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — the number moves
+every time either file gains a case, and it was never the point. If a third integration file
+appears, name it here; do not reintroduce a total.
 
 **A ninth command, path-scoped rather than unconditional.** If the diff touches any of
 

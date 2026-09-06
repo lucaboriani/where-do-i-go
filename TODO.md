@@ -916,7 +916,8 @@ In progress on branch `phase-2-studio`.
       **`imageOrientation: "from-image"` is inert on the only browser this repo installs, so
       `test:e2e` is NOT a fence against deleting it.** Measured: this Chromium decodes the same
       orientation-6 JPEG as 2000×3000 with the option, without it, and with `"none"` — the three
-      the spec header records; `"flipY"` behaved identically in the same probe. So test 2 pins
+      variants attested in `e2e/media-pipeline.spec.ts`'s header, which is where to re-check this
+      rather than here. So test 2 pins
       "the targets follow the decoded bitmap", not "the option is present", and transposing the
       pair fed to `fitWithin` — the same defect reached another way — is what turns all three
       media tests red. Safari and Firefox are where a deletion would show, as sideways photos, with
