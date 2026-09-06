@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { http, HttpResponse } from "msw";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ONE_FAILED_TEST, stripAnsi } from "./child-output";
 import { server } from "./msw";
 import { takeStrayRequests } from "./network-guard";
 
@@ -148,6 +149,22 @@ describe("the allow-cases — a guard that blocks everything is useless", () => 
   });
 });
 
+/**
+ * The summary line as a styled child really writes it, captured verbatim on
+ * 2026-09-06 from
+ *
+ *     env -i HOME="$HOME" CI=true node node_modules/vitest/vitest.mjs run \
+ *       --config test/fixtures/vitest.config.ts
+ *
+ * and the same line as an unstyled child writes it. One copy, used by both the
+ * live child run below and the table at the bottom of the file — and the live
+ * run asserts the styled spelling is still what vitest produces, so the table
+ * cannot rot into a fixture that only agrees with itself.
+ */
+const STYLED_SUMMARY =
+  "\u001B[2m      Tests \u001B[22m \u001B[1m\u001B[31m1 failed\u001B[39m\u001B[22m\u001B[90m (1)\u001B[39m";
+const UNSTYLED_SUMMARY = "      Tests  1 failed (1)";
+
 describe("the sweep — a test cannot swallow the blocked response and pass", () => {
   /**
    * The throw only makes the REQUEST fail, and msw 2.15 renders that as a 500
@@ -159,23 +176,174 @@ describe("the sweep — a test cannot swallow the blocked response and pass", ()
    * Run in a child process because the assertion is "that test FAILS", which
    * cannot be expressed from inside the run it is asserting about.
    */
-  it("fails a test that receives the blocked response and handles it politely", () => {
-    const config = fileURLToPath(new URL("./fixtures/vitest.config.ts", import.meta.url));
-    const run = spawnSync(
-      process.execPath,
-      [fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url)), "run", "--config", config],
-      { encoding: "utf8", cwd: fileURLToPath(new URL("..", import.meta.url)) },
-    );
-    const output = `${run.stdout}\n${run.stderr}`;
+  const CONFIG = fileURLToPath(new URL("./fixtures/vitest.config.ts", import.meta.url));
+  const VITEST = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url));
+  const REPO = fileURLToPath(new URL("..", import.meta.url));
 
+  type ChildRun = {
+    status: number;
+    /** Exactly what the child wrote, escape sequences and all. */
+    raw: string;
+    /** The same thing with the styling removed. Assert against this. */
+    text: string;
+  };
+
+  /**
+   * The environment is passed explicitly rather than inherited, and that is
+   * half the fix — see test/child-output.ts. The spawn used to pass no `env` at
+   * all, so the child inherited the agent variables that make vitest turn its
+   * own colours off, which is the whole reason this file was green here and red
+   * on CI.
+   */
+  function runFixtureChild(env: NodeJS.ProcessEnv): ChildRun {
+    const run = spawnSync(process.execPath, [VITEST, "run", "--config", CONFIG], {
+      encoding: "utf8",
+      cwd: REPO,
+      env,
+    });
+    if (run.error) throw run.error;
+    const raw = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
+    return { status: run.status ?? -1, raw, text: stripAnsi(raw) };
+  }
+
+  /** Any CSI introducer. Enough to tell a styled run from an unstyled one. */
+  const HAS_ANSI = /\u001B\[/;
+
+  /**
+   * Everything the ambient environment has, plus the switch that silences
+   * tinyrainbow outright — `!("NO_COLOR" in env)` gates every colour path in
+   * node_modules/tinyrainbow/dist/index.js. Belt to the strip's braces, and the
+   * two do different jobs: the strip is what makes the assertions correct, this
+   * is what keeps the FAILURE MESSAGE readable when one of them goes red.
+   */
+  const UNSTYLED_ENV: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+
+  /**
+   * CI's environment, near enough: no NO_COLOR, and — the part that actually
+   * matters — none of the `AI_AGENT` / `CLAUDECODE` variables that make vitest
+   * call `disableDefaultColors()`. Built up rather than filtered down, because
+   * a subtraction would have to know all twelve of std-env's agent probes and
+   * would quietly stop reproducing anything on the thirteenth.
+   */
+  const STYLED_ENV: NodeJS.ProcessEnv = {
+    HOME: process.env.HOME,
+    PATH: process.env.PATH,
+    // Next augments NodeJS.ProcessEnv to make this one required, and vitest
+    // sets it to "test" in the child regardless. Node drops undefined entries
+    // rather than passing the string "undefined", so this is a no-op at runtime.
+    NODE_ENV: process.env.NODE_ENV,
+    CI: "true",
+    FORCE_COLOR: "1",
+  };
+
+  /**
+   * Everything the run has to show, asserted against the UNSTYLED text so that
+   * none of it depends on where the child happened to put a style run. Four of
+   * these five survived colour by luck — each substring sat inside one style
+   * run — which is the same brittleness as the summary, one reformat away.
+   */
+  function expectTheSweepFailedIt(run: ChildRun) {
     // Status and body, not status alone: a child run can exit non-zero because
     // it failed to start at all, which would prove nothing about the sweep.
-    expect(run.status, output).not.toBe(0);
-    expect(output).toContain("swallows the blocked response");
-    expect(output).toContain("Blocked a real network request");
-    expect(output).toContain("https://swallowed.example/thing.ttl");
-    // The fixture's own expect() passes; the failure must come from the hook.
-    expect(output).toContain("test/setup.ts");
-    expect(output).toMatch(/Tests\s+1 failed/);
+    expect(run.status, run.text).not.toBe(0);
+    expect(run.text).toContain("swallows the blocked response");
+    expect(run.text).toContain("https://swallowed.example/thing.ttl");
+    // The SWEEP's message, not merely the guard's. `straySweepMessage` is the
+    // only thing in the repository that says "— N of them"; the per-request
+    // throw that the fixture swallows says "...from the test suite: GET <url>".
+    expect(run.text).toContain("Blocked a real network request from the test suite — 1 of them");
+    // The fixture's own expect() passes, so the failure has to come from the
+    // hook. With a line:column, because the guard's advice text ends "Raised by
+    // test/setup.ts, not by MSW" — a bare toContain("test/setup.ts") is
+    // satisfied by that prose and proves no attribution at all.
+    expect(run.text).toMatch(/test\/setup\.ts:\d+:\d+/);
+    expect(run.text).toMatch(ONE_FAILED_TEST);
+  }
+
+  it("fails a test that receives the blocked response and handles it politely", () => {
+    const run = runFixtureChild(UNSTYLED_ENV);
+    // Not decoration: if NO_COLOR stops silencing vitest, this run becomes a
+    // second copy of the styled one and the pair stops being a pair.
+    expect(run.raw, "NO_COLOR no longer suppresses vitest's styling").not.toMatch(HAS_ANSI);
+    expectTheSweepFailedIt(run);
   }, 120_000);
+
+  it("fails it just the same when the child styles its output, as it does on CI", () => {
+    const run = runFixtureChild(STYLED_ENV);
+    // Without this the case is vacuous: an unstyled run satisfies every
+    // assertion below while reproducing nothing.
+    expect(
+      run.raw.slice(0, 200),
+      "the child emitted no escape sequences, so this case exercised nothing",
+    ).toMatch(HAS_ANSI);
+    // And the fixture the table below is built from is still what vitest writes.
+    expect(
+      run.raw,
+      "vitest no longer spells the summary the way STYLED_SUMMARY does — recapture it",
+    ).toContain(STYLED_SUMMARY);
+    expectTheSweepFailedIt(run);
+  }, 120_000);
+});
+
+describe("the summary check reads the child's output whatever colours it chose", () => {
+  /**
+   * The regression, in isolation and without a 300 ms child process.
+   *
+   * `/Tests\s+1 failed/` against raw output was green on every machine with an
+   * agent variable in its environment and red on the first CI run, because
+   * between `Tests` and `1 failed` there are two spaces AND four escape
+   * sequences: `\s+` matches the spaces, meets the ESC, and stops. STYLED_SUMMARY
+   * is the line a real child wrote, and the sweep above re-checks it against a
+   * live run, so this cannot drift into a fixture of a fixture.
+   */
+  it("strips the styling, and changes nothing else about the line", () => {
+    // The fixture really is styled — otherwise the table below tests the plain
+    // case twice under two names.
+    expect(STYLED_SUMMARY).not.toBe(UNSTYLED_SUMMARY);
+    expect(STYLED_SUMMARY).toMatch(/\u001B\[/);
+    // Exact equality, not toContain: a strip that also ate the two spaces after
+    // `Tests`, or the `(1)`, would satisfy a containment check while breaking
+    // every count this file asserts.
+    expect(stripAnsi(STYLED_SUMMARY)).toBe(UNSTYLED_SUMMARY);
+  });
+
+  /**
+   * Both directions. A check that accepts everything is exactly as useless as
+   * one that accepts nothing, and the negative rows are what tell them apart —
+   * each says "1 failed" in a form this child never writes for a fixture config
+   * that runs one file containing one test.
+   *
+   * The mutated rows are built by replacing inside the styled fixture rather
+   * than retyped, so a stale anchor cannot quietly leave the original in place:
+   * that would hand a MATCHING string to a row expecting `false`, and the row
+   * goes red rather than silently green.
+   */
+  const twoFailed = STYLED_SUMMARY.replace("1 failed", "2 failed").replace("(1)", "(2)");
+  const onePassed = STYLED_SUMMARY.replace("1 failed", "1 passed");
+
+  it.each([
+    ["an unstyled summary", UNSTYLED_SUMMARY, true],
+    ["a styled summary — the CI case, and the reason this file changed", STYLED_SUMMARY, true],
+    ["a styled run where two tests failed", twoFailed, false],
+    ["a styled run where the one test passed", onePassed, false],
+    [
+      "one failure among a suite this child was never meant to collect",
+      "      Tests  1 failed | 7 passed (8)",
+      false,
+    ],
+    ["the Test Files line on its own", " Test Files  1 failed (1)", false],
+    ["a child that never started, so wrote nothing at all", "", false],
+  ])("%s", (_name, output, expected) => {
+    expect(ONE_FAILED_TEST.test(stripAnsi(output))).toBe(expected);
+  });
+
+  it("the two mutated fixtures really were mutated", () => {
+    // Said directly rather than left to inference. `replace` with a stale
+    // anchor returns the subject unchanged, and this repository has shipped a
+    // negative test that silently asserted about an unmodified fixture.
+    expect(twoFailed).not.toBe(STYLED_SUMMARY);
+    expect(onePassed).not.toBe(STYLED_SUMMARY);
+    expect(stripAnsi(twoFailed)).toBe("      Tests  2 failed (2)");
+    expect(stripAnsi(onePassed)).toBe("      Tests  1 passed (1)");
+  });
 });
