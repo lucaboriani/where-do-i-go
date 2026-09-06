@@ -422,6 +422,25 @@ describe("guardrails actually fire", () => {
     // half precisely so a path that never spells `app/` is still caught.
     ["components/public/thing.tsx", "../../app/(studio)/studio/page"],
     ["app/not-found.tsx", "@/app/(studio)/studio/page"],
+    // components/studio/** — NO PARENTHESES, so for a while neither
+    // `**/app/(studio)/**` nor `**/(studio)/**` matched it and this was the
+    // one unfenced door into the whole media subsystem. Probed before the
+    // fix, not inferred: `@/lib/media`, `@/lib/studio/session` and
+    // `@/app/(studio)/layout` were each reported at app/(public), while
+    // `@/components/studio/entry-editor` produced no output at all — and that
+    // single import drags lib/media/*, lib/pod/{write,save-entry,access} →
+    // @inrupt/solid-client, lib/studio/* → the auth library, and Radix into
+    // the public graph. Wanting to reuse `Field` or the tag parser out of the
+    // editor is the ordinary reason someone writes it.
+    ["app/(public)/thing.tsx", "@/components/studio/entry-editor"],
+    // The BARE directory as well as the subpath. Under the gitignore
+    // semantics no-restricted-imports uses, `**/components/studio/**` does not
+    // match a bare `@/components/studio` resolving to an index file — the same
+    // hole that had to be closed separately for lib/media, so it is pinned
+    // here rather than left to be rediscovered a third time.
+    ["app/(public)/thing.tsx", "@/components/studio"],
+    ["components/public/thing.tsx", "../../components/studio/entry-editor"],
+    ["app/not-found.tsx", "@/components/studio/studio-shell"],
   ])("rejects %s importing %s — separate root layouts keep the bundles apart", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -439,6 +458,31 @@ describe("guardrails actually fire", () => {
       "app/(studio)/studio/page.tsx",
       `import Shell from "@/app/(studio)/studio/shell";\nexport default Shell;\n`,
     );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * And the allow-case for the components/studio half, which is the whole
+   * point of it being a fence rather than a ban: app/(studio)/studio/page.tsx
+   * → the "use client" wrapper → components/studio/studio-shell.tsx IS the
+   * three-file shape CLAUDE.md mandates. Widen the group past the public block
+   * and the studio can no longer render itself.
+   *
+   * `fatals` first, for the reason at the top of this file: these snippets are
+   * linted at `.tsx` paths and a mistyped one would yield a parse error and no
+   * rule messages, on which `not.toContain` passes having checked nothing.
+   */
+  it.each([
+    ["app/(studio)/studio/page.tsx", "@/components/studio/studio-shell"],
+    ["components/studio/studio-shell.tsx", "@/components/studio/entry-editor"],
+    ["components/ui/thing.tsx", "@/components/studio/entry-editor"],
+  ])("allows %s to import %s — the studio has to be able to render itself", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import X from "${moduleSpecifier}";\nexport default function T() { return <div>{String(X)}</div>; }\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 

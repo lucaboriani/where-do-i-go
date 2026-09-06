@@ -833,6 +833,30 @@ export default function EntryEditor({
   /** Slot identity, monotonic per editor. Not the file name, and not an index:
    *  see `PhotoSlot`. */
   const nextSlotKey = useRef(0);
+  /**
+   * HAS ANYBODY ACTUALLY TYPED? A ref, not state: it changes nothing on screen
+   * and re-rendering for it would be noise.
+   *
+   * The autosave effect further down is keyed on the form values, so it fires
+   * once on mount — and without this guard the editor would store a copy of
+   * whatever it opened with. Opening an entry to read it and navigating away
+   * would then leave an "Unsaved draft" banner waiting next time, offering to
+   * restore exactly what is already on the Pod; once that banner appears for
+   * entries nobody edited it stops meaning anything and gets clicked away by
+   * reflex.
+   *
+   * DECLARED HERE, ABOVE `attach`, AND NOT DOWN IN THE DRAFT SECTION WHERE THE
+   * REST OF ITS MACHINERY LIVES — because `attach` arms it when a slot settles,
+   * and `react-hooks/immutability` refuses a `.current` write inside a function
+   * that closes over a `useRef` declared BELOW it. Measured rather than
+   * reasoned about: with the declaration left in the draft section, `npm run
+   * lint` reported two errors, and neither was on the new line — it flagged the
+   * PRE-EXISTING writes in `settleDraft` and in the form's `onChange`, both of
+   * which had been clean for the life of the file. Moving this one line up made
+   * all three legal again. `nextSlotKey` is the same kind of ref mutated from
+   * the same `attach`, and is declared just above for the same reason.
+   */
+  const touched = useRef(false);
 
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
@@ -1060,8 +1084,38 @@ export default function EntryEditor({
   async function attach(file: File) {
     const key = `photo-${nextSlotKey.current++}`;
     const name = file.name;
-    const move = (next: PhotoSlot) =>
+    const move = (next: PhotoSlot) => {
+      /**
+       * A SETTLE IS A CHANGE TO THE FORM, AND HAS TO ARM THE AUTOSAVE LIKE ANY
+       * OTHER ONE.
+       *
+       * The pick itself already set `touched` — the file input's `change` event
+       * bubbles to the `<form>` handler below — but a save can land between the
+       * pick and the settle and put it back to `false`. `settleDraft` does that
+       * legitimately: at the moment it runs, the Pod holds exactly what the form
+       * holds, because a slot still `decoding` contributes nothing to `attached`
+       * and `sameText` is therefore true.
+       *
+       * Then the photo settles. `attached` gains a `Photo`, the autosave effect
+       * re-runs — and returns at `if (!touched.current)` having armed nothing.
+       * The row says "is attached to this entry" and the binaries really are on
+       * the Pod, but the entry resource does not reference them and nothing is
+       * in `localStorage` either. Close the tab and the photo is orphaned and
+       * silently absent, with no surface anywhere that says so.
+       *
+       * Reachable by ordinary use, not by a race that needs help: Save is only
+       * `disabled={saving}`, so picking a photo, typing the headline and
+       * pressing Save before the decode finishes is a sequence the UI invites.
+       *
+       * `ready` ONLY. `uploading` and `failed` leave `attached` unchanged, so
+       * there is nothing new to back up and arming on them would re-open the
+       * window over text the Pod already has. The narrower race — a settle
+       * DURING the round trip — is handled by `live.current.text` and
+       * `samePhotos` inside `save()`, and is not this.
+       */
+      if (next.state === "ready") touched.current = true;
       setSlots((held) => held.map((slot) => (slot.key === key ? next : slot)));
+    };
 
     setSlots((held) => [...held, { key, name, state: "decoding" }]);
     try {
@@ -1134,18 +1188,10 @@ export default function EntryEditor({
    *  whatever they opened the editor with. */
   const [offered, setOffered] = useState<Draft | null>(null);
   const [storageRefused, setStorageRefused] = useState(false);
-  /**
-   * HAS ANYBODY ACTUALLY TYPED? A ref, not state: it changes nothing on screen
-   * and re-rendering for it would be noise.
-   *
-   * The effect below is keyed on the form values, so it fires once on mount —
-   * and without this guard the editor would store a copy of whatever it opened
-   * with. Opening an entry to read it and navigating away would then leave an
-   * "Unsaved draft" banner waiting next time, offering to restore exactly what
-   * is already on the Pod; once that banner appears for entries nobody edited it
-   * stops meaning anything and gets clicked away by reflex.
-   */
-  const touched = useRef(false);
+  /** `touched` — the "has anybody typed?" guard this section's autosave reads —
+   *  is declared up with `nextSlotKey`, not here. Its docblock says why; the
+   *  short version is that `attach` writes to it and the lint rule cares about
+   *  which line the `useRef` is on. */
   /** The debounce in flight, held so a save can cancel it — and so the unmount
    *  below can tell a window that never fired from one that did. See
    *  `settleDraft`. */
@@ -1227,7 +1273,8 @@ export default function EntryEditor({
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the twelve fields of `Draft` and nothing else. The ETag, the
+   * What goes in is the thirteen fields of `Draft` and nothing else — the twelve
+   * the form holds, plus the `savedAt` stamp put on below. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
    * this state (§10), a draft outlives that read by however long the browser was

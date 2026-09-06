@@ -6315,3 +6315,144 @@ describe("entry editor — a photo added to an entry that already has one", () =
     expect(added, "the added photo did not take the next free position").toBe(2);
   });
 });
+
+/* ────────────────── 10f. a photo that settles AFTER the save has landed ──── */
+
+/**
+ * THE DEFECT, AND IT LOSES THE PHOTO ENTIRELY — from the entry AND from the
+ * draft, with the screen saying the opposite.
+ *
+ * `settleDraft` sets `touched.current = false` when the Pod holds what the form
+ * holds, which at that instant is true and legitimate: a slot still `decoding`
+ * contributes nothing to `attached`, so `sameText` compares two empty photo
+ * lists and agrees. The autosave effect then returns at `if (!touched.current)`,
+ * and the ONLY thing that put it back to `true` was a DOM `change` event on the
+ * `<form>`. A slot moving `uploading → ready` changes `attached` and re-runs the
+ * effect — but arms nothing, so the window it opens is never opened at all.
+ *
+ * ORDINARY USE, NOT A CONTRIVED RACE. Save is `disabled={saving}` and nothing
+ * else, so "pick a photo, type the headline, press Save" is a sequence the UI
+ * invites while the decode is still running. A second later the row reads
+ * "beach.jpg is attached to this entry", the derivatives really are on the Pod
+ * — and the entry resource does not reference them and `localStorage` holds
+ * nothing. Close the tab: the photo is orphaned and silently absent, and every
+ * surface the owner can see said it was attached.
+ *
+ * NOT THE NARROWER RACE, which is already handled and must stay that way: a
+ * settle DURING the round trip is caught by `live.current.text` and
+ * `samePhotos` inside `save()`. This one lands strictly AFTER `settleDraft` has
+ * run, which is the window those two cannot see.
+ *
+ * BOTH HALVES ARE ASSERTED, and the first is what stops the second being
+ * vacuous: the entry PUT is read to show the photo genuinely did NOT reach the
+ * Pod, and the store is read at that same moment to show the draft key really
+ * is empty. Only then is the settle released.
+ *
+ * WHAT WOULD BREAK IT: deleting `if (next.state === "ready") touched.current =
+ * true` from `attach`'s `move()`. Measured, not supposed — removing that line
+ * turns the final assertion red with `[]` for the draft keys.
+ */
+describe("entry editor — a photo that settles after the save", () => {
+  const CREATED_URL = `${JAPAN.entriesContainer}2026-04-02-kyoto.ttl`;
+  const CREATED_KEY = draftKeyFor(OWNER, CREATED_URL);
+
+  const pastTheWindow = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, DEBOUNCE + 400));
+    });
+
+  const draftKeys = (store: ReturnType<typeof fakeStorage>) =>
+    [...store.items.keys()].filter((k) => k.startsWith("wig.draft."));
+
+  /**
+   * A pipeline held open at `process`, so the slot stays `decoding` for exactly
+   * as long as this test wants it to. The output when it does resolve is the
+   * real fake's, so the settle that follows is the ordinary one and not a
+   * shape invented here.
+   */
+  function heldPipeline() {
+    const inner = fakePipeline();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pipeline: Pipeline = {
+      async process(file: Blob) {
+        await gate;
+        return inner.pipeline.process(file);
+      },
+      dispose() {
+        inner.pipeline.dispose();
+      },
+    };
+    return { pipeline, release: () => release() };
+  }
+
+  it("keeps a photo that settles after the save, rather than losing it from both", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const store = fakeStorage();
+    const held = heldPipeline();
+    await renderEditor(fakeStudioSession().session, {
+      storage: store.storage,
+      pipeline: held.pipeline,
+    });
+
+    fillNewEntry();
+    pickPhoto(jpegFile("beach.jpg"));
+
+    // THE PREMISE: the slot is still working when Save is pressed, and the
+    // control invites it. If a later change disables Save while a photo is in
+    // flight, this line fails and the right response is to revisit this test
+    // deliberately rather than to reach past the guard.
+    expect(
+      await screen.findByText(/Preparing beach\.jpg/i),
+      "the photo settled before the save, so this test proves nothing",
+    ).toBeInTheDocument();
+    expect(
+      saveButton(),
+      "Save is disabled while a photo is in flight, so this scenario is unreachable",
+    ).toBeEnabled();
+
+    await clickSaveAndWait();
+
+    /* ── half one: the photo is demonstrably NOT on the entry ─────────────── */
+    const put = pod.entryPut();
+    expect(put, "the entry was never written").toBeDefined();
+    expect(
+      quadsOf(put!.body, put!.url).filter((q) => q.predicate.value === SCHEMA.image),
+      "the in-flight photo reached the entry, so the loss this test is about cannot happen",
+    ).toEqual([]);
+
+    /* ── …and the draft was settled, which is what disarms the autosave ───── */
+    expect(
+      draftKeys(store),
+      "the save did not settle the draft, so `touched` was never reset and this test proves nothing",
+    ).toEqual([]);
+    expect(media.puts, "the derivatives went up before the gate opened").toEqual([]);
+
+    /* ── half two: NOW the photo settles, and it must not vanish ──────────── */
+    held.release();
+    await screen.findByText(/beach\.jpg is attached to this entry/i);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    await pastTheWindow();
+
+    // THE DECISION. A settle is a change to the form and has to arm the
+    // autosave window like any other one — under the key this editor owns now
+    // that the entry exists, not stranded under `new`.
+    expect(
+      draftKeys(store),
+      "the settled photo is in neither the entry nor the draft: close the tab and it is orphaned",
+    ).toEqual([CREATED_KEY]);
+
+    const kept = parseDraft(store.items.get(CREATED_KEY)!) as { photos?: unknown[] };
+    expect(kept.photos, "the draft was written without the photo that settled").toHaveLength(1);
+    const photo = kept.photos![0] as Record<string, unknown>;
+    expect(
+      Photo.safeParse(photo).success,
+      "what was kept does not round-trip into a Photo",
+    ).toBe(true);
+    expect(new URL(String(photo.contentUrl)).pathname).toMatch(MEDIA_PATH);
+  });
+});

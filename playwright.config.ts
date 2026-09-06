@@ -8,10 +8,18 @@ import { E2E, appEnv } from "./e2e/environment";
  * faster — never a slow duplicate of a fast test." That is the whole remit, and
  * it is a bar each flow has to clear rather than a licence to add a third. The
  * studio's states — restoring, signed-out, owner, not-owner, the expiry
- * subscription — are covered by 23 component tests in test/studio-shell.test.tsx
- * that run in about a second. Re-driving them in a browser would be a slow
+ * subscription — are covered by the component tests in test/studio-shell.test.tsx,
+ * which run in about a second. Re-driving them in a browser would be a slow
  * duplicate of a fast test, which is worse than no test: it costs minutes per
  * run and finds nothing the fast one does not.
+ *
+ * THE FILE IS NAMED AND NO TOTAL IS GIVEN, DELIBERATELY. This line said "23
+ * component tests" until 2026-09-06, by which point `vitest list` reported 26.
+ * Commit 3c751c6 went through CLAUDE.md deleting every instance of that same
+ * number, replacing counts with file names and adding "do not reintroduce a
+ * total" — and this file, one directory over, kept it anyway. A count in prose
+ * is wrong the next time a test is added and nothing checks it. Let `vitest
+ * list` do the counting.
  *
  * The login redirect clears the bar because a real OIDC round trip cannot be
  * unit-tested at all. e2e/media-pipeline.spec.ts clears it for a different

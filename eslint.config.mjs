@@ -232,9 +232,31 @@ const eslintConfig = defineConfig([
           ],
           patterns: [
             {
-              group: ["**/app/(studio)/**", "**/(studio)/**"],
+              // components/studio/** has NO PARENTHESES, so neither
+              // "**/app/(studio)/**" nor "**/(studio)/**" matched it and the
+              // whole media subsystem was reachable from a public page in one
+              // import. Measured, not inferred: at
+              // app/(public)/__fence-probe.tsx, `@/lib/media`,
+              // `@/lib/studio/session` and `@/app/(studio)/layout` were each
+              // reported while `@/components/studio/entry-editor` produced no
+              // output at all — and that one import drags lib/media/*,
+              // lib/pod/{write,save-entry,access} → @inrupt/solid-client,
+              // lib/studio/* → the auth library, and Radix into the public
+              // graph. Reusing `Field` or the tag parser out of the editor is
+              // the obvious move that trips it.
+              //
+              // The bare directory AND the subpath, for the gitignore-semantics
+              // reason spelled out at the lib/media entry below: "**/x/**" alone
+              // does not match a bare "@/x" import resolving to an index file.
+              // That exact hole was already found and closed once on this branch.
+              group: [
+                "**/app/(studio)/**",
+                "**/(studio)/**",
+                "**/components/studio",
+                "**/components/studio/**",
+              ],
               message:
-                "app/(public) must never import from (studio). Separate root layouts are what keep the bundles apart.",
+                "app/(public) must never import from (studio), including components/studio. Separate root layouts are what keep the bundles apart.",
             },
             {
               group: ["@inrupt/solid-client-authn-browser", "@inrupt/solid-client-authn-browser/**"],
