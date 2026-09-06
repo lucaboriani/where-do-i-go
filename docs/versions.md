@@ -162,6 +162,38 @@ what you are accepting:
 
 ## Things agents get wrong on this stack
 
+### An agent shell hides a whole class of test failure. Verified 2026-09-06.
+
+**`npm test` inside Claude Code is not `npm test` in a terminal, and the difference silently
+changed a test result.** Claude Code sets `CLAUDECODE=1`; std-env reports that as `isAgent`, and
+`vitest/dist/chunks/cac.*.js` `createCLI()` calls `disableDefaultColors()` when it sees it. So
+vitest emits **no ANSI escapes** in an agent shell and **does** emit them everywhere else —
+colour is the default, TTY or pipe, whenever `TERM` is set and is not `dumb`.
+
+`test/network-guard.test.ts` spawns a child vitest and asserted `/Tests\s+1 failed/` against its
+output. Styled, that summary is
+
+```
+\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[31m1 failed\u001b[39m…
+```
+
+— `\s+` matches the spaces, hits the escape, and the match fails. It went red on GitHub Actions
+and green in every agent-run check, including a full CI reproduction against a clean clone. It
+was never a CI-only bug: any maintainer running `npm test` from an ordinary terminal would have
+hit it on the first try.
+
+**How to apply.** Two things follow, and the second is the general one:
+
+- Never assert against another process's human-readable output without stripping ANSI first.
+  `test/child-output.ts` has `stripAnsi()` for exactly this, and the spawn also sets `NO_COLOR`
+  (tinyrainbow gates every colour path on `!("NO_COLOR" in env)`) so the failure message stays
+  readable.
+- **When a check passes locally and fails on CI, suspect the agent environment before suspecting
+  the runner.** Reproducing CI faithfully — clean clone, `npm ci`, fresh Pod, CI's env vars, UTC
+  — reproduced nothing here, because every one of those runs still carried `CLAUDECODE=1`. The
+  command that actually reproduced it was `env -u CLAUDECODE -u AI_AGENT`. Reach for that early.
+
+
 Training data skews old. Expect and reject all of the following:
 
 - `npx shadcn-ui@latest` — wrong package name. It is `shadcn`.
