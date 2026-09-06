@@ -13,6 +13,21 @@ import {
  * half of the pipeline a fast test can actually check, and the worker is kept
  * thin so that this half is the big one.
  */
+describe("TARGETS", () => {
+  it("pins the exact longest-edge and quality the brief specifies for each derivative", () => {
+    // These are the numbers §5 fixes: web 1600px, thumb 400px, blur 20px, at
+    // qualities 0.82 / 0.75 / 0.5. Nothing else in this file reads
+    // TARGETS.*.longestEdge or TARGETS.*.quality as a literal — the
+    // aspect-ratio test below only checks the RATIO between two derivatives,
+    // so it stays green even if both longest edges are doubled, and it never
+    // touches `blur` at all. Mutation-tested: doubling web to 3200, thumb to
+    // 800, or halving blur to 10 must fail here.
+    expect(TARGETS.web).toEqual({ longestEdge: 1600, quality: 0.82 });
+    expect(TARGETS.thumb).toEqual({ longestEdge: 400, quality: 0.75 });
+    expect(TARGETS.blur).toEqual({ longestEdge: 20, quality: 0.5 });
+  });
+});
+
 describe("fitWithin", () => {
   it("scales a landscape photo to the longest edge, preserving aspect", () => {
     expect(fitWithin(4000, 3000, 1600)).toEqual({ width: 1600, height: 1200 });
@@ -46,6 +61,12 @@ describe("fitWithin", () => {
     // §4 stores no thumb dimensions because the ratios are identical by
     // construction. If that ever stops being true, the public page lays out
     // every thumb against the wrong box.
+    //
+    // This checks the RATIO between whatever TARGETS.web.longestEdge and
+    // TARGETS.thumb.longestEdge currently are — it holds for any pair of
+    // longest edges, by construction of fitWithin, so it does NOT pin the
+    // actual 1600/400 values (that's the "TARGETS" describe block above) and
+    // does not exercise `blur` at all. Its only job is the ratio invariant.
     const web = fitWithin(4000, 3000, TARGETS.web.longestEdge);
     const thumb = fitWithin(4000, 3000, TARGETS.thumb.longestEdge);
     expect(web.width / web.height).toBeCloseTo(thumb.width / thumb.height, 5);
