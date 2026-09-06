@@ -105,7 +105,7 @@ import { TAGS } from "@/lib/pod/tags";
 import { resetSessionRestore, type StudioSessionLike } from "@/lib/studio/session";
 import { triples } from "./graph";
 import { server, servePod } from "./msw";
-import { Photo } from "@/lib/pod/schema";
+import { Photo, Place } from "@/lib/pod/schema";
 import type { Entry } from "@/lib/pod/schema";
 /* Section 10. The picked file is a real JPEG with real EXIF, built byte by byte
    by the same fixture test/media-exif.test.ts reads back — so the container
@@ -775,6 +775,24 @@ const LABEL = {
   placeName: /place name/i,
   locality: /locality|town|city/i,
   country: /country/i,
+  /* Section 1c, and in here for the reason `photos` and the three above are:
+     8b's shadowing loop demands exactly ONE match per entry, and this control
+     sits next to "When it happened" — the one label it could plausibly collide
+     with.
+
+     WHY IT CANNOT COLLIDE, checked against the fourteen above rather than
+     assumed. The editor's labels today are Trip, Slug, Headline, Story, When it
+     happened, Place name, Town or city, Country, Latitude, Longitude,
+     Precision, Photos, Tags, Travel mode you arrived by and Status: not one of
+     them contains `offset` or `time zone`. In the other direction, an offset
+     label must contain neither `when`, `occurred` nor `date` (LABEL.occurredAt
+     would then find two), nor `mode`, `status`, `publish`, `draft`, `trip`,
+     `title`, `body`, `story`, `tag`, `country`, `city`, `town` or `place name`.
+     It is outside COORDINATE_FIELD too — no `lat`, `long`, `lng`, `geo`,
+     `gps`, `coordinate`, `precision` or `position` in either alternative —
+     which matters, because "exactly three coordinate controls" counts by that
+     query and a fourth match would fail there instead of here. */
+  offset: /offset|time zone/i,
 };
 
 function setText(label: RegExp, value: string) {
@@ -2251,6 +2269,374 @@ describe("entry editor — the place it names", () => {
     ).toBeUndefined();
     expect(emptyLiteralsIn(createdQuads), "empty literals on a create").toEqual([]);
   });
+
+  /**
+   * A BOX HOLDING ONLY SPACES IS AN EMPTY BOX, AND NOTHING BELOW THE EDITOR
+   * WILL SAY SO.
+   *
+   * This is not the same test as "clearing removes", and the difference is the
+   * whole reason it exists. `""` is caught by every guard on the way down,
+   * because they all ask "is it absent". A space is not absent:
+   *
+   *   - `Place.name` is `min(1)` and `" ".length === 1`, so the schema PASSES
+   *     it — asserted below rather than assumed, because the opposite was
+   *     written down as the justification for the trim and was false;
+   *   - `entry-model.ts` guards on truthiness and `!== undefined`, and `" "` is
+   *     truthy and defined, so it writes the triple;
+   *   - `emptyLiteralsIn` above looks for `value === ""` and does not find it.
+   *
+   * What reaches the Pod is `schema:name " "@en` on a world-readable resource:
+   * a name that renders as nothing in every consumer, that no reader can see in
+   * order to ask for its removal, and that makes the entry claim to be
+   * somewhere. The trim in `placeTextOf` is the only thing standing in front of
+   * it, so it is pinned here.
+   *
+   * WHAT WOULD BREAK IT: deleting any of the three `.trim()` calls; comparing
+   * `!== ""` instead of trimming; "tidying" the trim away on the grounds that
+   * the schema validates the value.
+   */
+  it("treats three boxes holding only whitespace as three empty boxes", async () => {
+    // The premise, measured: nothing downstream refuses a one-space name, so
+    // this test is about the only guard there is rather than a redundant one.
+    expect(
+      Place.safeParse({ name: { value: " " }, locality: " ", country: " " }).success,
+      "the schema now refuses a whitespace-only place, so this test is about a guard that moved",
+    ).toBe(true);
+
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requirePlaceControls();
+    fillNewEntry();
+    setText(LABEL.placeName, "  ");
+    setText(LABEL.locality, " ");
+    setText(LABEL.country, "\t ");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the entry was not written at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    expect(
+      placeNodeOf(quads, put!.url),
+      "three boxes holding nothing but spaces were published as a place",
+    ).toBeUndefined();
+
+    // And said the other way round, so a `<#place>` reached by some other
+    // predicate fails here too: no literal anywhere in the document is blank.
+    expect(
+      quads
+        .filter((q) => q.object.termType === "Literal" && q.object.value.trim() === "")
+        .map((q) => `${q.predicate.value} "${q.object.value}"`),
+      "a whitespace-only literal reached the Pod: it renders as nothing and cannot be seen to be removed",
+    ).toEqual([]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 1c. THE OFFSET IT STAMPS — the place's, chosen by the owner, and never the
+ *     editing machine's guess.
+ *
+ * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", because
+ * "normalising to UTC destroys the fact that it was evening, which for a travel
+ * diary is most of the meaning". The editor honours that on an EDIT — it keeps
+ * the offset the entry already had — and gets it wrong everywhere else, because
+ * the fallback is `offsetHere(wall)`: the zone of whatever machine the form is
+ * open on. Writing up a Japan trip from the sofa at home stamps an evening in
+ * Tokyo `+02:00`, silently, and there is no control anywhere on the form that
+ * can correct it. Half past nine in the evening becomes half past nine in a
+ * place the owner was not, and nothing about the entry says so.
+ *
+ * WHAT THIS SECTION PINS, each a different failure:
+ *
+ *   1. the control DEFAULTS to today's fallback chain — the entry's own offset
+ *      on an edit, this machine's on a create — so the change is that the guess
+ *      is now visible and correctable, not that it moved;
+ *   2. choosing an offset changes what reaches the Pod, WITH THE WALL CLOCK
+ *      UNMOVED. `toOffsetDateTime`'s docblock is explicit that the wall clock
+ *      is copied and not recomputed, "the same instant, spelled as the wrong
+ *      time of day"; an implementation that helpfully converts through a `Date`
+ *      passes every other assertion in this file and fails this one;
+ *   3. `+05:30` and `+05:45` both work — Kolkata and Kathmandu. This is the
+ *      assertion that catches a whole-hours stepper, and it is why the control
+ *      is a select over the offsets actually in use rather than a number input.
+ *      `+08:45` is Eucla and `+12:45` is the Chathams: a list of whole hours
+ *      makes those places unwritable, which for a travel diary is the wrong
+ *      corner to cut;
+ *   4. a stored offset the list does NOT contain still renders, rather than
+ *      blanking the control — the `Precision` select's established pattern,
+ *      where the current value joins the options instead of being mapped onto
+ *      them. An entry written by another tool with `+05:15` must not silently
+ *      become something else, and a controlled `<select>` whose value matches
+ *      no option renders blank, which is how it would.
+ *
+ * WHAT IS NOT PINNED HERE, deliberately: the option TEXT. "+09:00" alone and
+ * "+09:00 — Tokyo, Seoul" are both fine, and `setChoice` reads either. What may
+ * not vary is the VALUE, because that string is what `Draft.offset` carries and
+ * what is concatenated onto the wall clock — one spelling, end to end.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** The wall clock every create below types, so "unchanged" has one spelling. */
+const OFFSET_WALL = "2026-04-02T16:20";
+
+/** A literal offset as a pattern `setChoice` can match against an option's text
+ *  or its value. `+` is a regex metacharacter; a bare `new RegExp("+05:45")`
+ *  throws, and a hand-escaped literal per test is how one of them ends up
+ *  matching the wrong row. */
+const offsetPattern = (offset: string) => new RegExp(offset.replace("+", "\\+"));
+
+/** The five that are not whole hours. Nepal, India, Eucla, the Chathams, the
+ *  Marquesas — the places a stepper would delete from the map. */
+const ODD_OFFSETS = ["-09:30", "+05:30", "+05:45", "+08:45", "+12:45"];
+
+/**
+ * The control, named so a failure says so — `requirePlaceControls`' reasoning
+ * exactly: a `setChoice` against a label that does not exist spends a query and
+ * then dumps the whole form, which reads like a broken test rather than like a
+ * missing control.
+ *
+ * IT ASSERTS THE ELEMENT, WHICH IS THE ONE SHAPE DECISION THIS SECTION MAKES.
+ * A `<select>` over a fixed list is what makes `+05:45` and `+08:45` reachable
+ * and `+05:61` unreachable; a text box or a number input admits both, and a
+ * stepper of hours admits neither of the first two.
+ */
+function requireOffsetControl(): HTMLSelectElement {
+  const found = screen.queryAllByLabelText(LABEL.offset);
+  expect(found, "the editor has no UTC-offset control").toHaveLength(1);
+  expect(
+    found[0].tagName,
+    "the offset control is not a <select>: a free-text or numeric control cannot offer +05:45 without also admitting +05:61",
+  ).toBe("SELECT");
+  return found[0] as HTMLSelectElement;
+}
+
+const offsetOptions = () => [...requireOffsetControl().options].map((o) => o.value);
+
+describe("entry editor — the offset it stamps", () => {
+  /**
+   * THE DEFAULT ON AN EDIT: the offset the entry was written with, which is
+   * today's behaviour made visible rather than changed.
+   *
+   * TWO ENTRIES, AND THE SECOND IS THE ONE THAT CAN FAIL. This file fixes the
+   * zone at Asia/Tokyo, which is +09:00 all year and is also what the §7.3
+   * fixture carries — so the first half is satisfied by a control that reads
+   * the machine and never looks at the entry at all, which is the exact defect
+   * this section exists for. The Nepal entry separates them.
+   *
+   * WHAT WOULD BREAK IT: initialising the control from `offsetHere()` instead
+   * of from `offsetOf(existing?.occurredAt)`; initialising it from the wall
+   * clock through a `Date`, which is the same thing wearing a conversion.
+   */
+  it("shows the offset the entry was stored with, not this machine's", async () => {
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+
+    // The normative §7.3 entry. Asserted against the fixture rather than
+    // against a literal, so a change to §7.3 shows up here as a change.
+    expect(SPEC_OCCURRED, "the §7.3 fixture no longer carries an offset").toMatch(/\+09:00$/);
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+    requireOffsetControl();
+    expect(shownValue(LABEL.offset)).toBe("+09:00");
+    cleanup();
+
+    // THE HALF THAT CAN FAIL: an entry whose offset is not this machine's.
+    const nepal: Entry = { ...entry, occurredAt: "2026-03-29T21:40:00+05:45" };
+    // The mutation really happened, or the assertion below is about the fixture
+    // again and says nothing.
+    expect(nepal.occurredAt).not.toBe(entry.occurredAt);
+
+    await renderEditor(fake.session, {
+      initial: { entry: nepal, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+    requireOffsetControl();
+    expect(
+      shownValue(LABEL.offset),
+      "the control is showing the editing machine's offset, not the one the entry was written with",
+    ).toBe("+05:45");
+    // And the wall clock beside it is still the stored one, unshifted.
+    expect(shownValue(LABEL.occurredAt)).toBe("2026-03-29T21:40");
+  });
+
+  /**
+   * THE DEFAULT ON A CREATE: this machine's offset, which is `offsetHere` —
+   * today's silent fallback, now shown. It is the honest starting point (most
+   * entries are written where they happened) and it is only defensible BECAUSE
+   * it can now be corrected.
+   *
+   * ONLY THE FIXED ZONE MAKES THIS ABLE TO FAIL: on a UTC machine an
+   * implementation that hardcoded `+00:00`, or one that left the control blank
+   * and let `toOffsetDateTime` fall through, would look right. Asia/Tokyo is
+   * pinned at the top of this file and by a control in section 0.
+   */
+  it("shows this machine's offset on a new entry, and it is a real offset", async () => {
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    const shown = shownValue(LABEL.offset);
+    expect(
+      shown,
+      "the offset control is blank on a create: there is nothing to stamp the entry with",
+    ).not.toBe("");
+    expect(shown, "not an offset at all").toMatch(/^[+-]\d{2}:\d{2}$/);
+    expect(shown, "the default is not this machine's zone").toBe("+09:00");
+  });
+
+  /**
+   * THE LIST, AND WHY IT IS A LIST. Five offsets that are not whole hours, and
+   * four that are — the second half is the allow-case, because "contains
+   * +05:45" is satisfied by a control offering every quarter hour from -12:00
+   * to +14:00, which is a different kind of wrong.
+   *
+   * WHAT WOULD BREAK IT: an `<input type="number">` of hours; a list generated
+   * by stepping whole hours; dropping the three-quarter-hour zones as
+   * curiosities, which is how Kathmandu, Eucla and the Chathams stop being
+   * writable.
+   */
+  it("offers the offsets that are not whole hours", async () => {
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    const values = offsetOptions();
+    for (const odd of ODD_OFFSETS) {
+      expect(values, `${odd} is not offered: that place cannot be written from this form`).toContain(
+        odd,
+      );
+    }
+    // The allow-case: the ordinary ones are there too, and the ends of the range.
+    for (const whole of ["-12:00", "+00:00", "+01:00", "+09:00", "+14:00"]) {
+      expect(values, `${whole} is not offered`).toContain(whole);
+    }
+    // `+00:00`, not `Z`: §6 and lib/pod/rdf.ts both want the explicit spelling,
+    // and `offsetOf` already normalises a stored `Z` onto it.
+    expect(values, "the list spells UTC as Z").not.toContain("Z");
+  });
+
+  /**
+   * THE POINT OF THE WHOLE SECTION: what the owner picks is what the Pod gets,
+   * and the wall clock does not move when they pick it.
+   *
+   * Three rows rather than one, and each is a place the alternatives cannot
+   * express: a half hour, a three-quarter hour, and a NEGATIVE half hour, which
+   * is where a sign dropped between the control and the string shows up.
+   *
+   * WHAT WOULD BREAK EACH HALF. The offset half: ignoring the chosen value and
+   * passing `storedOffset ?? offsetHere(wall)` to `toOffsetDateTime`, which is
+   * today's code and would write `+09:00` for every row. The wall-clock half:
+   * recomputing the timestamp from the offset — `new Date(local + offset)` and
+   * back — which preserves the instant and destroys the time of day, the one
+   * thing §7.3 says the offset is carried for.
+   */
+  it.each([
+    ["Kolkata", "+05:30"],
+    ["Kathmandu", "+05:45"],
+    ["the Marquesas", "-09:30"],
+  ])("writes the offset chosen for %s, with the wall clock untouched", async (_where, offset) => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    fillNewEntry();
+    setText(LABEL.occurredAt, OFFSET_WALL);
+
+    // The choice is a real change: every row differs from the default this
+    // machine supplies, so a control nobody reads cannot pass by coincidence.
+    expect(shownValue(LABEL.offset)).not.toBe(offset);
+    setChoice(LABEL.offset, offsetPattern(offset));
+    expect(shownValue(LABEL.offset), `the ${offset} choice did not take`).toBe(offset);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "an offset was chosen and nothing was written at all").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod").toBeDefined();
+
+    // Both halves named separately, so a failure says which one broke, and then
+    // the whole string, which is what a reader will actually see.
+    expect(
+      occurred!.value.slice(-6),
+      "the chosen offset is not the one that reached the Pod",
+    ).toBe(offset);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the wall clock moved: the timestamp was recomputed from the offset instead of being copied",
+    ).toBe(OFFSET_WALL);
+    expect(occurred!.value).toBe(`${OFFSET_WALL}:00${offset}`);
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(occurred!.value, "§3: an offset is required, and Z is not the spelling").not.toMatch(/Z$/);
+  });
+
+  /**
+   * AN OFFSET THE LIST DOES NOT HAVE, which is the `Precision` select's
+   * unavailable-value case with a sharper consequence: precision blank means a
+   * control that looks unfilled, and offset blank means a timestamp that either
+   * loses its offset or silently acquires this machine's.
+   *
+   * `+05:15` is not a zone anyone uses today, which is the point — an entry can
+   * carry it because some other tool wrote it, and this editor's job is to show
+   * it and put it back unchanged, not to correct it.
+   *
+   * WHAT WOULD BREAK IT: rendering only the thirty-eight, so the controlled
+   * `<select>` finds no matching option and renders blank; snapping the stored
+   * value onto the nearest listed offset, which is the "helpful" version of
+   * losing it.
+   */
+  it("renders a stored offset the list does not contain, and puts it back unchanged", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    const odd: Entry = { ...entry, occurredAt: "2026-03-29T21:40:00+05:15" };
+    // The mutation really happened.
+    expect(odd.occurredAt).not.toBe(entry.occurredAt);
+
+    await renderEditor(fake.session, {
+      initial: { entry: odd, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+
+    // The fixture is only interesting if the list really lacks it.
+    expect(offsetOptions(), "+05:15 is one of the offsets this editor offers").not.toContain(
+      "+05:15",
+    );
+    // A controlled <select> whose value matches no option reads back as "", so
+    // this single assertion covers both "it is showing +05:15" and "an option
+    // for it exists".
+    expect(
+      shownValue(LABEL.offset),
+      "the control blanked on an offset it does not offer, or replaced it with one it does",
+    ).toBe("+05:15");
+
+    // AND IT SURVIVES A SAVE THAT NEVER TOUCHED IT.
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the edit was never written").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(
+      occurred?.value,
+      "an entry written by another tool had its offset rewritten by an edit that never touched it",
+    ).toBe("2026-03-29T21:40:00+05:15");
+    cleanup();
+
+    // THE ALLOW-CASE, and the `Set` half of `Precision`'s pattern: an offset
+    // that IS in the list appears once, not twice.
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+    expect(
+      offsetOptions().filter((v) => v === "+09:00"),
+      "the stored offset was appended to a list that already had it",
+    ).toHaveLength(1);
+  });
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3594,7 +3980,7 @@ const NEW_SCOPE = "new";
 const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
 
 /**
- * Exactly the sixteen fields, sorted. A seventeenth is how the ETag gets in.
+ * Exactly the seventeen fields, sorted. An eighteenth is how the ETag gets in.
  *
  * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
  * coordinate controls, and they are the reason the key moved to `v2`. All three
@@ -3617,6 +4003,16 @@ const SOMEONE_ELSE = "https://borrowed-laptop.example/profile/card#me";
  * tests above that pick nothing — because the FENCE is what this set is: a key
  * the editor forgets is a photo it silently stops restoring, and an extra one
  * is how the ETag gets in.
+ *
+ * `offset` ARRIVED WITH THE UTC-OFFSET CONTROL (section 1c) AND THE KEY DID NOT
+ * MOVE FOR IT EITHER — the third time that test is answered "no", for the same
+ * reason: no existing `v2` payload can carry an offset, because there was no
+ * control to choose one with, so such a draft restores `""` and the editor
+ * falls back to exactly the chain it used before the control existed. Section
+ * 8j owns that decision. It is a form value like `occurred` beside it and not a
+ * derived one, which is the whole change: until 1c the offset was the entry's
+ * own or, failing that, the editing MACHINE'S, and a draft that dropped it
+ * would hand the owner back that same silent guess.
  */
 const DRAFT_FIELDS = [
   "country",
@@ -3626,6 +4022,7 @@ const DRAFT_FIELDS = [
   "long",
   "mode",
   "occurred",
+  "offset",
   "photos",
   "placeName",
   "precision",
@@ -3644,6 +4041,10 @@ type StoredDraft = {
   headline: string;
   story: string;
   occurred: string;
+  /** The offset of the PLACE, as the owner chose it — section 1c. Held beside
+   *  the wall clock rather than folded into it, because the control the owner
+   *  types the time into has no offset at all. */
+  offset: string;
   tagsText: string;
   mode: string;
   status: string;
@@ -3680,6 +4081,9 @@ const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
   headline: "Rain on the Philosopher's Path",
   story: "Two hours of drizzle and nobody else on the path.",
   occurred: "2026-04-02T16:20",
+  // This machine's zone, which is what a create starts at — the interesting
+  // values are 8j's, where the offset is the subject rather than the setting.
+  offset: "+09:00",
   tagsText: "walking, rain",
   mode: "Train",
   status: "published",
@@ -5770,6 +6174,80 @@ describe("entry editor — the draft key after a create succeeds", () => {
     ).toEqual([CREATED_KEY]);
     expect(parseDraft(store.items.get(CREATED_KEY)!).story).toBe(IN_FLIGHT);
   });
+
+  /**
+   * THE SAME LOSS, ON THE FIELD THE STORY TEST CANNOT SEE.
+   *
+   * `settleDraft` clears the local copy the moment the Pod has the text, and
+   * re-keeps it only when `sameText` says the form has moved on since the
+   * snapshot the save sent. `sameText` compares field by field, so a field it
+   * omits is a field whose in-flight edit is in NEITHER the Pod nor storage:
+   * the save reports success, the draft is cleared, and the sentence typed
+   * while the spinner was up never existed.
+   *
+   * The place name is the field where that is worst rather than merely
+   * annoying, and it is why this is pinned separately from the story above.
+   * §9 drops the coordinate inside the home radius, so near home the name is
+   * the ONLY thing the entry says about where it was — and a name is also the
+   * kind of thing an owner types while waiting, having just remembered it.
+   *
+   * WHAT WOULD BREAK IT: dropping `a.placeName === b.placeName` (or either of
+   * its two neighbours) from `sameText`, which is invisible to every other test
+   * in this file.
+   */
+  it("keeps a place name typed while the save was in flight", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const pod = podFake({ hold: held });
+    const store = fakeStorage();
+    await renderEditor(fakeStudioSession().session, { storage: store.storage });
+
+    const IN_FLIGHT = "Gion, Kyoto";
+
+    /* THE SETTINGS MUST LAND BEFORE THE SNAPSHOT IS TAKEN, and this line is the
+       difference between a real pin and a vacuous one. §7.6 arrives over the
+       network and sets `precision` from `""` to the owner's preset, so without
+       this wait that happens DURING the flight and `sameText` differs on
+       `precision` as well — the draft is then re-kept for a reason that has
+       nothing to do with the field under test. Measured rather than reasoned
+       about: with the three place comparisons deleted from `sameText`, the
+       differing fields at settle time were `["precision", "placeName"]` and
+       every assertion below still passed. */
+    await waitFor(() => expect(screen.getByLabelText(LABEL.precision)).toBeEnabled());
+
+    fillNewEntry();
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut(), "the entry PUT never went out").toBeDefined());
+
+    expect(
+      typeAsUser(LABEL.placeName, IN_FLIGHT),
+      "the form was not writable during the save, so this test's premise no longer holds",
+    ).toBe(true);
+
+    release();
+    await waitFor(() => expect(outcomeText()).not.toBe(""));
+
+    // It never reached the Pod: the save sent the snapshot taken before the
+    // await, and that snapshot named no place at all.
+    const put = pod.entryPut()!;
+    expect(
+      placeNodeOf(quadsOf(put.body, put.url), put.url),
+      "the in-flight name reached the Pod, so this test proves nothing",
+    ).toBeUndefined();
+
+    // So it has to be in storage, under the key this editor owns now.
+    await pastTheWindow();
+    expect(
+      draftKeys(store),
+      "the place name typed during the save is in neither the Pod nor storage",
+    ).toEqual([CREATED_KEY]);
+    expect(parseDraft(store.items.get(CREATED_KEY)!).placeName).toBe(IN_FLIGHT);
+  });
 });
 
 /* ─────────────────────────────── 8h. the coordinate in a local draft ──────
@@ -5805,8 +6283,8 @@ describe("entry editor — the draft key after a create succeeds", () => {
  *
  * AND THE FENCE AROUND IT IS UNMOVED. The three fields that may never be
  * persisted are still the ETag, `dcterms:created` and `schema:datePublished`
- * (lib/studio/drafts.ts), and `DRAFT_FIELDS` is what enforces it: sixteen, no
- * more.
+ * (lib/studio/drafts.ts), and `DRAFT_FIELDS` is what enforces it: seventeen,
+ * no more.
  * ────────────────────────────────────────────────────────────────────────── */
 
 describe("entry editor — the coordinate in a local draft", () => {
@@ -6131,6 +6609,295 @@ describe("entry editor — the place fields in a local draft", () => {
     expect(address, "a restored draft published no address").toBeDefined();
     expect(oneObject(quads, address!, SCHEMA.addressLocality)?.value).toBe("Kyoto");
     expect(oneObject(quads, address!, SCHEMA.addressCountry)?.value).toBe("JP");
+  });
+
+  /**
+   * THE HALF-RESTORE THE VERSION SEGMENT EXISTS TO PREVENT, REACHED WITHOUT
+   * MOVING THE VERSION SEGMENT — and the reason these three fields are
+   * `.optional()` rather than `.default("")`.
+   *
+   * A `v2` payload written before the place controls existed carries no place
+   * fields at all. Give them a default and `readDraft` hands back `""` for each
+   * — which in this editor is not "nothing typed", it is REMOVE, the only way a
+   * name already on the Pod can be taken off it. Restore such a draft onto an
+   * entry that HAS a place and the three boxes go empty, and the next save
+   * deletes `schema:name` and the whole `<#address>` from a world-readable
+   * resource. The owner asked for their unsaved text back and lost data they
+   * never touched, with no error anywhere.
+   *
+   * THE `photos` PRECEDENT DOES NOT TRANSFER, which is what made the default
+   * look safe: a restored empty photo list is harmless because `photosFor`
+   * re-carries `existing.photos` at save time. Place text has no carry-through
+   * — the form state IS the answer — so an absent field has to stay absent all
+   * the way to `restore()`, which leaves the control showing what it was
+   * showing.
+   *
+   * WHAT WOULD BREAK IT: `.default("")` on the three in lib/studio/drafts.ts;
+   * `setPlaceName(draft.placeName)` without the `??` in `restore()`; bumping
+   * the key to `v3`, which passes this by making the draft invisible and loses
+   * the prose the key was left at `v2` to protect — so the restore is asserted
+   * to have HAPPENED before the place is asserted to have survived it.
+   */
+  it("does not empty a stored place when the restored draft predates the controls", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    expect(entry.place?.name?.value, "the §7.3 fixture no longer names a place").toBe(
+      SPEC_PLACE_NAME,
+    );
+
+    /* Exactly the shape a build before these controls wrote: every other field
+       of the current draft, and no place fields at all. */
+    const RESTORED_HEADLINE = "Rain on the Philosopher's Path";
+    const before = seededDraft({ headline: RESTORED_HEADLINE }) as Partial<StoredDraft>;
+    delete before.placeName;
+    delete before.locality;
+    delete before.country;
+    for (const field of ["placeName", "locality", "country"]) {
+      expect(Object.keys(before), field).not.toContain(field);
+    }
+
+    const store = fakeStorage({
+      [draftKeyFor(OWNER, ARRIVAL_URL)]: JSON.stringify(before),
+    });
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: store.storage,
+    });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "a draft written before the place controls was not offered at all: the key moved, or the payload is now refused",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    // THE RESTORE REALLY HAPPENED. Without this the assertions below would hold
+    // just as well for a build that offered nothing and restored nothing.
+    expect(
+      shownValue(LABEL.headline),
+      "the draft was offered but nothing was restored from it",
+    ).toBe(RESTORED_HEADLINE);
+
+    requirePlaceControls();
+    expect(
+      shownValue(LABEL.placeName),
+      "a draft with no opinion about the place emptied the box that had one",
+    ).toBe(SPEC_PLACE_NAME);
+    expect(shownValue(LABEL.locality)).toBe(SPEC_LOCALITY);
+    expect(shownValue(LABEL.country)).toBe(SPEC_COUNTRY);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(
+      place,
+      "restoring a draft that predates these controls deleted the entry's place from the Pod",
+    ).toBeDefined();
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe(SPEC_PLACE_NAME);
+
+    const address = addressNodeOf(quads, put!.url);
+    expect(address, "the whole <#address> went with it").toBeDefined();
+    expect(oneObject(quads, address!, SCHEMA.addressLocality)?.value).toBe(SPEC_LOCALITY);
+    expect(oneObject(quads, address!, SCHEMA.addressCountry)?.value).toBe(SPEC_COUNTRY);
+  });
+});
+
+/* ──────────────────────────────── 8j. the offset in a local draft ─────────
+ *
+ * The seventeenth field, and the second one on this form that is not text the
+ * owner typed but a choice they made. §7.3: `dy:occurredAt` "carries the local
+ * UTC offset of the place" — until section 1c that offset was the entry's own
+ * or, failing that, the EDITING MACHINE'S, and nothing on the form could say
+ * otherwise. Now it is an answer, so it is something the local copy has to
+ * keep: a restored draft that dropped it would hand the owner back the same
+ * silent guess the control exists to replace, under a banner that has just told
+ * them their draft came back.
+ *
+ * AND THE VERSION SEGMENT IS NOT MOVED FOR IT — the third time that test is
+ * answered "no", by the bar `lib/studio/drafts.ts` sets: the HALF-RESTORE. No
+ * existing `v2` payload can carry an offset, because there was no control to
+ * choose one with, so such a draft restores `""` and the editor falls through
+ * to the same default it would have used with no draft at all. Nothing is
+ * standing in for something lost. A bump would throw away real unsaved prose in
+ * exchange for nothing, exactly as it would have for `photos` and for the place
+ * fields. The store's half of that is test/drafts.test.ts §8; the half that can
+ * actually hurt the owner — a blank control, and therefore a timestamp with no
+ * offset on it — is the last test here.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+describe("entry editor — the offset in a local draft", () => {
+  const KEY = draftKeyFor(OWNER, NEW_SCOPE);
+
+  /**
+   * FLUSHED BY THE UNMOUNT rather than by advancing a clock — 8f's mechanism,
+   * and the same reason 8h and 8i use it: the restore half reaches the network,
+   * and a faked timer stops everything that waits on one.
+   *
+   * WHAT WOULD BREAK IT: holding the offset in React state and leaving it out
+   * of the payload; persisting it under a name `readDraft` strips (unknown keys
+   * are stripped silently, so that is a failure with no error anywhere);
+   * restoring it into the control but leaving it out of the save, which shows
+   * the owner `+05:45` and publishes `+09:00`.
+   */
+  it("keeps the chosen offset, and a restored draft still publishes it", async () => {
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: store.storage });
+
+    requireOffsetControl();
+    fillNewEntry();
+    setChoice(LABEL.offset, offsetPattern("+05:45"));
+    // The choice really took, or everything below is about the default.
+    expect(shownValue(LABEL.offset)).toBe("+05:45");
+    cleanup();
+
+    expect(store.calls.set, "nothing was kept at all").not.toEqual([]);
+    const written = store.calls.set.at(-1)!;
+    expect(written.key).toBe(KEY);
+
+    const payload = parseDraft(written.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+    expect(payload.offset, "the draft does not hold the offset the owner chose").toBe("+05:45");
+    // The wall clock is kept beside it, unshifted: the two halves of the
+    // timestamp are stored as the two controls hold them.
+    expect(payload.occurred).toBe("2026-04-02T16:20");
+
+    // The fence is unmoved: none of the three that may never be persisted.
+    for (const forbidden of ["etag", "created", "datePublished"]) {
+      expect(Object.keys(payload), forbidden).not.toContain(forbidden);
+    }
+
+    /* AND IT IS USABLE — the bytes the editor itself wrote, offered back to a
+       fresh editor, restored, and saved. */
+    const pod = podFake();
+    const seeded = fakeStorage({ [KEY]: written.value });
+    await renderEditor(fake.session, { storage: seeded.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "the draft this editor had just written was not offered back to it",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.offset), "Restore did not put the offset back").toBe("+05:45");
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(
+      occurred?.value,
+      "a restored draft published the editing machine's offset, not the one it was carrying",
+    ).toBe("2026-04-02T16:20:00+05:45");
+  });
+
+  /**
+   * CHANGING THE OFFSET ALONE ARMS THE AUTOSAVE.
+   *
+   * THIS IS A BUG THIS PROJECT HAS ALREADY SHIPPED ONCE, in the photo pipeline:
+   * a state change that armed nothing, because the only thing that set
+   * `touched` was a DOM `change` event on the form, and the settle happened
+   * outside one. It reached review. The shape recurs here for a different
+   * reason — an offset is not typing, and an implementation that hung the
+   * control outside the `<form>` (a toolbar beside the datetime input is the
+   * obvious layout) would move the state and arm nothing, so the owner corrects
+   * `+02:00` to `+09:00`, closes the tab, and gets `+02:00` back.
+   *
+   * THE CONTROL IS IN THE SAME TEST, first: an untouched form stores nothing,
+   * so the write below is the change and not the mount. Without it this passes
+   * against an editor that autosaves a copy of the empty form on render.
+   */
+  it("arms the autosave when the offset is the only thing that changed", async () => {
+    await withFakeTimers(FIRST);
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: store.storage });
+
+    requireOffsetControl();
+
+    // THE CONTROL: nobody has touched anything, so nothing is armed.
+    tick(DEBOUNCE * 2);
+    expect(store.calls.set, "an untouched form stored a draft").toEqual([]);
+
+    // ONE CHANGE, AND IT IS NOT TYPING.
+    setChoice(LABEL.offset, offsetPattern("+05:45"));
+    expect(shownValue(LABEL.offset), "the choice did not take").toBe("+05:45");
+    tick(DEBOUNCE);
+
+    expect(
+      store.calls.set,
+      "changing the offset armed nothing: the state moved and the autosave did not, so the correction is lost with the tab",
+    ).toHaveLength(1);
+    const payload = parseDraft(store.calls.set[0].value);
+    expect(Object.keys(payload).sort()).toEqual(DRAFT_FIELDS);
+    expect(payload.offset).toBe("+05:45");
+    // The mutation half: this really is the offset alone, with nothing typed.
+    expect(payload.headline).toBe("");
+    expect(payload.story).toBe("");
+  });
+
+  /**
+   * A DRAFT WRITTEN BEFORE THE CONTROL EXISTED, which is the decision the key
+   * did not move for — and the one way that decision can hurt the owner rather
+   * than merely disappoint them.
+   *
+   * `""` restored into the control literally is the blank `<select>` section 1c
+   * refuses on an unlisted offset, and the consequence is worse than a control
+   * that looks unfilled: the next save composes `dy:occurredAt` out of the wall
+   * clock and an empty string, and §3 requires an offset. So the fallback chain
+   * has to run — the same `offsetOf(existing?.occurredAt) ?? offsetHere(wall)`
+   * a fresh form uses — exactly as `restore()` already re-derives the precision
+   * when a draft carries a grid this build does not offer.
+   *
+   * WHAT WOULD BREAK IT: bumping the key to `v3` (the banner never appears and
+   * the prose is gone); making the field required (the same loss, quieter);
+   * `setOffset(draft.offset)` unconditionally, which is the blank control.
+   */
+  it("restores a draft written before the offset control without blanking it", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const before = { ...seededDraft() } as Partial<StoredDraft>;
+    delete before.offset;
+    // The fixture really is missing the field, or this test is about a payload
+    // that has one.
+    expect(Object.keys(before)).not.toContain("offset");
+
+    const store = fakeStorage({ [KEY]: JSON.stringify(before) });
+    await renderEditor(fake.session, { storage: store.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "a draft written before the offset control is no longer offered: the key moved, or the field is required",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    requireOffsetControl();
+    expect(
+      shownValue(LABEL.offset),
+      "an empty offset was restored into the control, so the next save has none to write (§3)",
+    ).toBe("+09:00");
+    // The mutation half: the prose the owner would lose really did come back.
+    expect(shownValue(LABEL.headline)).toBe("Rain on the Philosopher's Path");
+
+    // AND THE CONSEQUENCE, at the wire: a restored pre-offset draft still
+    // publishes a timestamp with an offset on it.
+    await clickSaveAndWait();
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(occurred?.value).toBe("2026-04-02T16:20:00+09:00");
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
   });
 });
 

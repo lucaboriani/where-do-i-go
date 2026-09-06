@@ -439,15 +439,19 @@ function placeFor(
   text: PlaceText,
 ): EntryPlace | undefined {
   // Start from what the entry already had, so a field this form does not hold
-  // survives; then let this save's answer overwrite it, `undefined` included.
+  // survives; then let this save's answer overwrite it, `undefined` INCLUDED.
+  // Spreading `undefined` over a stored value is what makes a removal a
+  // removal rather than an omission, so this is not a merge and must not
+  // become one.
   const place: EntryPlace = { ...existing, ...text, geo };
-  // Copy-and-DELETE rather than naming the survivors: a key present with an
-  // `undefined` value is not the same as an absent one — `Object.values` below
-  // would still see it, and an entry whose place was emptied would be written
-  // as a bare `<#place>`.
-  for (const field of ["name", "locality", "country", "geo"] as const) {
-    if (place[field] === undefined) delete place[field];
-  }
+  /* A KEY PRESENT WITH AN `undefined` VALUE IS NOT CONTENT, and needs no
+     delete pass to say so — a loop that deleted them stood here and was a
+     no-op with a comment claiming otherwise, which is worse than either half
+     alone. `Object.values({ name: undefined }).some((v) => v !== undefined)`
+     is already `false`, so an emptied place is `undefined` here rather than a
+     bare `<#place>` asserting nothing; and `lib/pod/entry-model.ts` guards
+     every field on truthiness or `!== undefined` before it writes a triple, so
+     the surviving keys produce no triples either. */
   return Object.values(place).some((value) => value !== undefined) ? place : undefined;
 }
 
@@ -460,10 +464,13 @@ function placeFor(
  * wrong would either publish `""@en` — an entry claiming to be somewhere called
  * nothing — or make a name impossible to retract once written.
  *
- * TRIMMED, BECAUSE A BOX HOLDING ONE SPACE IS AN EMPTY BOX to everyone except
- * `!==""`. `Place.name` requires a non-empty value, so an untrimmed blank would
- * be refused by the schema at save time — a validation failure standing in for
- * what the owner plainly meant, which is "take it off".
+ * TRIMMED, AND NOTHING DOWNSTREAM WOULD CATCH IT IF IT WERE NOT. `Place.name`
+ * is `min(1)` and `" ".length === 1`, so `Place.safeParse({ name: { value: " " } })`
+ * SUCCEEDS — measured, not assumed. An untrimmed one-space box therefore
+ * publishes `schema:name " "@en` on a world-readable resource: a name that
+ * renders as nothing everywhere, that no reader can see to delete, and that a
+ * `value === ""` check does not find either. Every guard between here and the
+ * Turtle asks "is it absent", and a space is not absent. This is the guard.
  *
  * THE LANGUAGE IS THE ENTRY'S OWN, exactly as the headline and the body get it,
  * so an entry written in another language keeps its tag. `locality` and
@@ -897,6 +904,12 @@ export default function EntryEditor({
    * instructions distinguishable at all. An editor that left these empty on an
    * edit would delete the place name of every entry whose headline was
    * corrected — silently, and only discoverable by reading the Pod.
+   *
+   * "SEEDED FROM THE ENTRY" STOPS BEING TRUE AT EXACTLY ONE MOMENT: `restore()`,
+   * which writes these controls from a stored draft rather than from the entry.
+   * That is where the missing flag would otherwise have been needed, and it is
+   * handled there instead — a draft field that is ABSENT leaves the control
+   * alone, and only an explicitly empty one empties it.
    */
   const [placeName, setPlaceName] = useState(existing?.place?.name?.value ?? "");
   const [locality, setLocality] = useState(existing?.place?.locality ?? "");
@@ -1611,20 +1624,33 @@ export default function EntryEditor({
      */
     setPrecision(gridOf(draft.precision) === null ? presetPrecision : draft.precision);
     /**
-     * THE PLACE TEXT GOES BACK VERBATIM, empties included — and the empties are
-     * the point rather than a corner case. A draft written before these
-     * controls existed has three empty strings put there by the schema's
-     * `.default("")`, which is why the key stayed at `v2`: it restores the
-     * truth about that draft instead of being refused outright and taking the
-     * owner's unsaved prose with it (lib/studio/drafts.ts).
+     * THE PLACE TEXT GOES BACK VERBATIM — EXCEPT WHERE THE PAYLOAD CANNOT SPEAK
+     * FOR THE FIELD AT ALL, and that exception is the whole of it.
      *
-     * On an EDIT that means a restore can also empty a box that had a stored
-     * name in it, and that is correct: the draft is what the owner last had on
-     * the screen, and the banner they clicked said so.
+     * `""` and absent are DIFFERENT INSTRUCTIONS here, which is why
+     * lib/studio/drafts.ts makes these three `.optional()` rather than giving
+     * them a default. An empty string is a box the owner emptied, and in
+     * `placeTextOf` that is REMOVE; an absent field is a `v2` payload written
+     * before these controls existed, which has no opinion about the place
+     * because there was no control to form one with.
+     *
+     * WRITING `undefined` THROUGH AS `""` IS A SILENT DELETION FROM THE POD.
+     * Restore such a draft onto an entry that already has a name and the boxes
+     * go empty, and the next save removes `schema:name` and the whole
+     * `<#address>` — the half-restore the version segment exists to prevent,
+     * arrived at by the operator chosen to avoid a version bump. `?? placeName`
+     * is therefore "leave the control showing whatever it is showing", which on
+     * an edit is the stored value.
+     *
+     * IT IS ALSO WHAT KEEPS THE `placeName` STATE'S ARGUMENT TRUE. That note
+     * says these controls need no `touchedPlaceText` flag because they are
+     * seeded from the entry — and a restore is the one moment that stops being
+     * true, since it writes the controls from something other than the entry.
+     * Leaving an absent field alone is what closes that gap.
      */
-    setPlaceName(draft.placeName);
-    setLocality(draft.locality);
-    setCountry(draft.country);
+    setPlaceName(draft.placeName ?? placeName);
+    setLocality(draft.locality ?? locality);
+    setCountry(draft.country ?? country);
     /**
      * THE PHOTOS COME BACK ALREADY UPLOADED, which is the whole reason the pick
      * is the upload: these are URLs on the Pod, so a draft restored in a new tab

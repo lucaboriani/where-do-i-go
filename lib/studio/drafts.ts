@@ -105,15 +105,14 @@ export interface DraftAddress {
  * exchange for nothing.
  *
  * **`placeName`, `locality` AND `country` ARRIVED ON 2026-09-06 AND THE KEY DID
- * NOT MOVE EITHER** — the third time that test is applied and the second time
- * it is answered "no", for the identical reason. No `v2` payload can carry a
- * place name, because the editor had no place controls when `v2` payloads were
- * written, so such a draft restores three EMPTY boxes. That is the truth about
- * that draft rather than a default standing in for something lost, and it is
- * what the `.default("")` on each of the three below buys. Without the default
- * they would be REQUIRED, `safeParse` would refuse the whole older payload, and
- * the long entry the owner is trying not to lose would be lost by a quieter
- * route than a version bump — same outcome, no marker in the key to explain it.
+ * NOT MOVE EITHER**, and here the answer required a THIRD option rather than a
+ * yes or a no. No `v2` payload can carry a place name, so a bump would throw
+ * away real unsaved prose for nothing — but unlike `photos`, an absent place
+ * field cannot safely be given a default, because in the editor `""` means
+ * REMOVE and would delete the place of the entry being edited. The three are
+ * therefore `.optional()`, which keeps "absent" distinguishable from "emptied"
+ * all the way to `restore()`. See their own docblock below: this is the one
+ * field group where the version segment is not the only fence.
  */
 export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
 
@@ -196,16 +195,40 @@ const Draft = z.object({
    * about the triple, decided at save time from the entry's own language, and
    * putting one in the draft would freeze it against a build that changes it.
    *
-   * `.default("")` RATHER THAN `.optional()`, AND IT IS WHAT LETS THE KEY STAY
-   * AT `v2` — see `draftKey`. `""` is a real value here: it is the ordinary
-   * draft, whose owner has not said where they were yet, and in the editor it
-   * is also the instruction "remove this", which is a different instruction
-   * from "left alone". An `.optional()` would collapse the two, and a bare
-   * required `z.string()` would make every pre-place payload unreadable.
+   * ───────────────────────────────────────────────────────────────────────
+   * `.optional()`, NOT `.default("")`, AND THAT CHOICE IS THE OPPOSITE OF THE
+   * ONE THIS DOCBLOCK ORIGINALLY MADE. It said `.optional()` "would collapse"
+   * the difference between an empty box and an absent field. That is backwards,
+   * and the operator that collapses it is the one it recommended. Measured with
+   * `safeParse` on zod 4.5.4 rather than reasoned about:
+   *
+   *   `.default("")`  absent → `{}`  becomes `""`;  `""` → `""`   COLLAPSED
+   *   `.optional()`   absent → key absent;          `""` → `""`   PRESERVED
+   *
+   * THE DIFFERENCE IS NOT ACADEMIC, because in the editor `""` is not merely
+   * "nothing typed" — it is the instruction REMOVE THIS, and it is the only way
+   * a name already on the Pod can be taken off a world-readable resource. So
+   * with `.default("")`, restoring a draft written before these controls
+   * existed onto an entry that HAS a place name feeds `""` into three controls
+   * and the next save deletes `schema:name` and the whole `<#address>`. That is
+   * precisely the half-restore the version segment exists to prevent, reached
+   * by the operator chosen to avoid a version bump.
+   *
+   * THE `photos` PRECEDENT DOES NOT TRANSFER, which is what made it look safe.
+   * A restored empty photo list is harmless because `photosFor` re-carries
+   * `existing.photos` at save time, so the form state is not the last word.
+   * Place text has no such carry-through: the form state IS the answer, and an
+   * empty box is an instruction rather than an absence of one.
+   *
+   * A bare required `z.string()` is the other horn and is also wrong — it
+   * refuses the whole older payload, losing the unsaved prose the key was left
+   * at `v2` to protect. `.optional()` takes neither: the older payload restores
+   * its prose, and `components/studio/entry-editor.tsx`'s `restore()` leaves a
+   * control alone when the field is absent rather than emptying it.
    */
-  placeName: z.string().default(""),
-  locality: z.string().default(""),
-  country: z.string().default(""),
+  placeName: z.string().optional(),
+  locality: z.string().optional(),
+  country: z.string().optional(),
   /**
    * THE PHOTOS ALREADY ON THE POD, and the only field here that is not a string
    * off a form control — because by the time one is in this list it is not a
