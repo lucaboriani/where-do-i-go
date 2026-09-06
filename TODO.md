@@ -861,8 +861,163 @@ In progress on branch `phase-2-studio`.
 
 ## Phase 3 — media
 
-- [ ] Client-side resize in a Web Worker: thumb, web, blur placeholder
-- [ ] EXIF read then strip; auto-place and auto-date from photo GPS
+- [ ] EXIF read then strip; auto-place and auto-date from photo GPS. **Stage 2, and it has its
+      own plan** — deliberately not ticked by the stage-1 work below. The read half already
+      exists (`lib/media/exif.ts`, 15 tests) and the editor computes `derived.metadata` on every
+      photo and then throws it away, which is correct staging rather than waste: `DateTimeOriginal`
+      is a wall clock with no UTC offset and §6 requires one, and the GPS is a coordinate that has
+      to go through §9's fuzzing before anything may publish it.
+- [x] **Client-side resize in a Web Worker: thumb, web, blur placeholder.** Landed 2026-09-06.
+      `lib/media/{targets,exif,pipeline,pipeline.worker,upload}.ts`, a photo control in the entry
+      editor, `dy:blurDataUrl` as a new term, and `e2e/media-pipeline.spec.ts`. 931 tests,
+      0 skipped, 2 todo, 29 files; `test:e2e` 5 passed; `size:public` 176.4 kB against a 190 kB
+      budget with `exifreader`, `n3`, `maplibre-gl`, both Inrupt packages and radix all absent
+      from every public chunk.
+
+      **The original is hashed and never uploaded.** The three derivatives are re-encoded from a
+      decoded bitmap, and *the re-encode is what strips the EXIF* — not a metadata filter that
+      could be configured wrong, and not a strip step that could be skipped. The content address
+      is SHA-256 over the ORIGINAL bytes, so re-picking the same file yields the same IRIs and a
+      412 on the web PUT is reuse rather than a failure; a partial upload self-heals on retry for
+      the same reason.
+
+      **Four ways this could have failed silently, and the guard for each.** Every one was applied
+      as a mutation and watched go red — except where it could not be, which is said rather than
+      glossed.
+      - **`convertToBlob` does not throw for a type it cannot encode; it returns PNG.** So the
+        extension and `schema:encodingFormat` come from `blob.type` READ BACK, never from the type
+        that was requested, and a type we do not recognise fails at the call site instead of
+        writing `web.undefined`. The plain mutation — trust the requested type — is inert on a
+        WebP-capable Chromium, which is every current one, so the underlying condition was forced
+        instead (request `image/avif`): with the read-back removed the test fails on `web.png`
+        with magic `137 80 78 71`. Reported as forced, not as a red that was not seen.
+      - **Always re-encode. There is no "the source is already small, skip it" shortcut**, and a
+        pass-through would upload the owner's untouched file — GPS included — into a publicly
+        readable container. Guarded by an 800×600 fixture carrying southern/western GPS, and see
+        the note below on why the two tests the plan asked for could not see it.
+      - **Orientation is the decoder's job, and the targets come from the BITMAP.**
+        `createImageBitmap(file, { imageOrientation: "from-image" })`, then `fitWithin` is fed
+        `bitmap.width/height` — never the file's declared pair — so an orientation-6 photo stores
+        the dimensions it actually renders at. There is no rotation maths anywhere.
+      - **The blur placeholder is DROPPED when it exceeds 1200 bytes, never truncated.** It rides
+        inside the entry's Turtle, which is public and fetched on every page view, so an oversized
+        one degrades every reader's first paint multiplied by photo count; a missing one degrades
+        to a plain image load. `withinBlurBudget` measures encoded BYTES, not characters.
+
+      **The most valuable thing found in this whole stage: the plan's own Playwright tests could
+      not see the mutation the Playwright leg exists for.** The pass-through guard is
+      `bitmap.width <= longestEdge && …`, which is FALSE for the 3000×2000 fixture the plan
+      specified at the 1600 box — so the "skip the re-encode" mutation is **inert** against both
+      briefed tests and both stay green. A third test at 800×600 with southern/western GPS is what
+      catches it, failing on "GPS survived into …/web.jpg". Without that test, the single defect
+      the entire e2e leg was written for would have shipped under a green suite *and* a mutation
+      report claiming it was covered. A mutation is only evidence where the fixture can reach it.
+
+      **`imageOrientation: "from-image"` is inert on the only browser this repo installs, so
+      `test:e2e` is NOT a fence against deleting it.** Measured: this Chromium decodes the same
+      orientation-6 JPEG as 2000×3000 with the option, without it, and with `"none"` — the three
+      variants attested in `e2e/media-pipeline.spec.ts`'s header, which is where to re-check this
+      rather than here. So test 2 pins
+      "the targets follow the decoded bitmap", not "the option is present", and transposing the
+      pair fed to `fitWithin` — the same defect reached another way — is what turns all three
+      media tests red. Safari and Firefox are where a deletion would show, as sideways photos, with
+      nothing red here. The alternatives were both worse — restructuring a deliberately thin
+      worker for vitest loadability to guard one deletion, or adding a second 178 MB browser to a
+      definition of done kept to eight commands — so **the gap is documented rather than fenced,
+      and accepted knowingly.** It is written into `e2e/media-pipeline.spec.ts`'s header as what
+      that spec measurably cannot catch.
+
+      **The EXIF fixtures are built byte by byte rather than committed** (`test/fixtures/exif-jpeg.ts`,
+      193 lines, no dependency). A committed binary is opaque in a diff, cannot be varied per test,
+      and nobody can review it; a builder can produce N/E and S/W GPS, orientation 6 and 8,
+      `DateTimeOriginal` with and without an offset, an empty EXIF block and a bare JPEG with no
+      APP1 segment at all — each verified against `exifreader` 4.44.0. `spliceExif` then puts real
+      EXIF into a real encoded JPEG for the browser tests.
+
+      **Corrections to two things this file and the project's memory had recorded wrongly:**
+      - **`putGuarded`'s `extraHeaders` `it.todo` describes a hazard that does not exist.**
+        `lib/pod/write.ts:44-46` spreads `extraHeaders` FIRST and assigns the precondition keys
+        after, so `if-none-match`/`if-match` always win. A caller passing a precondition through
+        `extraHeaders` gets it silently overwritten — a different and much smaller thing than
+        defeating a precondition, which is what it had been carried as. Verified by reading the
+        assignment order, then independently by the reviewer.
+      - **`test/guardrails.test.ts`'s allow-case block was vacuous, and had been since the day it
+        was written.** It lint-tested a JSX snippet against `.ts` paths; ESLint answers an
+        unparseable snippet with exactly one `{ fatal: true, ruleId: null }` message and NO rule
+        messages, so `not.toContain("no-restricted-imports")` passed on a file that was never
+        parsed. Measured: `lintText` returned `[null]` for that pair versus
+        `["no-restricted-imports"]` for the same import at a `.tsx` path. **The pre-existing
+        `["lib/media/resize.ts", "exifreader"]` pin was therefore proving nothing.** Fixed with a
+        JSX-free snippet plus `expect(fatals(msgs)).toEqual([])` — and `fatals` was already in
+        that file, called at three other blocks, for exactly this. Nothing would have surfaced it
+        except demanding that a new pin be PROVED load-bearing by widening the fence and watching
+        it fail.
+
+      **Known limitation, not a bug: HEIC.** `createImageBitmap` decodes HEIC in Safari and not in
+      Chrome or Firefox, and iPhones shoot it by default (iOS's picker usually transcodes to JPEG,
+      but not on every path). A decoder is a large dependency for a format the source device can
+      be asked to avoid, so the answer is an explicit failure rather than a photo that silently
+      does nothing: the slot goes to `failed` and the editor renders
+      `"<file name> was not attached: <message>"` beside it, per photo, with the rest of the batch
+      unaffected.
+
+      - [ ] **The HEIC message is the browser's, not ours.** The spec's §12 wording — "this
+            browser cannot read HEIC; export as JPEG" — is not implemented; what surfaces is the
+            decoder's own `DOMException`, which is attributable but not actionable. One mapping in
+            the worker's reject path, with a test.
+      - [ ] **No photo removal control, and no retry — one UI task, not two.** An accidental
+            attach can only be undone by reloading the editor, and the derivatives stay on the Pod
+            either way. The reviewer's verdict was "ship stage 1; file the removal control as the
+            next UI task rather than deferring it indefinitely", so it is filed here as a task and
+            not a footnote. It needs: a control per slot, removal from `photos[]` with the
+            remaining `sortOrder`s left alone (they are positions, not indices —
+            `lib/pod/entry-model.ts:161` serialises `sortOrder ?? i + 1` one-based), and a
+            decision about whether removal deletes the binaries or leaves them, which is the
+            orphan question below.
+
+            **Retry is specified and was never built, and the two are the same control.** §8 asks
+            for a "per-photo state machine: decoding → uploading → ready | failed, *with retry*".
+            There is no retry affordance anywhere: a failed slot renders a permanent
+            `role="alert"` row that cannot be dismissed, and with no removal control either, the
+            only escape from a failed photo is reloading the editor and losing the draft.
+            Re-picking the same file does work — the content-addressed path makes it idempotent —
+            but it leaves the failed row in place and adds a second slot beside it. So a slot
+            needs both verbs, and retrying is nearly free: the source bytes are already held (see
+            the multi-pick bullet below, which wants to stop holding them) and a repeat upload of
+            an already-written derivative is the 412-as-reuse path.
+      - [ ] **Multi-pick reads every original into main-thread memory at once — the tab-kill the
+            worker queue exists to prevent, reached from the other side.** `attach` runs to its
+            first `await` synchronously, and the picker handler is
+            `for (const file of picked) void attach(file)`
+            (`components/studio/entry-editor.tsx:2141` at this commit). So N `file.arrayBuffer()`
+            reads start in a single tick; only `process()` is serialised behind the single-worker
+            queue, and `source` stays captured for the whole slot's life, until `uploadPhoto`
+            returns. Twelve 50 MP photos at ~25 MB each is ~300 MB held on the main thread while
+            the worker holds its own ~200 MB bitmap. There is no size guard and no count guard.
+            It also contradicts the spec's "keeps the raw file bytes off the main thread": the
+            file is read twice, once in `attach` for the hash and once in the worker's `run()`.
+
+            **The fix worth recording, because it removes the read rather than throttling it:**
+            hash in the worker. `run()` already has `bytes` (`lib/media/pipeline.worker.ts:77`),
+            so return `sourceHash` on `TransferableResult` and change `UploadPhotoOptions.source`
+            from `ArrayBuffer` to `hash: string`. The main thread then never calls
+            `arrayBuffer()` at all, and `File` stays a handle to disk. Serialising the picks
+            would also bound the peak, but it keeps the double read and the spec violation.
+
+            **Coverage gap, filed with it: nothing anywhere picks more than one file.** Every
+            test — unit, MSW and Playwright — attaches a single photo, so the multi-pick handler
+            that causes this has never been exercised at all. Whatever lands here needs a
+            multi-file pick in the test that would have caught it.
+      - [ ] **Orphaned media is accepted, with no cleanup pass.** A photo that uploads and is then
+            abandoned — the entry is never saved, the tab is closed, a slot is removed — leaves
+            two binaries in `/travel/media/<hash>/` that nothing references. Accepted for stage 1
+            because the alternative is not cheap: **the Pod cannot be queried**, so deciding
+            whether one blob is unreferenced means enumerating the media container and then
+            reading every entry of every trip to see if anything points at it — an O(entries)
+            crawl for each candidate, with no index that answers it. Content addressing bounds the
+            damage: the same photo uploaded twice occupies one address, not two. If a cleanup is
+            ever wanted it belongs in an index resource (§7.4), designed as such rather than
+            bolted on.
 - [x] **Coordinate fuzzing with a configurable home radius.** Landed 2026-09-06. `lib/pod/fuzz.ts`
       (121 tests), `/travel/settings/privacy.ttl` with four new `dy:` terms, `readPrivacySettings`,
       and three controls in the editor. 872 tests, 0 skipped; all eight checks plus `test:e2e`.

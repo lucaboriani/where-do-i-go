@@ -232,9 +232,31 @@ const eslintConfig = defineConfig([
           ],
           patterns: [
             {
-              group: ["**/app/(studio)/**", "**/(studio)/**"],
+              // components/studio/** has NO PARENTHESES, so neither
+              // "**/app/(studio)/**" nor "**/(studio)/**" matched it and the
+              // whole media subsystem was reachable from a public page in one
+              // import. Measured, not inferred: at
+              // app/(public)/__fence-probe.tsx, `@/lib/media`,
+              // `@/lib/studio/session` and `@/app/(studio)/layout` were each
+              // reported while `@/components/studio/entry-editor` produced no
+              // output at all — and that one import drags lib/media/*,
+              // lib/pod/{write,save-entry,access} → @inrupt/solid-client,
+              // lib/studio/* → the auth library, and Radix into the public
+              // graph. Reusing `Field` or the tag parser out of the editor is
+              // the obvious move that trips it.
+              //
+              // The bare directory AND the subpath, for the gitignore-semantics
+              // reason spelled out at the lib/media entry below: "**/x/**" alone
+              // does not match a bare "@/x" import resolving to an index file.
+              // That exact hole was already found and closed once on this branch.
+              group: [
+                "**/app/(studio)/**",
+                "**/(studio)/**",
+                "**/components/studio",
+                "**/components/studio/**",
+              ],
               message:
-                "app/(public) must never import from (studio). Separate root layouts are what keep the bundles apart.",
+                "app/(public) must never import from (studio), including components/studio. Separate root layouts are what keep the bundles apart.",
             },
             {
               group: ["@inrupt/solid-client-authn-browser", "@inrupt/solid-client-authn-browser/**"],
@@ -306,7 +328,19 @@ const eslintConfig = defineConfig([
                 "lib/studio is studio-only. It wraps @inrupt/solid-client-authn-browser, so importing it from a public route drags the auth library into the public bundle indirectly — the ban on the library itself, one step removed.",
             },
             {
-              group: ["exifreader", "**/lib/media/**"],
+              // The bare directory AND the subpath, matching the lib/studio
+              // fence above. no-restricted-imports matches these groups with
+              // gitignore semantics, not minimatch, so "**/lib/media/**" alone
+              // does NOT match a bare "@/lib/media" import resolving to an
+              // index file. Measured, not inferred: before this entry existed,
+              // linting `import * as m from "@/lib/media"` at
+              // app/(public)/__fence-probe.tsx reported nothing at all, while
+              // the same file importing "@/lib/media/resize" was reported —
+              // so the file was being linted and the fence simply did not
+              // match. There is no lib/media/index.ts today; this closes the
+              // hole before there is one, which is the only time it can be
+              // closed without a public bundle already carrying the weight.
+              group: ["exifreader", "**/lib/media", "**/lib/media/**"],
               message:
                 "Image-processing code is studio-only; it must not weigh down the public bundle.",
             },

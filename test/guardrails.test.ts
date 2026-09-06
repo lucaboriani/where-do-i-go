@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
+import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
+import { Photo } from "@/lib/pod/schema";
 
 /**
  * TODO.md phase 0.5: "A deliberate violation of each guardrail rule fails CI —
@@ -10,6 +12,10 @@ import config from "../eslint.config.mjs";
  * Each case lints a snippet *at a path where the rule is supposed to apply*,
  * because every guardrail here is path-scoped. Linting the right code at the
  * wrong path proves nothing.
+ *
+ * A SECOND describe at the foot of this file is deliberately not a lint case.
+ * It guards a constant that a lint fence forced to be duplicated; its own
+ * comment says why it lives here.
  */
 
 const eslint = new ESLint({ cwd: process.cwd() });
@@ -422,6 +428,25 @@ describe("guardrails actually fire", () => {
     // half precisely so a path that never spells `app/` is still caught.
     ["components/public/thing.tsx", "../../app/(studio)/studio/page"],
     ["app/not-found.tsx", "@/app/(studio)/studio/page"],
+    // components/studio/** — NO PARENTHESES, so for a while neither
+    // `**/app/(studio)/**` nor `**/(studio)/**` matched it and this was the
+    // one unfenced door into the whole media subsystem. Probed before the
+    // fix, not inferred: `@/lib/media`, `@/lib/studio/session` and
+    // `@/app/(studio)/layout` were each reported at app/(public), while
+    // `@/components/studio/entry-editor` produced no output at all — and that
+    // single import drags lib/media/*, lib/pod/{write,save-entry,access} →
+    // @inrupt/solid-client, lib/studio/* → the auth library, and Radix into
+    // the public graph. Wanting to reuse `Field` or the tag parser out of the
+    // editor is the ordinary reason someone writes it.
+    ["app/(public)/thing.tsx", "@/components/studio/entry-editor"],
+    // The BARE directory as well as the subpath. Under the gitignore
+    // semantics no-restricted-imports uses, `**/components/studio/**` does not
+    // match a bare `@/components/studio` resolving to an index file — the same
+    // hole that had to be closed separately for lib/media, so it is pinned
+    // here rather than left to be rediscovered a third time.
+    ["app/(public)/thing.tsx", "@/components/studio"],
+    ["components/public/thing.tsx", "../../components/studio/entry-editor"],
+    ["app/not-found.tsx", "@/components/studio/studio-shell"],
   ])("rejects %s importing %s — separate root layouts keep the bundles apart", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -439,6 +464,30 @@ describe("guardrails actually fire", () => {
       "app/(studio)/studio/page.tsx",
       `import Shell from "@/app/(studio)/studio/shell";\nexport default Shell;\n`,
     );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * And the allow-case for the components/studio half, which is the whole
+   * point of it being a fence rather than a ban: app/(studio)/studio/page.tsx
+   * → the "use client" wrapper → components/studio/studio-shell.tsx IS the
+   * three-file shape CLAUDE.md mandates. Widen the group past the public block
+   * and the studio can no longer render itself.
+   *
+   * `fatals` first, for the reason at the top of this file: these snippets are
+   * linted at `.tsx` paths and a mistyped one would yield a parse error and no
+   * rule messages, on which `not.toContain` passes having checked nothing.
+   */
+  it.each([
+    ["app/(studio)/studio/page.tsx", "@/components/studio/studio-shell"],
+    ["components/studio/studio-shell.tsx", "@/components/studio/entry-editor"],
+  ])("allows %s to import %s — the studio has to be able to render itself", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import X from "${moduleSpecifier}";\nexport default function T() { return <div>{String(X)}</div>; }\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 
@@ -454,6 +503,19 @@ describe("guardrails actually fire", () => {
     ["components/public/thing.tsx", "exifreader"],
     ["app/(public)/thing.tsx", "@/lib/media/resize"],
     ["app/not-found.tsx", "@/lib/media/resize"],
+    // THE HOLE THIS CASE HOLDS SHUT, the same one lib/studio already closed
+    // below. no-restricted-imports matches `group` with gitignore semantics,
+    // not minimatch, so `**/lib/media/**` does NOT match the bare specifier —
+    // the pattern group needs a `**/lib/media` half of its own, and this is
+    // the only case that notices if someone drops it. Measured before it was
+    // added, not inferred: linting this exact import at app/(public) produced
+    // no no-restricted-imports message at all, while `@/lib/media/resize` at
+    // the same path was reported, so the file was being linted and the fence
+    // simply missed. Latent only because nothing resolves at lib/media today;
+    // the moment someone adds lib/media/index.ts, `@/lib/media` is a working
+    // import on a public page and the whole fence is bypassed by dropping a
+    // filename.
+    ["app/(public)/thing.tsx", "@/lib/media"],
   ])("rejects %s importing %s — image processing is studio-only", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -465,16 +527,48 @@ describe("guardrails actually fire", () => {
     ).toContain(moduleSpecifier);
   });
 
-  /** The allow-cases: the studio, and lib/media itself, must keep using it. */
+  /**
+   * The allow-cases: the studio, and lib/media itself, must keep using it.
+   *
+   * THE SNIPPET IS DELIBERATELY JSX-FREE, AND THAT IS THE WHOLE POINT OF THIS
+   * COMMENT. Until 2026-09-06 this block linted `return <div>{String(mod)}</div>`
+   * — JSX — at `lib/media/resize.ts`, a `.ts` path where the parser rejects it.
+   * ESLint answers a snippet it cannot parse with exactly ONE message, `fatal:
+   * true` and `ruleId: null`, and no rule messages at all, so `not.toContain
+   * ("no-restricted-imports")` passed on a file that was never linted. Measured:
+   * `lintText` returned `[null]` for that pair, versus
+   * `["no-restricted-imports"]` for the same import at a `.tsx` path. That is
+   * this repository's "green run that verified nothing" in miniature, and the
+   * `fatals` helper at the top of this file exists for precisely it — the block
+   * simply never called it. Both halves are now fixed: a snippet that parses as
+   * .ts and .tsx alike, and the assertion that would have caught it.
+   */
   it.each([
     ["app/(studio)/thing.tsx", "exifreader"],
     ["lib/media/resize.ts", "exifreader"],
     ["app/(studio)/thing.tsx", "@/lib/media/resize"],
+    // The bare specifier on the allowed side too: widening the pattern group
+    // to catch `@/lib/media` must not fence the studio out of its own media
+    // code. A fence that rejects everything proves nothing and blocks the work.
+    ["app/(studio)/thing.tsx", "@/lib/media"],
+    // THE MEDIA PIPELINE'S ONLY WRITE PATH. lib/media/upload.ts imports
+    // putGuarded, because a binary upload goes through the one guarded write
+    // like everything else — a second hand-rolled PUT for binaries is a blind
+    // PUT waiting to happen. It is allowed today only because the fence block
+    // above is scoped to `files: ["app/(public)/**", "components/public/**",
+    // "app/not-found.tsx", "app/global-error.tsx"]`, which never reaches
+    // lib/media. That is a property of an array someone could widen in one
+    // keystroke, and nothing else would notice: `lib/pod/write` IS in the
+    // fenced group, so adding "lib/**" to that files array breaks the media
+    // pipeline's write path with no other test going red. Verified by doing
+    // exactly that — this case turns red under the widening and green again
+    // when it is reverted, so it pins the scope and not just the group.
+    ["lib/media/upload.ts", "@/lib/pod/write"],
   ])("allows %s to import %s", async (path, moduleSpecifier) => {
-    const msgs = await lint(
-      path,
-      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
-    );
+    const msgs = await lint(path, `import * as mod from "${moduleSpecifier}";\nexport const used = String(mod);\n`);
+    // Before the rule assertion, not after: an allow-case that never parsed
+    // passes the line below for the wrong reason. See the block comment.
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 
@@ -827,4 +921,177 @@ describe("guardrails actually fire", () => {
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
+});
+
+/**
+ * ── A guardrail that is not a lint rule ─────────────────────────────────────
+ *
+ * WHY IT IS IN THIS FILE. Everything above proves a *fence* fires. This proves
+ * the invariant a fence made necessary. `app/(public)/**` may not import
+ * `**\/lib/media/**` (the "Image-processing code is studio-only" case above is
+ * what enforces it), and `lib/pod/schema.ts` is read by public pages — so the
+ * §6.4 blur budget could not be imported into it and had to be RESTATED there
+ * (c267678). Two numbers, in two modules, with no compiler and no linter
+ * holding them together: they can drift apart in silence, and the drift is
+ * invisible until either an oversized placeholder ships to every reader of a
+ * public page or a legitimate one is thrown away on read.
+ *
+ * A test file is under neither fence, so it may import both sides and hold them
+ * against each other. That is the entire reason the guard lives here rather
+ * than inside either module. `test/read.test.ts` was the other candidate and is
+ * the wrong home: it drives normative Turtle through `readEntry` over MSW, and
+ * this is not wire behaviour — it is two modules agreeing, which is what every
+ * other case in this file is about.
+ *
+ * NOT A RESTATEMENT, WHICH IS THE POINT. `expect(BLUR_BUDGET_BYTES).toBe(1200)`
+ * already exists, in test/media-targets.test.ts, and pins the VALUE. Nothing
+ * here names 1200. These cases compare the two implementations TO EACH OTHER,
+ * so they stay green when the budget is deliberately changed in both places and
+ * go red the moment it is changed in one — which is the only failure this is
+ * for. Asserting each side equals 1200 separately would be two restatements of
+ * a literal and would guard nothing.
+ *
+ * And the schema's ceiling is reached THROUGH THE SCHEMA — by parsing strings
+ * and finding where RETENTION flips — never by reading a constant or matching
+ * on `.max`. A refactor that expresses the ceiling some other way keeps this
+ * honest instead of breaking it.
+ *
+ * It bisects on retention rather than on acceptance because the ceiling stopped
+ * being a rejection: over budget now DISCARDS the placeholder and keeps the
+ * photo, so `safeParse` succeeds on both sides of the boundary. A bisection on
+ * `success` would find no boundary at all and would have gone quietly green
+ * forever — a guard that stops guarding, which is worse than the drift it was
+ * watching for. `effectiveCeilingBytes` throws rather than asserts for exactly
+ * that class of failure, and it throws in BOTH directions: no boundary above,
+ * and a boundary that is a rejection rather than a discard.
+ */
+describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () => {
+  const A_PHOTO = { contentUrl: "https://pod.example/travel/media/abc123/web.webp" };
+
+  /**
+   * Parse a Photo carrying exactly this placeholder, and report three things
+   * where this helper used to report one.
+   *
+   * `accepted` — did the PHOTO survive. Since the ceiling became a discard this
+   * must be true on both sides of the boundary, and asserting it is how these
+   * cases hold the fix in place: an over-budget placeholder costs the
+   * placeholder, never the photo, never the entry that contains it, and never
+   * that entry's row in the trip index that `rebuildIndex` rewrites.
+   *
+   * `kept` — did the PLACEHOLDER survive. This is the boundary the bisection
+   * below hunts, and the reason the helper had to change shape at all.
+   *
+   * `blamed` is not decoration: a rejection for an unrelated reason — a
+   * contentUrl that stopped being a valid URL, a field the schema later makes
+   * required — would otherwise surface as a bare `accepted: false` naming
+   * nothing, and every case here would report a boundary it never measured.
+   */
+  function parseBlur(blurDataUrl: string) {
+    const r = Photo.safeParse({ ...A_PHOTO, blurDataUrl });
+    return {
+      accepted: r.success,
+      kept: r.success && r.data.blurDataUrl === blurDataUrl,
+      value: r.success ? r.data.blurDataUrl : undefined,
+      blamed: r.success ? [] : r.error.issues.map((i) => i.path.join(".")),
+    };
+  }
+
+  it("the control photo parses AND keeps a small placeholder, so a discard below is the budget and not the fixture", () => {
+    expect(Photo.safeParse(A_PHOTO).success).toBe(true);
+    const tiny = parseBlur("data:image/webp;base64,AAAA");
+    expect(tiny.accepted).toBe(true);
+    // Without this second assertion a transform that discarded EVERY
+    // placeholder would satisfy every `accepted` check in this describe.
+    expect(tiny.kept).toBe(true);
+  });
+
+  /**
+   * The largest placeholder `Photo` KEEPS, in ASCII where one character is one
+   * byte, found by bisection rather than by reading the constant out of the
+   * module.
+   *
+   * Two degenerate schemas would make a bisection meaningless, and both throw
+   * here rather than returning a number this test invented:
+   *
+   *   - THE CEILING DELETED. The far probe is kept, so there is no boundary
+   *     below `hi` and bisection would return the top of its own probe range.
+   *   - THE CEILING FATAL AGAIN. The far probe is rejected rather than
+   *     discarded — the regression this whole change undoes. A bisection on
+   *     `kept` alone cannot tell it from a working discard, because a rejected
+   *     Photo has no `blurDataUrl` to keep either.
+   */
+  function effectiveCeilingBytes(): number {
+    let hi = 1 << 16;
+    const far = parseBlur("d".repeat(hi));
+    if (!far.accepted) {
+      throw new Error(
+        `Photo REJECTED a ${hi}-byte blurDataUrl (blamed: ${far.blamed.join(", ")}) instead of ` +
+          `discarding it — the read-side §6.4 ceiling is fatal to the whole photo again, and ` +
+          `with it to the entry and to that entry's row in the trip index`,
+      );
+    }
+    if (far.kept) {
+      throw new Error(
+        `Photo.blurDataUrl kept ${hi} bytes — the read-side §6.4 ceiling is gone entirely`,
+      );
+    }
+    let lo = 0; // the empty string is always kept: there is no .min() here
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      const probe = parseBlur("d".repeat(mid));
+      if (!probe.accepted) {
+        throw new Error(
+          `Photo REJECTED a ${mid}-byte blurDataUrl (blamed: ${probe.blamed.join(", ")}) — over ` +
+            `budget must discard the placeholder, not reject the photo`,
+        );
+      }
+      if (probe.kept) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  it("the ceiling lib/pod/schema.ts enforces on read IS BLUR_BUDGET_BYTES", () => {
+    expect(effectiveCeilingBytes()).toBe(BLUR_BUDGET_BYTES);
+  });
+
+  /**
+   * Both sides of the boundary, in ASCII and in two-byte codepoints.
+   *
+   * The multi-byte pair earns its place because the budget is BYTES while the
+   * obvious cheap spelling of a ceiling is a character count. Measured against
+   * the installed zod@4.5.4 rather than recalled: `z.string().max(n)` counts
+   * CODE POINTS — `"\u{1F600}".repeat(3)` has `.length` 6 and still passes
+   * `.max(3)` — so BLUR_BUDGET_BYTES/2 accented characters are half the budget
+   * in codepoints and all of it in bytes, and sail under any
+   * `.max(BLUR_BUDGET_BYTES)`. Only a byte measurement decides them. The ASCII
+   * bisection above cannot see it: there one character is one byte and every
+   * wrong unit agrees with the right one.
+   *
+   * Every probe length is derived from BLUR_BUDGET_BYTES, so changing that
+   * constant moves the probes and the schema stays where it is: the boundary
+   * they straddle is the one under test, not a fixed one.
+   */
+  const PROBES: [label: string, value: string][] = [
+    ["ascii, exactly at the budget", "d".repeat(BLUR_BUDGET_BYTES)],
+    ["ascii, one byte over", "d".repeat(BLUR_BUDGET_BYTES + 1)],
+    ["two-byte codepoints, exactly at the budget", "é".repeat(Math.floor(BLUR_BUDGET_BYTES / 2))],
+    ["two-byte codepoints, one codepoint over", "é".repeat(Math.floor(BLUR_BUDGET_BYTES / 2) + 1)],
+  ];
+
+  it.each(PROBES)(
+    "the read schema and withinBlurBudget agree on the same string — %s",
+    (_label, value) => {
+      const withinBudget = withinBlurBudget(value);
+      const onRead = parseBlur(value);
+      // Never fatal, on either side of the boundary. `blamed` first so that a
+      // failure names the field that objected instead of printing `false`.
+      expect(onRead.blamed).toEqual([]);
+      expect(onRead.accepted).toBe(true);
+      // The two implementations agreeing: what the writer would have emitted is
+      // exactly what the reader keeps.
+      expect(onRead.kept).toBe(withinBudget);
+      expect(onRead.value).toBe(withinBudget ? value : undefined);
+    },
+  );
 });

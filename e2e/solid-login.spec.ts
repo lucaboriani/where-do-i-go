@@ -1,19 +1,28 @@
 import { expect, test } from "@playwright/test";
 import { E2E } from "./environment";
+import { signInAsOwner } from "./sign-in";
 
 /**
  * The Solid login redirect — the one flow Playwright exists for in this project.
  *
  * WHY A BROWSER IS NECESSARY HERE AND NOWHERE ELSE. Everything else the studio
- * does is already pinned by fast tests: 23 component tests cover restoring,
- * signed-out, owner, not-owner and the expiry subscription against an injected
- * plain-object session, and test/session.test.ts covers signIn's arguments.
- * What none of them can reach is what an actual identity provider DOES with
- * those arguments — and the failure that matters is silent. Phase 0 found that
- * when the provider cannot use the static client ID document, login falls back
- * to DYNAMIC CLIENT REGISTRATION: the flow still completes, nothing throws and
- * no status code is wrong. There is no unit test of a screen on someone else's
- * server.
+ * does is already pinned by fast tests: test/studio-shell.test.tsx covers
+ * restoring, signed-out, owner, not-owner and the expiry subscription against
+ * an injected plain-object session, and test/session.test.ts covers signIn's
+ * arguments. What none of them can reach is what an actual identity provider
+ * DOES with those arguments — and the failure that matters is silent. Phase 0
+ * found that when the provider cannot use the static client ID document, login
+ * falls back to DYNAMIC CLIENT REGISTRATION: the flow still completes, nothing
+ * throws and no status code is wrong. There is no unit test of a screen on
+ * someone else's server.
+ *
+ * THE FILES ARE NAMED AND NO TOTAL IS GIVEN. This line said "23 component
+ * tests" until 2026-09-06, by which point `vitest list` reported 26 — the
+ * THIRD place on this branch found carrying that same stale number, after
+ * CLAUDE.md (fixed in 3c751c6, which also wrote the rule: name the file, do
+ * not reintroduce a total) and playwright.config.ts. A count in prose goes
+ * wrong the next time a test is added and nothing anywhere checks it, which
+ * is exactly why it went wrong three times. Let `vitest list` count.
  *
  * AND WHY IT IS TESTABLE AT ALL, WHICH PHASE 0 SAID IT WAS NOT. The provider
  * has to fetch `client-id.jsonld` over the network, so a dev machine cannot
@@ -134,76 +143,46 @@ test.describe("the Solid login redirect", () => {
   test("logs the owner in through the real provider and comes back to the owner studio", async ({
     page,
   }) => {
-    await page.goto("/studio");
-    await page.getByRole("button", { name: "Sign in" }).click();
-
     /**
-     * Community Solid Server's own login form.
+     * THE STEPS MOVED TO e2e/sign-in.ts; THE ASSERTIONS DID NOT.
      *
-     * `expect(page).toHaveURL` rather than `page.waitForURL`, for the failure
-     * message and nothing else: waitForURL reports "waiting for navigation
-     * until load" and leaves you guessing, while this prints the URL the
-     * browser is actually sitting on. Measured — with a deliberately wrong
-     * client_id, CSS answers the authorization request with its own "Server
-     * error" page, and being told that is the difference between a diagnosis
-     * and a timeout.
+     * e2e/media-pipeline.spec.ts needs a signed-in owner studio, and a second
+     * copy of this flow would be a second thing to keep in step with CSS. What
+     * the helper does NOT do is assert: it types the credential, passes the
+     * consent screen and waits for a settled signed-in state, and every claim
+     * this spec makes about the round trip is still made here — the consent
+     * screen through the `onConsent` hook, because that screen is gone the
+     * instant "Authorize" is pressed, and the rest below.
      */
-    await expect(page).toHaveURL(/\/\.account\/login\/password\//);
-    await page.getByLabel("Email").fill(E2E.email);
-    await page.getByLabel("Password").fill(E2E.password);
-    await page.getByRole("button", { name: "Log in" }).click();
+    const returned = await signInAsOwner(page, {
+      async onConsent(consenting) {
+        const client = consenting.locator(CONSENT_CLIENT);
 
-    /**
-     * The consent screen, and it is NOT conditional.
-     *
-     * @inrupt/solid-client-authn-browser sends `prompt=consent` on every login
-     * (dist/index.mjs: `prompt: oidcLoginOptions.prompt ?? "consent"`), so the
-     * provider must re-prompt however many times this has run before. Waiting
-     * for it unconditionally means that if it is ever skipped this test FAILS,
-     * rather than an `if (visible)` quietly stepping over the one assertion
-     * phase 0 could not make.
-     */
-    await expect(page).toHaveURL(/\/\.account\/oidc\/consent\//);
-    const client = page.locator(CONSENT_CLIENT);
+        /**
+         * A smoke check, and no more than that. See the header: the name is
+         * forwarded into a dynamic registration too, so it is identical on both
+         * paths. It is here because it says we are looking at THIS application's
+         * consent screen, not because it discriminates.
+         */
+        await expect(client).toContainText(E2E.siteName);
 
-    /**
-     * A smoke check, and no more than that. See the header: the name is
-     * forwarded into a dynamic registration too, so it is identical on both
-     * paths. It is here because it says we are looking at THIS application's
-     * consent screen, not because it discriminates.
-     */
-    await expect(client).toContainText(E2E.siteName);
-
-    /**
-     * THE HIGHEST-VALUE ASSERTION AVAILABLE HERE, and the one phase 0 could not
-     * make from a dev machine.
-     *
-     * `toHaveText`, not `toContainText`: an exact match on the whole cell. On
-     * the static path this is the URL of the document the provider fetched; on
-     * the dynamic-registration fallback it is a short opaque handle the
-     * provider minted, which contains the URL nowhere. That single cell is
-     * therefore the whole difference between "the identity provider used the
-     * client ID document this app publishes" and "the identity provider could
-     * not, and quietly registered a throwaway client instead" — a login that
-     * still works, which is exactly why nothing else catches it.
-     */
-    await expect(client.locator(CONSENT_CLIENT_ID)).toHaveText(E2E.clientId);
-
-    /** Left unchecked so the run does not accumulate remembered grants on a
-     *  shared dev server. */
-    await page.getByLabel("Remember this client").uncheck();
-
-    /**
-     * The navigation to `redirect_uri` itself, captured before the click for
-     * the same reason as the authorization request: `handleIncomingRedirect`
-     * rewrites the address bar once it has consumed the code.
-     */
-    const back = page.waitForRequest(
-      (candidate) =>
-        candidate.isNavigationRequest() && candidate.url().startsWith(`${E2E.redirectUri}?`),
-    );
-    await page.getByRole("button", { name: "Authorize" }).click();
-    const returned = new URL((await back).url());
+        /**
+         * THE HIGHEST-VALUE ASSERTION AVAILABLE HERE, and the one phase 0 could
+         * not make from a dev machine.
+         *
+         * `toHaveText`, not `toContainText`: an exact match on the whole cell.
+         * On the static path this is the URL of the document the provider
+         * fetched; on the dynamic-registration fallback it is a short opaque
+         * handle the provider minted, which contains the URL nowhere. That
+         * single cell is therefore the whole difference between "the identity
+         * provider used the client ID document this app publishes" and "the
+         * identity provider could not, and quietly registered a throwaway
+         * client instead" — a login that still works, which is exactly why
+         * nothing else catches it.
+         */
+        await expect(client.locator(CONSENT_CLIENT_ID)).toHaveText(E2E.clientId);
+      },
+    });
 
     /** An authorization code really came back to the URL the client ID document
      *  advertises — the round trip closed, rather than the provider bouncing us
@@ -224,6 +203,10 @@ test.describe("the Solid login redirect", () => {
      * locked out of their own diary with no error anywhere. The explicit
      * absence of the not-owner wording below is what makes that failure loud
      * here instead of merely different.
+     *
+     * It is asserted HERE and not inside the helper on purpose. The helper
+     * waits for `Sign out`, which renders on the owner and not-owner branches
+     * alike, so nothing it does pre-empts this discrimination.
      *
      * And reaching a settled signed-in state at all is the StrictMode path from
      * docs/phase-0-spike.md question 2: under a development React build the

@@ -414,6 +414,41 @@ describe("putGuarded — the precondition is the point", () => {
     if (!r.ok) return;
     expect(r.value.etag).toBeNull();
   });
+
+  it("PUTs a Blob body with its own content type, still under a precondition", async () => {
+    // The media pipeline uploads binaries. Widening the body type is what lets
+    // every guarded write in the project keep going through this one function:
+    // a second hand-rolled PUT for binaries is a blind PUT waiting to happen.
+    const seen: { contentType: string | null; ifNoneMatch: string | null; bytes: number }[] = [];
+    server.use(
+      http.put(`${POD}travel/media/deadbeef/web.webp`, async ({ request }) => {
+        seen.push({
+          contentType: request.headers.get("content-type"),
+          ifNoneMatch: request.headers.get("if-none-match"),
+          bytes: (await request.arrayBuffer()).byteLength,
+        });
+        return new HttpResponse(null, { status: 201, headers: { etag: '"w1"' } });
+      }),
+    );
+
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4, 5])], { type: "image/webp" });
+    const result = await putGuarded(
+      fetch as PodFetch,
+      `${POD}travel/media/deadbeef/web.webp`,
+      blob,
+      { create: true },
+      "image/webp",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.contentType).toBe("image/webp");
+    // The precondition is the point: a binary write is not exempt from it.
+    expect(seen[0]!.ifNoneMatch).toBe("*");
+    // Assert the BODY arrived, not just the headers. A widening that dropped
+    // the body would pass every header assertion above.
+    expect(seen[0]!.bytes).toBe(5);
+  });
 });
 
 /* ----------------------------------------------------------- listContainer */

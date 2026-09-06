@@ -122,6 +122,7 @@ export const DY = {
   // Media and misc
   coverImage: dy("coverImage"),
   originalUrl: dy("originalUrl"),
+  blurDataUrl: dy("blurDataUrl"),
   track: dy("track"),
   tag: dy("tag"),
 

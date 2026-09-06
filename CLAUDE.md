@@ -123,7 +123,7 @@ Work is **not done** until all of these pass. Run them, read the output, and onl
 and pass on an unsupported runtime, so a green result on the wrong Node proves less than it looks.
 
 ```
-npm run pod:dev &           # FIRST — see below. `npm test` silently skips 23 tests without it
+npm run pod:dev &           # FIRST — see below. Without it, `npm test` skips the integration tests
 npm test                  # vitest — unit, integration, guardrails
 npm run lint              # eslint, including the project guardrails
 npm run typecheck         # tsc --noEmit
@@ -136,21 +136,49 @@ npm run size:public       # what a public page actually ships
 
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
 integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
-skips rather than vacuous passes. But `npm test` then reports green having never run 23 of them,
-and the list above put the Pod requirement only against `build`, six lines too late. Verified
-2026-09-04: with a Pod up, those same 23 pass in about 3 seconds. They are real tests, not rot —
-which is precisely why a run that quietly omits them is the "half a check" this section warns
-about.
+skips rather than vacuous passes. But `npm test` then reports green having never run
+`test/pod-read.integration.test.ts` or `test/pod-access.integration.test.ts` at all, and the list
+above put the Pod requirement only against `build`, six lines too late. With a Pod up they pass
+in a few seconds. They are real tests, not rot — which is precisely why a run that quietly omits
+them is the "half a check" this section warns about.
+
+**The two file names are the durable form of that, and a count is not.** This paragraph said "23
+of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — the number moves
+every time either file gains a case, and it was never the point. If a third integration file
+appears, name it here; do not reintroduce a total.
 
 **A ninth command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
+lib/media/**   lib/pod/write.ts
 ```
 
-then `npm run test:e2e` must pass too. That is the auth seam, and it is where this test's
-failures live: it drives a real Solid login round trip through the local Community Solid Server
-— redirect, consent, authorization code, `handleIncomingRedirect`, owner studio.
+then `npm run test:e2e` must pass too. **Two seams, not one.**
+
+The first line is the auth seam, and it is where this test's failures live: it drives a real
+Solid login round trip through the local Community Solid Server — redirect, consent,
+authorization code, `handleIncomingRedirect`, owner studio.
+
+`lib/media/**` is the media seam, added 2026-09-06 because the gate had a hole with a name.
+The pass-through shortcut — "the source is already small, skip the re-encode" — lives in
+`lib/media/pipeline.worker.ts`, and taking it uploads the owner's unstripped EXIF, GPS
+included, into a publicly readable container. A change to that file **alone** touches none of
+the four paths on the first line, so neither the gate nor CI would have asked for the one test
+that catches it, and it need never have run.
+
+`lib/pod/write.ts` is on the same seam for the same reason, added 2026-09-06 alongside it.
+`putGuarded` took a `Blob` body in phase 3, so it is now the single function every image
+derivative reaches the Pod through — the media path's last mile, and the one carrying the
+`If-None-Match: *` that makes a re-upload answer 412 instead of overwriting. It sits in
+`lib/pod/`, not `lib/media/`, so the media glob does not reach it, and a change confined to it
+would slip the gate exactly as the worker would have.
+
+That test is also the only place in this repository where the bytes that actually reach the Pod
+are read back and inspected. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no
+encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"undefined"` —
+measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
+order, and none of them can check one pixel or one EXIF tag.
 
 It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
 this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
@@ -325,7 +353,7 @@ dev                  # Next dev server
 build                # production build
 start                # serve the production build (`next start`); smoke-testing a build locally
 test                 # vitest
-test:e2e             # playwright, login flow only
+test:e2e             # playwright: the login redirect, and the media pipeline's real bytes
 lint                 # eslint
 typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
@@ -344,7 +372,13 @@ checks IRI resolution, and rejects blank nodes and wrong datatypes.
 - Unit tests against an in-memory fake Pod at the repository interface.
 - HTTP-level tests with MSW.
 - Integration tests against the local Community Solid Server.
-- Playwright only for the Solid login redirect, which cannot be meaningfully unit-tested.
+- Playwright only for what cannot be meaningfully tested faster — never a slow duplicate of a
+  fast test. Two flows clear that bar, as of 2026-09-06: the Solid login redirect, which cannot
+  be unit-tested at all, and the media pipeline's uploaded bytes, which cannot be inspected
+  anywhere else. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no encoder, and a
+  jsdom `Blob` reaches MSW as the nine bytes of `"undefined"` — measured 2026-09-06. The rule
+  has not been relaxed; the set of things that clear it grew by one, and the next addition has
+  to earn it the same way, by measurement.
 - Compare RDF by **graph isomorphism**, never bytes. Turtle has no canonical form; a
   byte-comparison test will be permanently red.
 

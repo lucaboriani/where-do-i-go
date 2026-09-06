@@ -6,7 +6,7 @@ Every other layer depends on this document. Treat predicate names as frozen once
 ships: changing them later means migrating live Pods that you may not control, because other
 people will have deployed this app against their own data.
 
-Revision 5. See §14 for what changed and why.
+Revision 6. See §14 for what changed and why.
 
 ---
 
@@ -137,7 +137,15 @@ Index read model (flat by design, see §7.4):
 Media and misc:
 
 - `dy:coverImage` (IRI) — curated, not derived
-- `dy:originalUrl` (IRI) — the unresized upload, if kept
+- `dy:blurDataUrl` (`xsd:string`) — a tiny inline placeholder image as a `data:` URI. A plain
+  literal, deliberately not language-tagged: base64 is not human-readable in any language, so §6's
+  language-tag rule does not reach it. It rides in the entry so the placeholder arrives with the
+  HTML and costs no second request; a budget in `lib/media/targets.ts` drops it rather than let it
+  bloat a publicly readable resource.
+- `dy:originalUrl` (IRI) — the unresized upload, if kept. **Nothing writes this.** Phase 3 decided
+  against uploading originals: every view uses the web-sized derivative anyway, and an original at
+  a public URL keeps full GPS and device metadata. The term stays reserved rather than deleted,
+  because rule 4 makes a `dy:` term permanent and this is the record of what the namespace holds.
 - `dy:track` (IRI) — a GeoJSON or GPX file resource
 - `dy:tag` (`xsd:string`) — used on both trips and entries
 
@@ -204,10 +212,14 @@ it later.
         2026-03-31-nara.ttl
   media/
     6f2a1c8e/
-      web.jpg
-      thumb.jpg
-      orig.jpg                   optional, see §9
+      web.webp
+      thumb.webp
 ```
+
+**A media container holds two derivatives and nothing else.** There is no `orig.jpg` beside
+them: the camera original is never uploaded, by decision rather than by omission — see §9.
+The extension follows whatever the encoder actually produced, so `.webp` is the usual case
+rather than a guarantee; see §7.3.
 
 ### There is no drafts container
 
@@ -436,7 +448,7 @@ actually hurt, because it is another index to keep in sync.
     dy:startDate       "2026-03-28"^^xsd:date ;
     dy:endDate         "2026-04-17"^^xsd:date ;
     dy:index           <entries.ttl#it> ;
-    dy:coverImage      <../../media/6f2a1c8e/web.jpg> ;
+    dy:coverImage      <../../media/6f2a1c8e/web.webp> ;
     dy:track           <track.geojson> ;
     dy:tag             "japan", "trains", "food" .
 
@@ -514,14 +526,14 @@ was a mistake at rush hour. Ate standing up at a counter with six seats."""@en ;
 
 <#photo-1>
     a schema:ImageObject ;
-    schema:contentUrl     <../../../media/6f2a1c8e/web.jpg> ;
-    schema:thumbnailUrl   <../../../media/6f2a1c8e/thumb.jpg> ;
+    schema:contentUrl     <../../../media/6f2a1c8e/web.webp> ;
+    schema:thumbnailUrl   <../../../media/6f2a1c8e/thumb.webp> ;
     schema:caption        "Counter seating, no menu."@en ;
     schema:width          1600 ;
     schema:height         1067 ;
-    schema:encodingFormat "image/jpeg" ;
+    schema:encodingFormat "image/webp" ;
     schema:dateCreated    "2026-03-29T21:38:02+09:00"^^xsd:dateTime ;
-    dy:originalUrl        <../../../media/6f2a1c8e/orig.jpg> ;
+    dy:blurDataUrl        "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==" ;
     dy:sortOrder          1 .
 ```
 
@@ -544,6 +556,19 @@ Notes on this shape:
   generic Linked Data tool understands WGS84. `schema:` remains the one your code reads.
 - **`dy:precisionMeters` drives rendering**, so "somewhere in Kyoto" and "this exact ramen
   counter" do not look identical on the map. Small values get a pin, large values a soft circle.
+- **The derivatives are WebP — expected, not guaranteed.** WebP is what the encoder asks for
+  first, being roughly a third smaller than JPEG at equal quality, which is storage and bandwidth
+  on someone's Pod forever. What comes back is a separate question, and three actors are involved:
+  - **The browser** does not fail an encode it cannot perform. `OffscreenCanvas.convertToBlob`
+    returns a **PNG** for a type it does not support, silently, rather than throwing.
+  - **This app** therefore reads the media type back off the returned blob instead of trusting
+    the request. If WebP was not honoured, the encode is retried as `image/jpeg`. If that is not
+    honoured either, the PNG is stored honestly as a PNG or the write is refused — never
+    mislabelled.
+  - **What is written** — both `schema:encodingFormat` and the file extension — comes from the
+    type the blob ACTUALLY has, never from the type that was requested. So `web.webp` and
+    `"image/webp"` in the fixture above are the normal outcome, and code must not assume them.
+- **`dy:originalUrl` is gone from this example** because nothing writes it; see §3.
 
 ### 7.4 Index — `/travel/trips/2026-japan/entries.ttl`
 
@@ -575,7 +600,7 @@ Notes on this shape:
     dy:lat             35.6938 ;
     dy:long            139.7034 ;
     dy:precisionMeters 500 ;
-    dy:thumbnail       <../../media/6f2a1c8e/thumb.jpg> ;
+    dy:thumbnail       <../../media/6f2a1c8e/thumb.webp> ;
     dy:travelModeFrom  dy:Flight ;
     dy:sortOrder       1 .
 ```
@@ -823,16 +848,23 @@ yet" is a one-time setup step with an obvious fix.
 
 ### EXIF
 
-**EXIF is stripped during the client-side resize**, from `web.jpg` and `thumb.jpg` both. That
-leaves `orig.jpg`, which retains full GPS and device metadata and sits at a public URL. Two
-defensible positions:
+**EXIF is stripped during the client-side resize**, from `web.webp` and `thumb.webp` both.
 
-1. Do not upload originals. Saves the bulk of your Pod quota, and every view uses the web-sized
-   version anyway. This is the recommended default.
-2. Upload originals with EXIF stripped as well, accepting that the archival copy is lossy in
-   metadata.
+**Originals are not uploaded.** Decided in phase 3, and recorded here rather than re-argued.
+Phase-0 question 5 — what storage quota a provider gives you, and what happens when you exceed it
+— was meant to decide this, and came back unanswerable: the only hosted provider tested is a
+Developer Preview, so its limits are not representative of anything (§13, item 5). The decision
+does not need that answer. Every view in this app renders the web-sized derivative, so an original
+earns nothing but bulk against someone's Pod quota whatever that quota turns out to be; and an
+original at a public URL is a full-resolution file carrying exactly the GPS and device metadata
+that the two derivatives just had removed. Hence a media container holds two files, not three
+(§4), and `dy:originalUrl` stays reserved with nothing writing it (§3).
 
-Uploading originals with metadata intact to a public container is not a third option.
+Should that ever be reopened, there is one alternative worth the argument and one that is not.
+The arguable one is uploading originals with EXIF stripped as well, accepting an archival copy
+that is lossy in metadata. **Uploading originals with metadata intact to a public container is
+not a third option** — it never was, and stripping the derivatives while publishing the source
+would defeat the whole step.
 
 ---
 
@@ -986,10 +1018,12 @@ Verified 2026-09-02 against **two servers**: Community Solid Server 7.2.0 (WAC) 
    ESS a content hash — so treat ETags as opaque and never parse them. Binary-resource
    preconditions were verified on CSS only.
 
-5. **Is there a storage quota, and what happens on exceeding it?** **Still unanswered.**
-   PodSpaces is Developer Preview and explicitly not for production or personal data, so its
-   limits would not be representative. §9's originals question stays open, and the recommended
-   default — do not upload originals — stands on its own merits.
+5. **Is there a storage quota, and what happens on exceeding it?** **Unanswerable at the time,
+   and it stayed that way.** PodSpaces is Developer Preview and explicitly not for production or
+   personal data, so its limits would not have been representative of anything. §9's originals
+   question was the one thing waiting on this figure. **It was settled later without it**: phase 3
+   decided that originals are not uploaded, on grounds that never needed a quota number — see §9.
+   Quota therefore blocks nothing; it is simply still unmeasured.
 
 6. **Does `ldp:contains` enumeration stay usable at a few hundred entries?** **Yes on CSS;
    unmeasured on ESS.** CSS returned 200 resources in one response, 45.1 KB, no pagination and
@@ -1005,6 +1039,27 @@ provider — it needs a deployed origin — so the login flow phase 2 ships is n
 end to end.
 
 ## 14. Change log
+
+**Revision 6** adds one predicate for media, and closes the originals question.
+
+- **`dy:blurDataUrl`** (`xsd:string`, §3) is the one new term, agreed with the owner before the
+  work started. A plain literal, deliberately untagged: §6 asks for a language tag on
+  human-readable literals, and base64 is not human-readable in any language. **No existing
+  predicate, class or datatype changed.**
+- **§7.3's photo is WebP** — `web.webp`, `thumb.webp`, `schema:encodingFormat "image/webp"` — and
+  §4, §7.2, §7.4 and §9 were brought to the same spelling. For one revision this document
+  described the same media container, `6f2a1c8e/`, in two different ways, which is worse than
+  either spelling alone because both looked normative. §7.3's note now separates what the browser
+  does (`convertToBlob` returns PNG rather than throwing) from what this app does about it (read
+  the type back, retry as JPEG), so WebP reads as the expected case and not a promise.
+- **`dy:originalUrl` leaves the §7.3 fixture and stays in §3.** Rule 4 makes a `dy:` term
+  permanent, and §3 is the record of what the namespace holds. **Nothing writes it.**
+- **§9 records the originals decision rather than presenting it as open**, and §4's tree drops
+  `orig.jpg` with a line saying why it is absent. Originals are not uploaded. Phase-0 item 5
+  (§13) came back unanswerable — the provider is a Developer Preview — and the decision never
+  depended on that answer: every view renders the web-sized derivative, and an original at a
+  public URL carries exactly the GPS and device metadata the derivatives had stripped. §13 item 5
+  no longer claims the question is open.
 
 **Revision 5** renames one predicate and changes nothing else.
 

@@ -26,7 +26,13 @@ export type Precondition = { create: true } | { etag: string };
 export async function putGuarded(
   fetch: PodFetch,
   url: string,
-  body: string,
+  /**
+   * Turtle, or binary. The media pipeline (phase 3) uploads image derivatives,
+   * and they go through this function rather than a second hand-rolled PUT for
+   * exactly the reason the precondition exists: a separate write path is a
+   * blind write path waiting to happen.
+   */
+  body: string | Blob,
   precondition: Precondition,
   contentType = "text/turtle",
   /** Extra request headers — `Link: <ldp:BasicContainer>; rel="type"` when

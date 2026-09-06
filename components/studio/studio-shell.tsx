@@ -232,6 +232,7 @@ export default function StudioShell({
         trips={trips}
         listing={listing}
         settingsUrl={settingsUrlFor(podRoot)}
+        podRoot={podRoot}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -251,6 +252,7 @@ function Body({
   trips,
   listing,
   settingsUrl,
+  podRoot,
   onSignIn,
   onSignOut,
 }: {
@@ -264,6 +266,9 @@ function Body({
    *  there because the editor reads no config and this is derived from
    *  `podRoot`, which arrived as a prop for exactly that reason. */
   settingsUrl: string;
+  /** §4's one global `travel/media/` hangs off this, and the editor needs it for
+   *  the same reason it needs `settingsUrl`: it reads no config. */
+  podRoot: string;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -328,6 +333,7 @@ function Body({
             trips={trips}
             listing={listing}
             settingsUrl={settingsUrl}
+            podRoot={podRoot}
           />
         </>
       );
@@ -349,16 +355,26 @@ function Writables({
   trips,
   listing,
   settingsUrl,
+  podRoot,
 }: {
   session: StudioSessionLike;
   trips: EditorTrip[] | undefined;
   listing: ListingState;
   settingsUrl: string;
+  podRoot: string;
 }) {
   // Supplied means supplied: the caller has already decided, so no state of the
   // enumeration is consulted and none was ever started. See the prop docblock.
   if (trips !== undefined) {
-    return <Writable session={session} trips={trips} skipped={[]} settingsUrl={settingsUrl} />;
+    return (
+      <Writable
+        session={session}
+        trips={trips}
+        skipped={[]}
+        settingsUrl={settingsUrl}
+        podRoot={podRoot}
+      />
+    );
   }
 
   switch (listing.status) {
@@ -392,6 +408,7 @@ function Writables({
           trips={listing.listing.trips}
           skipped={listing.listing.skipped}
           settingsUrl={settingsUrl}
+          podRoot={podRoot}
         />
       );
   }
@@ -402,11 +419,13 @@ function Writable({
   trips,
   skipped,
   settingsUrl,
+  podRoot,
 }: {
   session: StudioSessionLike;
   trips: EditorTrip[];
   skipped: StudioTripListing["skipped"];
   settingsUrl: string;
+  podRoot: string;
 }) {
   return (
     <>
@@ -430,7 +449,12 @@ function Writable({
           </p>
         )
       ) : (
-        <EntryEditor session={session} trips={trips} settingsUrl={settingsUrl} />
+        <EntryEditor
+          session={session}
+          trips={trips}
+          settingsUrl={settingsUrl}
+          podRoot={podRoot}
+        />
       )}
     </>
   );

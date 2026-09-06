@@ -58,18 +58,51 @@
  *      Leave both boxes empty and the place travels through untouched, exactly
  *      as `created` and `datePublished` do.
  *
- * PHOTOS are phase 3 for the same reason they always were: they need the
- * resize/EXIF pipeline. A photo's GPS is a coordinate like any other and goes
- * through §9 steps 1–4, but there is no photo input to drive yet.
- * An entry being edited carries its existing photos through untouched.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PHOTOS, AND WHY THE PICK IS THE UPLOAD.
+ *
+ * Until 2026-09-06 this file said photos were phase 3 because they need the
+ * resize/EXIF pipeline. That pipeline now exists — lib/media/pipeline.ts for
+ * the bytes, lib/media/upload.ts for the two PUTs — so the reason is gone and
+ * the comment with it. What replaces it is the ordering decision, which is the
+ * part that is easy to undo by accident:
+ *
+ *   A PICKED FILE IS PROCESSED AND UPLOADED IMMEDIATELY, and this component
+ *   then holds URLs and JSON — a `Photo` — rather than a `File` or a `Blob`.
+ *   Holding the file until Save is the obvious spelling and it breaks the
+ *   autosave: `localStorage` takes strings, a Blob serialises to `{}` without
+ *   throwing, and the draft would report success while restoring a photo with
+ *   no URL on it. The derivatives are content-addressed (§7.3), so a re-pick of
+ *   the same photo is a 412 read as reuse rather than a second copy.
+ *
+ *   ONLY `ready` SLOTS ARE SAVED. A file the pipeline refused is announced and
+ *   left out — of the entry, and of the draft. An optimistic slot carrying a
+ *   local `blob:` preview into the entry would write a photo that 404s for
+ *   every reader, on a resource that reports itself saved.
+ *
+ *   AN EXISTING ENTRY'S PHOTOS ARE CARRIED, NEVER REPLACED. Picking a photo
+ *   appends; picking none leaves `existing.photos` exactly as it arrived, the
+ *   same rule the place, `created` and `datePublished` follow. The binaries
+ *   have no other reference, so dropping the triple orphans the bytes.
+ *
+ * A PHOTO'S EXIF `DateTimeOriginal` IS DELIBERATELY NOT WIRED TO
+ * `schema:dateCreated` YET. §6 requires a UTC offset on every `xsd:dateTime`,
+ * and lib/media/exif.ts yields an offset-less wall clock — EXIF has no zone and
+ * `OffsetTimeOriginal` is usually absent (§11.5). Inventing this machine's
+ * offset for a photo taken elsewhere would stamp the wrong instant onto a
+ * permanent record. An existing `dateCreated` is carried through untouched.
+ * A photo's GPS is a coordinate like any other and goes through §9 steps 1–4;
+ * neither wire is stage 1's.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * PLAIN CONTROLS ON PURPOSE. TODO.md keeps layout deliberately unstyled until
  * phase 7, and native `<select>`, `<input>` and `<textarea>` need no Radix on a
- * screen with eleven controls on it. Every one of them has a real `<label>`.
+ * screen with twelve controls on it. Every one of them has a real `<label>`.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPipeline } from "@/lib/media/pipeline";
+import { uploadPhoto } from "@/lib/media/upload";
 import { documentUrlOf } from "@/lib/pod/entry-model";
 import { fuzzForPublication } from "@/lib/pod/fuzz";
 import { readPrivacySettings } from "@/lib/pod/read";
@@ -79,9 +112,11 @@ import { saveEntry } from "@/lib/pod/save-entry";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import { SCHEMA_VERSION } from "@/lib/vocab";
+import type { Pipeline } from "@/lib/media/pipeline";
 import type { ReactNode } from "react";
 import type {
   Entry,
+  Photo,
   PrivacySettings,
   Status as EntryStatus,
   TravelMode as Mode,
@@ -149,6 +184,33 @@ export interface EntryEditorProps {
    * private from missing (§13).
    */
   settingsUrl: string;
+  /**
+   * The Pod's storage root, which is where `travel/media/` hangs (§4: media is
+   * ONE global container, outside any trip, so publishing never has to move
+   * binaries or rewrite references).
+   *
+   * REQUIRED, AND A PROP, for exactly the reasons `settingsUrl` above is both.
+   * `POD_ROOT` is not `NEXT_PUBLIC_` and `lib/config.ts` throws the moment it is
+   * reached in a browser, so the shell — which already holds it, since
+   * `settingsUrl` is derived from it — passes it down. Optional would mean a
+   * shell that forgot it uploads photos to a path built from `undefined`, and
+   * nothing renders a wire nobody passed, so tsc is the only check that covers
+   * the omission.
+   */
+  podRoot: string;
+  /**
+   * The resize/EXIF pipeline, injected so that a test can supply output it
+   * knows byte for byte. `undefined` is what ships: one is created lazily on
+   * the first pick, because a worker at mount is a thread and a chunk spent on
+   * the majority of edits, which touch no photo at all.
+   *
+   * OWNERSHIP FOLLOWS CREATION, AND THAT IS THE WHOLE POINT OF THE SEAM. An
+   * injected pipeline is disposed by whoever injected it; the unmount cleanup
+   * below only ever disposes one this component created. `dispose()` is not a
+   * cancel — it terminates the worker and rejects everything pending — so
+   * disposing a caller's instance would break a photo it was still processing.
+   */
+  pipeline?: Pipeline;
   /**
    * Absent means CREATE. Present means EDIT, and `etag` is the one from THE
    * READ THAT PRODUCED THIS STATE (§10) — `null` when the server sent none,
@@ -366,6 +428,84 @@ function placeFor(existing: EntryPlace | undefined, geo: EntryPlace["geo"]): Ent
   return Object.values(rest).some((value) => value !== undefined) ? rest : undefined;
 }
 
+/* ═══════════════════════════════════════════════════════════════ the photos ══ */
+
+/**
+ * ONE PICKED FILE, IN THE FOUR STATES IT PASSES THROUGH.
+ *
+ * A STATE MACHINE RATHER THAN A `Photo | null` PLUS A FLAG, because the owner
+ * has to be able to tell three different waits apart from a failure — and
+ * because only `ready` may be saved. Every slot the entry is allowed to
+ * reference carries its `Photo`, so there is no branch anywhere in which a
+ * half-finished upload can be serialised: the shape refuses it rather than a
+ * condition remembering to.
+ *
+ * `key` IS NOT THE FILE NAME. Two files picked from two directories can share
+ * one, and the same file can be picked twice while the first is still decoding;
+ * a name-keyed list would then update the wrong row. React's reconciler needs a
+ * stable identity here too, since a slot moves through three renders.
+ */
+type PhotoSlot =
+  | { key: string; name: string; state: "decoding" }
+  | { key: string; name: string; state: "uploading" }
+  | { key: string; name: string; state: "ready"; photo: Photo }
+  | { key: string; name: string; state: "failed"; message: string };
+
+/** What a restored draft can still say about a photo whose file name is long
+ *  gone: the caption if it has one, and its position otherwise. `Photo` has no
+ *  file-name field on purpose — §7.3 describes the resource, not the pick. */
+const restoredName = (photo: Photo, index: number) =>
+  photo.caption?.value ?? `Photo ${index + 1}`;
+
+/**
+ * The photos the entry will carry: the ones it arrived with, then the ones
+ * picked in this editor, in the order they were picked.
+ *
+ * PICKING APPENDS; IT NEVER REPLACES. An edit that rewrites the resource
+ * without the photos it arrived with destroys them silently — and for photos it
+ * destroys the binaries' only reference too, since nothing else on the Pod
+ * points at `travel/media/<hash>/`. Pick nothing and `carried` travels through
+ * exactly as it arrived, which is the treatment `created`, `datePublished` and
+ * the place already get.
+ *
+ * ONCE EACH, HOWEVER MANY TIMES IT IS PICKED. The media path is
+ * content-addressed, so re-picking a photo the entry already carries uploads
+ * nothing new — `putGuarded` answers 412 and `uploadPhoto` reads that as reuse —
+ * and returns the SAME `contentUrl`. Appending it blindly would write two
+ * `#photo-N` fragments pointing at one binary: the same picture twice on the
+ * public listing, and, with no removal control in this editor, nothing the owner
+ * can do about it except abandon the edit. The `Set` covers both ways in, since
+ * the same file picked twice in one session is the same defect on a create,
+ * where there is nothing carried to compare against.
+ *
+ * `sortOrder` IS THE POSITION AT SAVE TIME, NOT AT PICK TIME, so a file the
+ * pipeline refused leaves no gap in the sequence — and the CARRIED photos keep
+ * the numbers they were stored with, because renumbering them would rewrite
+ * §7.3 data the owner never touched.
+ *
+ * WHICH NUMBER IS FREE IS NOT `carried.length`, AND THAT IS MEASURED RATHER
+ * THAN ARGUED. lib/pod/entry-model.ts writes `photo.sortOrder ?? i + 1` — a
+ * carried photo with no number of its own is serialised with its ONE-BASED
+ * POSITION, not left unwritten — so a list of one unnumbered photo is written as
+ * `dy:sortOrder 1`, and `carried.length` is 1: the collision, in the very case
+ * the fallback exists for. So the seed is what the serialiser will actually
+ * write, and the sequence is one-based like every other `dy:sortOrder` in §7.3
+ * (`#photo-1` carries 1). The `0` seed is what makes a first photo on a create
+ * come out as 1 rather than 0.
+ */
+function photosFor(carried: readonly Photo[], attached: readonly Photo[]): Photo[] {
+  const already = new Set(carried.map((photo) => photo.contentUrl));
+  const fresh: Photo[] = [];
+  for (const photo of attached) {
+    if (already.has(photo.contentUrl)) continue;
+    already.add(photo.contentUrl);
+    fresh.push(photo);
+  }
+
+  const highest = carried.reduce((best, photo, at) => Math.max(best, photo.sortOrder ?? at + 1), 0);
+  return [...carried, ...fresh.map((photo, at) => ({ ...photo, sortOrder: highest + 1 + at }))];
+}
+
 /* ══════════════════════════════════════════════════ what the owner is told ══ */
 
 /**
@@ -534,15 +674,28 @@ export const DRAFT_DEBOUNCE_MS = 800;
  *  name, so every create in this browser shares one draft. */
 const NEW_DRAFT_SCOPE = "new";
 
-/** The eleven fields the FORM holds — `Draft` minus the stamp, which is put on
+/** The twelve fields the FORM holds — `Draft` minus the stamp, which is put on
  *  at the moment of the write and never earlier (§6). */
 type DraftText = Omit<Draft, "savedAt">;
 
 /**
- * Have the eleven fields moved between two snapshots?
+ * Two photo lists, compared by the only identity a photo has: where it lives on
+ * the Pod.
+ *
+ * BY `contentUrl` RATHER THAN BY VALUE, and the difference is not laziness. The
+ * URL is content-addressed — `travel/media/<sha256(source)[0..16]>/` — so two
+ * entries with the same URL are the same bytes, and nothing else about a photo
+ * can change without the owner picking a different file. Order matters because
+ * `sortOrder` is the position, so a reordering is a change.
+ */
+const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
+  a.length === b.length && a.every((photo, at) => photo.contentUrl === b[at]?.contentUrl);
+
+/**
+ * Have the twelve fields moved between two snapshots?
  *
  * Field by field rather than `JSON.stringify`, which would answer "different"
- * for the same eleven values in a different key order. The consequence of a
+ * for the same twelve values in a different key order. The consequence of a
  * false "different" is not cosmetic: it is a local copy written back for text
  * the Pod already holds, which is exactly the resurrected draft the clear after
  * a save exists to prevent.
@@ -552,6 +705,10 @@ type DraftText = Omit<Draft, "savedAt">;
  * a form whose only change was the latitude "unchanged" and drop that change
  * from the local copy — the one field on this screen nobody can retype from
  * memory a day later.
+ *
+ * So are the photos, and there the consequence is worse than retyping: a photo
+ * attached while the Pod was answering is bytes that are already uploaded and
+ * about to be referenced by nothing at all.
  */
 const sameText = (a: DraftText, b: DraftText) =>
   a.tripIri === b.tripIri &&
@@ -564,7 +721,8 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.status === b.status &&
   a.lat === b.lat &&
   a.long === b.long &&
-  a.precision === b.precision;
+  a.precision === b.precision &&
+  samePhotos(a.photos, b.photos);
 
 /**
  * The browser's own storage, or `null` where there is none to be had.
@@ -616,6 +774,8 @@ export default function EntryEditor({
   session,
   trips,
   settingsUrl,
+  podRoot,
+  pipeline,
   initial,
   storage,
 }: EntryEditorProps) {
@@ -657,6 +817,46 @@ export default function EntryEditor({
    * project would be choosing for someone else's front door".
    */
   const [precision, setPrecision] = useState("");
+
+  /**
+   * THE PHOTOS PICKED IN THIS EDITOR, and NOT the ones the entry arrived with.
+   *
+   * Seeding this from `existing.photos` is the obvious spelling and is wrong
+   * twice over. It would renumber their `sortOrder` from the list position on
+   * every save, walking §7.3 data nobody touched — the same defect the `lat`
+   * state's note describes for the coordinate — and each seeded row would
+   * render a settled `role="status"` at mount, so the editor would announce, to
+   * a screen reader, news about photos that have not changed. What the entry
+   * arrived with is carried at save time instead, by `photosFor`.
+   */
+  const [slots, setSlots] = useState<PhotoSlot[]>([]);
+  /** Slot identity, monotonic per editor. Not the file name, and not an index:
+   *  see `PhotoSlot`. */
+  const nextSlotKey = useRef(0);
+  /**
+   * HAS ANYBODY ACTUALLY TYPED? A ref, not state: it changes nothing on screen
+   * and re-rendering for it would be noise.
+   *
+   * The autosave effect further down is keyed on the form values, so it fires
+   * once on mount — and without this guard the editor would store a copy of
+   * whatever it opened with. Opening an entry to read it and navigating away
+   * would then leave an "Unsaved draft" banner waiting next time, offering to
+   * restore exactly what is already on the Pod; once that banner appears for
+   * entries nobody edited it stops meaning anything and gets clicked away by
+   * reflex.
+   *
+   * DECLARED HERE, ABOVE `attach`, AND NOT DOWN IN THE DRAFT SECTION WHERE THE
+   * REST OF ITS MACHINERY LIVES — because `attach` arms it when a slot settles,
+   * and `react-hooks/immutability` refuses a `.current` write inside a function
+   * that closes over a `useRef` declared BELOW it. Measured rather than
+   * reasoned about: with the declaration left in the draft section, `npm run
+   * lint` reported two errors, and neither was on the new line — it flagged the
+   * PRE-EXISTING writes in `settleDraft` and in the form's `onChange`, both of
+   * which had been clean for the life of the file. Moving this one line up made
+   * all three legal again. `nextSlotKey` is the same kind of ref mutated from
+   * the same `attach`, and is declared just above for the same reason.
+   */
+  const touched = useRef(false);
 
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
@@ -810,6 +1010,147 @@ export default function EntryEditor({
    *  moving a resource is a copy and a delete it does not do. */
   const addressFixed = target !== null;
 
+  /* ─────────────────────────────────────────────────── the photo pipeline ── */
+
+  /**
+   * THE ONE THIS COMPONENT CREATED, AND NOTHING ELSE EVER GOES IN HERE.
+   *
+   * That is what makes the cleanup below safe. `Pipeline.dispose()` is not a
+   * cancel: it terminates the worker and rejects everything already pending, so
+   * calling it on an instance a caller injected would break a photo that caller
+   * is still processing. Whoever creates, disposes — so an injected `pipeline`
+   * is returned as it is and never stored here.
+   */
+  const ownPipeline = useRef<Pipeline | null>(null);
+
+  /** Lazily, on the first pick. A worker at mount costs a thread and a chunk on
+   *  every edit, and most edits touch no photo at all. */
+  function pipelineFor(): Pipeline {
+    if (pipeline !== undefined) return pipeline;
+    if (ownPipeline.current === null) ownPipeline.current = createPipeline();
+    return ownPipeline.current;
+  }
+
+  useEffect(() => {
+    /**
+     * DISPOSAL, NOT TIDINESS: the worker holds a decoded bitmap, which for a
+     * 50 MP photo is on the order of 200 MB, and an editor closed mid-decode
+     * would otherwise leak it for the life of the tab.
+     *
+     * UNMOUNT IS THE ONLY CORRECT CALLER TODAY, and `Pipeline.dispose()`'s own
+     * docblock says why: a photo queued but not yet pending is not in the map
+     * to reject, so its send still runs, re-spawns a worker, and can resolve
+     * after this returns. Harmless here — the component is going away — and a
+     * defect anywhere else. A cancel button needs a generation counter first.
+     *
+     * `ownPipeline.current` is null under StrictMode's first cleanup unless a
+     * photo was picked between the two effect invocations, so the double-invoke
+     * is a no-op rather than a disposed pipeline the second mount inherits.
+     */
+    return () => {
+      ownPipeline.current?.dispose();
+      ownPipeline.current = null;
+    };
+  }, []);
+
+  /**
+   * The picked photos that have URLs on the Pod, in pick order.
+   *
+   * `ready` ONLY. This is what the draft keeps and what the save carries, so
+   * the filter is the fence: a decoding slot has no `Photo` at all and a failed
+   * one must not reach either, or the entry references a photo that 404s for
+   * every reader.
+   */
+  const attached = useMemo(
+    () => slots.flatMap((slot) => (slot.state === "ready" ? [slot.photo] : [])),
+    [slots],
+  );
+
+  /**
+   * PROCESS, UPLOAD, THEN HOLD A `Photo` — never the `File`.
+   *
+   * The order is the decision recorded at the top of this file: by the time
+   * this resolves the bytes are on the Pod and this component holds URLs and
+   * JSON, which is what keeps the autosaved draft restorable. The source
+   * ArrayBuffer is read here rather than in the worker because the container
+   * path is `sha256(ORIGINAL)[0..16]` — the derivative's hash would defeat the
+   * re-pick idempotence that makes a retry free.
+   *
+   * NOTHING THROWS OUT OF HERE. `uploadPhoto` reports its failures as a
+   * `Result`, but the pipeline REJECTS (that is `createPipeline`'s contract),
+   * and an unhandled rejection would leave a slot decoding for ever with
+   * nothing on screen saying why.
+   */
+  async function attach(file: File) {
+    const key = `photo-${nextSlotKey.current++}`;
+    const name = file.name;
+    const move = (next: PhotoSlot) => {
+      /**
+       * A SETTLE IS A CHANGE TO THE FORM, AND HAS TO ARM THE AUTOSAVE LIKE ANY
+       * OTHER ONE.
+       *
+       * The pick itself already set `touched` — the file input's `change` event
+       * bubbles to the `<form>` handler below — but a save can land between the
+       * pick and the settle and put it back to `false`. `settleDraft` does that
+       * legitimately: at the moment it runs, the Pod holds exactly what the form
+       * holds, because a slot still `decoding` contributes nothing to `attached`
+       * and `sameText` is therefore true.
+       *
+       * Then the photo settles. `attached` gains a `Photo`, the autosave effect
+       * re-runs — and returns at `if (!touched.current)` having armed nothing.
+       * The row says "is attached to this entry" and the binaries really are on
+       * the Pod, but the entry resource does not reference them and nothing is
+       * in `localStorage` either. Close the tab and the photo is orphaned and
+       * silently absent, with no surface anywhere that says so.
+       *
+       * Reachable by ordinary use, not by a race that needs help: Save is only
+       * `disabled={saving}`, so picking a photo, typing the headline and
+       * pressing Save before the decode finishes is a sequence the UI invites.
+       *
+       * `ready` ONLY. `uploading` and `failed` leave `attached` unchanged, so
+       * there is nothing new to back up and arming on them would re-open the
+       * window over text the Pod already has. The narrower race — a settle
+       * DURING the round trip — is handled by `live.current.text` and
+       * `samePhotos` inside `save()`, and is not this.
+       */
+      if (next.state === "ready") touched.current = true;
+      setSlots((held) => held.map((slot) => (slot.key === key ? next : slot)));
+    };
+
+    setSlots((held) => [...held, { key, name, state: "decoding" }]);
+    try {
+      const source = await file.arrayBuffer();
+      const derived = await pipelineFor().process(file);
+      move({ key, name, state: "uploading" });
+      const stored = await uploadPhoto({
+        // The visitor's own authenticated fetch, never the ambient one
+        // (invariant 4): a media PUT is a write, and anonymously it is a 401.
+        fetch: session.fetch,
+        podRoot,
+        // The ORIGINAL bytes, hashed for the path and never uploaded — the
+        // derivatives are what go up, and the re-encode is what strips the EXIF.
+        source,
+        derivatives: { web: derived.web, thumb: derived.thumb },
+        blurDataUrl: derived.blurDataUrl,
+        // `derived.metadata` is deliberately unused for now: its
+        // DateTimeOriginal has no UTC offset and §6 requires one, and its GPS
+        // is a coordinate that has to go through §9 before it can be published.
+      });
+      move(
+        stored.ok
+          ? { key, name, state: "ready", photo: stored.value }
+          : { key, name, state: "failed", message: describe(stored.error) },
+      );
+    } catch (cause) {
+      move({
+        key,
+        name,
+        state: "failed",
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }
+
   /* ────────────────────────────────────────────────────── the local draft ── */
 
   /** Off the session and nowhere else, exactly like `dcterms:creator`. Absent
@@ -847,18 +1188,10 @@ export default function EntryEditor({
    *  whatever they opened the editor with. */
   const [offered, setOffered] = useState<Draft | null>(null);
   const [storageRefused, setStorageRefused] = useState(false);
-  /**
-   * HAS ANYBODY ACTUALLY TYPED? A ref, not state: it changes nothing on screen
-   * and re-rendering for it would be noise.
-   *
-   * The effect below is keyed on the form values, so it fires once on mount —
-   * and without this guard the editor would store a copy of whatever it opened
-   * with. Opening an entry to read it and navigating away would then leave an
-   * "Unsaved draft" banner waiting next time, offering to restore exactly what
-   * is already on the Pod; once that banner appears for entries nobody edited it
-   * stops meaning anything and gets clicked away by reflex.
-   */
-  const touched = useRef(false);
+  /** `touched` — the "has anybody typed?" guard this section's autosave reads —
+   *  is declared up with `nextSlotKey`, not here. Its docblock says why; the
+   *  short version is that `attach` writes to it and the lint rule cares about
+   *  which line the `useRef` is on. */
   /** The debounce in flight, held so a save can cancel it — and so the unmount
    *  below can tell a window that never fired from one that did. See
    *  `settleDraft`. */
@@ -903,6 +1236,12 @@ export default function EntryEditor({
     lat,
     long,
     precision,
+    /**
+     * THE PHOTOS, AS `Photo` OBJECTS — which is only possible because the pick
+     * uploaded them. A `File` here would serialise to `{}` without throwing,
+     * and the draft would report success while restoring a photo with no URL.
+     */
+    photos: attached,
   };
   const live = useRef({ store, webId, scope, text });
   useEffect(() => {
@@ -934,7 +1273,8 @@ export default function EntryEditor({
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the twelve fields of `Draft` and nothing else. The ETag, the
+   * What goes in is the thirteen fields of `Draft` and nothing else — the twelve
+   * the form holds, plus the `savedAt` stamp put on below. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
    * this state (§10), a draft outlives that read by however long the browser was
@@ -963,6 +1303,7 @@ export default function EntryEditor({
           lat,
           long,
           precision,
+          photos: attached,
           savedAt: nowWithOffset(),
         },
       );
@@ -1012,6 +1353,10 @@ export default function EntryEditor({
     lat,
     long,
     precision,
+    // The ready photos, so attaching one arms a window like any other change.
+    // Its identity moves on every slot transition, not only on a settle, so a
+    // photo in flight restarts the window — which is what a debounce is for.
+    attached,
   ]);
 
   /**
@@ -1167,6 +1512,26 @@ export default function EntryEditor({
      * lie in whichever direction is worse.
      */
     setPrecision(gridOf(draft.precision) === null ? presetPrecision : draft.precision);
+    /**
+     * THE PHOTOS COME BACK ALREADY UPLOADED, which is the whole reason the pick
+     * is the upload: these are URLs on the Pod, so a draft restored in a new tab
+     * a day later still has its pictures. `readDraft` has already put every one
+     * of them through `Photo`, so a devtools-mangled photo was refused with the
+     * rest of the payload rather than restored into a form that would save it.
+     *
+     * A DRAFT WRITTEN BEFORE THIS CONTROL EXISTED RESTORES AN EMPTY LIST, and
+     * that is exactly right rather than a half-restore: no payload under the
+     * current key can carry photos, because there was no way to attach one. It
+     * is why the key stayed at `v2` — see lib/studio/drafts.ts.
+     */
+    setSlots(
+      draft.photos.map((photo, at) => ({
+        key: `restored-${at}`,
+        name: restoredName(photo, at),
+        state: "ready",
+        photo,
+      })),
+    );
     // Restored once. Leaving the banner up invites a second click that would
     // overwrite whatever the owner typed after the first.
     setOffered(null);
@@ -1326,7 +1691,18 @@ export default function EntryEditor({
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
       place,
-      photos: existing?.photos ?? [],
+      /**
+       * WHAT THE ENTRY ARRIVED WITH, THEN WHAT WAS PICKED HERE — and only the
+       * `ready` picks, since `attached` is the filter. A failed slot reaches
+       * neither the entry nor the index row: an optimistic slot saved with a
+       * local preview URL would write `schema:contentUrl <blob:…>` into a
+       * publicly readable resource, which 404s for every reader while the entry
+       * reports itself saved.
+       *
+       * Pick nothing and this is `existing.photos`, unchanged and renumbered by
+       * nothing — see `photosFor`.
+       */
+      photos: photosFor(existing?.photos ?? [], attached),
       tags: parseTags(tagsText),
       created,
       creator: existing?.creator ?? session.info.webId,
@@ -1726,6 +2102,106 @@ export default function EntryEditor({
               character by character to deliver it. */}
           {gate.kind === "closed" && (
             <p className="text-sm text-muted-foreground">{gate.detail}</p>
+          )}
+
+          {/*
+            THE PICKER, AND IT UPLOADS AS SOON AS SOMETHING IS PICKED. The hint
+            says so, because it is a surprise worth telling the owner about: the
+            bytes are on the Pod before Save is pressed, and a photo attached to
+            an entry that is then abandoned stays in `travel/media/`.
+
+            `multiple`, and the pipeline serialises them one at a time — one
+            worker, one photo, because three 50 MP decodes in flight is how a
+            phone's browser tab gets killed in the middle of an edit.
+
+            NO `aria-label` ANYWHERE IN THIS BLOCK, on the input or on anything
+            around it. `getByLabelText` matches `aria-label` on ANY element, and
+            this file has already lost six tests to a wrapper that shadowed a
+            real control. The `<label>` inside `Field` is the one name here.
+          */}
+          <Field
+            id="entry-photos"
+            label="Photos"
+            hint="Resized in this browser, stripped of their location and their camera metadata, and uploaded to your Pod as soon as you pick them."
+          >
+            <input
+              id="entry-photos"
+              name="entry-photos"
+              type="file"
+              accept="image/*"
+              multiple
+              className={CONTROL}
+              aria-describedby="entry-photos-hint"
+              onChange={(event) => {
+                const picked = [...(event.target.files ?? [])];
+                // CLEARED, so picking the same file again is another `change`
+                // rather than silence. The list above is already a copy; "" is
+                // the one value a file input's value may be set to.
+                event.target.value = "";
+                for (const file of picked) void attach(file);
+              }}
+            />
+          </Field>
+
+          {/*
+            WHAT EACH PICKED FILE IS DOING, ANNOUNCED STRUCTURALLY.
+
+            `status` for progress and for a photo that settled, `alert` for one
+            that failed — the same division the save's outcome uses, and for the
+            same reason: `alert` is assertive and interrupts a screen reader
+            mid-sentence, which "your photo is uploading" has not earned, while a
+            file that will never be attached is a decision the owner has to make.
+
+            A PLAIN `<ul>`, WITH NO NAMED REGION AROUND IT. A landmark would need
+            a name, and every ARIA naming mechanism except `title` lands in
+            `getByLabelText` next to the control above.
+          */}
+          {slots.length > 0 && (
+            <ul className="grid gap-2">
+              {slots.map((slot) => (
+                <li key={slot.key} className="flex items-center gap-3">
+                  {slot.state === "ready" && (
+                    /*
+                      FROM THE POD, NOT FROM `URL.createObjectURL`. An object URL
+                      dies with the page, so a draft restored tomorrow would show
+                      a broken image — and it is the URL an implementation that
+                      saved before uploading would be tempted to write into the
+                      entry.
+
+                      A PLAIN <img>, NOT next/image, and the disable below is
+                      that decision rather than a silenced warning: the host is
+                      whatever Pod the owner has, so next/image would need every
+                      one of them in `images.remotePatterns` — configuration
+                      this project cannot write down and cannot ask for, since a
+                      Pod root is an env var with a working default. It would
+                      also put an optimiser in front of a resource that is
+                      already a 400 px derivative this browser made itself, on a
+                      screen only the owner ever loads. The LCP the rule is
+                      about belongs to the public pages, which never render this.
+                    */
+                    // eslint-disable-next-line @next/next/no-img-element -- see above
+                    <img
+                      src={slot.photo.thumbnailUrl ?? slot.photo.contentUrl}
+                      alt={slot.name}
+                      className="h-16 w-16 border border-hairline object-cover"
+                    />
+                  )}
+                  {slot.state === "failed" ? (
+                    <p role="alert" className="text-sm">
+                      {`${slot.name} was not attached: ${slot.message}`}
+                    </p>
+                  ) : (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      {slot.state === "decoding"
+                        ? `Preparing ${slot.name}…`
+                        : slot.state === "uploading"
+                          ? `Uploading ${slot.name}…`
+                          : `${slot.name} is attached to this entry.`}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
 
           <Field id="entry-tags" label="Tags" hint="Separated by commas.">

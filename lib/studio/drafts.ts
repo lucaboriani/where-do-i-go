@@ -38,11 +38,11 @@
  * worst, if the resource has cycled back to a matching tag, an overwrite of an
  * edit made elsewhere. A restored `created` would overwrite §7.3's "when the
  * record came into being" with whenever the draft happened to be saved. The
- * schema below is the fence: twelve fields, and the parse is what reaches
+ * schema below is the fence: thirteen fields, and the parse is what reaches
  * storage.
  */
 import * as z from "zod";
-import { Status, TravelMode } from "@/lib/pod/schema";
+import { Photo, Status, TravelMode } from "@/lib/pod/schema";
 
 /**
  * The three methods this module uses, and not one more.
@@ -92,6 +92,17 @@ export interface DraftAddress {
  * their draft came back. A coordinate the owner did not type, next to text they
  * recognise, is worse than no offer at all: invisible is the correct outcome
  * for a payload whose shape has moved on.
+ *
+ * **`photos` ARRIVED ON 2026-09-06 AND THE KEY DELIBERATELY DID NOT MOVE**,
+ * which is the same test applied and answered the other way. The hazard a bump
+ * exists for is the HALF-RESTORE: a field the payload cannot carry, showing
+ * whatever the editor's own default left in it, under a banner that has just
+ * said the draft came back. That cannot arise here, because **no `v2` payload
+ * can contain a photo — the editor had no photo control when `v2` payloads were
+ * written**. Such a draft restores an empty photo list, which is not a default
+ * standing in for something lost; it is the truth about that draft. Hence the
+ * `[]` default below. Bumping would have thrown away real unsaved prose in
+ * exchange for nothing.
  */
 export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
 
@@ -100,8 +111,8 @@ export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.
  *
  * NOT `.strict()`, and that is load-bearing rather than an oversight: unknown
  * keys are STRIPPED. A payload written by a slightly different build, or one a
- * curious owner edited in devtools, still restores its twelve legitimate fields
- * instead of being thrown away — and the stripping is also what guarantees an
+ * curious owner edited in devtools, still restores its thirteen legitimate
+ * fields instead of being thrown away — and the stripping is also what guarantees an
  * `etag` handed in by a caller spreading the editor's state can neither be
  * written nor read back, since the parse output is what reaches storage and what
  * leaves it.
@@ -159,6 +170,31 @@ const Draft = z.object({
    *  is to keep when the settings could not be read and the control was never
    *  live — see §9's fail-closed rule. */
   precision: z.string(),
+  /**
+   * THE PHOTOS ALREADY ON THE POD, and the only field here that is not a string
+   * off a form control — because by the time one is in this list it is not a
+   * file any more.
+   *
+   * The editor uploads on pick and then holds a `Photo`: URLs, dimensions, a
+   * media type and a `data:` placeholder, all of which survive
+   * `JSON.stringify`. A `File` or a `Blob` here would serialise to `{}` — it
+   * does not throw and it does not print "[object Blob]" — so the write would
+   * report success and the restore would hand back a photo with no URL on it.
+   * That failure is the reason the pick is the upload, so this field is where it
+   * is caught: `Photo` requires `contentUrl` to be a URL, and a draft that lost
+   * its bytes is refused rather than restored.
+   *
+   * REUSING THE APP'S OWN `Photo` rather than restating it, exactly as `status`
+   * and `mode` reuse theirs, and with the same consequence: a photo hand-edited
+   * in devtools takes the whole payload down rather than being restored into a
+   * form that would then write it to the Pod. Losing one draft is recoverable;
+   * a mangled `schema:contentUrl` on a public resource is not.
+   *
+   * `.default([])` IS WHAT LETS THE KEY STAY AT `v2` — see `draftKey`. A payload
+   * written before this control existed has no `photos`, and an empty list is
+   * the honest answer for it rather than a stand-in for something lost.
+   */
+  photos: z.array(Photo).default([]),
   /**
    * THE ONE FIELD THAT MUST CARRY AN OFFSET (§6), refused without one on read
    * AND on write. It is what the banner's `<time dateTime>` is built from, and

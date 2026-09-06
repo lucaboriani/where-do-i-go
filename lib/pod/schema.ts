@@ -40,6 +40,18 @@ export const Place = z.object({
   geo: GeoPoint.optional(),
 });
 
+/**
+ * The §6.4 blur budget, RESTATED HERE RATHER THAN IMPORTED — deliberately.
+ *
+ * `BLUR_BUDGET_BYTES` in `lib/media/targets.ts` is the source of this number
+ * and the two must stay in step. It is not imported because that module is
+ * studio-only and fenced from `app/(public)` by `no-restricted-imports`, while
+ * this file is read by public pages: an import would pull the media graph into
+ * the public bundle to fetch one integer, undoing the fence rather than
+ * respecting it. A duplicated constant with a comment is the cheaper mistake.
+ */
+const BLUR_BUDGET_BYTES = 1200;
+
 export const Photo = z.object({
   contentUrl: z.url(),
   thumbnailUrl: z.url().optional(),
@@ -47,7 +59,56 @@ export const Photo = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   sortOrder: z.number().int().optional(),
+  /** The blob's ACTUAL media type, e.g. "image/webp" (§6.1). */
+  encodingFormat: z.string().optional(),
+  /** From EXIF DateTimeOriginal. Offset required, like every other timestamp. */
+  dateCreated: z.iso.datetime({ offset: true }).optional(),
+  /**
+   * A `data:` URI placeholder, and the §6.4 budget is checked on READ as well as
+   * on write.
+   *
+   * `withinBlurBudget` runs in the worker, which only ever governs what THIS
+   * app writes. The literal rides inside the entry's Turtle, which is
+   * world-readable and fetched on every public page view, multiplied by photo
+   * count — so the side that matters most is the one where an oversized value
+   * ARRIVES: an older version of this app, another tool, or a foreign writer
+   * (§11's premise for validating at all).
+   *
+   * OVER BUDGET DISCARDS THE PLACEHOLDER; IT DOES NOT REJECT THE PHOTO. That
+   * asymmetry is the entire point of this field, and it was learned the hard
+   * way: for one day this was a `.max()` and a `.refine()`, both fatal. A
+   * single over-budget literal from a foreign writer then failed `Photo`, which
+   * failed `Entry`, which made `readEntry` return `shape` — so the public entry
+   * page lost its headline, body, place and every photo, and the next
+   * `rebuildIndex` dropped the entry from the trip index because it could not
+   * read it. A guard that turns a cosmetic problem into a missing page is worse
+   * than the problem it guards against. §3 says the budget "drops it", and
+   * dropping is what this does: the entry renders with no placeholder and
+   * everything else intact.
+   *
+   * BYTES, NOT CHARACTERS, hence the `TextEncoder`: the budget is a wire size.
+   * A `.max()` would not be a cheaper spelling of the same check. Measured
+   * against the installed zod@4.5.4 rather than recalled: `z.string().max(n)`
+   * counts CODE POINTS, not UTF-16 units — `"\u{1F600}".repeat(3)` has `.length`
+   * 6 and passes `.max(3)` — so 1200 characters of four-byte codepoints is 4800
+   * bytes and sails under a character bound of 1200. test/guardrails.test.ts
+   * straddles the boundary in ASCII and in multi-byte codepoints for that
+   * reason.
+   *
+   * `serialiseEntry` validates with this same schema on the way OUT, so an
+   * over-budget placeholder is dropped there too rather than failing the save
+   * — which is still "drops it", and still means the Pod never receives one.
+   * Nothing this app produces reaches that path anyway: the worker's
+   * `withinBlurBudget` omits the placeholder before it is ever a `Photo`.
+   */
+  blurDataUrl: z
+    .string()
+    .transform((value) =>
+      new TextEncoder().encode(value).length <= BLUR_BUDGET_BYTES ? value : undefined,
+    )
+    .optional(),
 });
+export type Photo = z.infer<typeof Photo>;
 
 export const Trip = z.object({
   iri: z.url(),
