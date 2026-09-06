@@ -1,8 +1,8 @@
-# Phase 3 — the media pipeline, and auto-place / auto-date
+# Phase 3 — the media pipeline, and place / date entry
 
-Design agreed 2026-09-06. Stage 1 (the pipeline) is specified in full; stage 2 (auto-place and
-auto-date) is specified to the level of its interfaces and its call path into §9, and is filled
-in when stage 1 lands.
+Design agreed 2026-09-06. Stage 1 (the pipeline) is specified in full; stage 2 (manual place and
+date entry, then auto-fill from photo EXIF) is specified to the level of its interfaces and its
+call path into §9, and is filled in when stage 1 lands.
 
 This document is a design, not a plan. It says what is being built and why each choice is the
 one it is. The implementation plan is written separately.
@@ -34,8 +34,14 @@ Verified in the checkout on 2026-09-06:
 thumb-sized derivative plus a blur placeholder, read its EXIF, strip its metadata, upload the two
 derivatives to `/travel/media/`, and attach the result to the entry being edited.
 
-**Stage 2 — auto-place and auto-date.** Use the EXIF that stage 1 already read to prefill the
-entry's coordinate (through §9's fuzzing, never around it) and its `dy:occurredAt`.
+**Stage 2 — manual place and date, then auto-place and auto-date.** Give the editor controls for
+setting a place and a time by hand, and then use the EXIF that stage 1 already read to *prefill*
+those controls — the coordinate through §9's fuzzing, never around it, and `dy:occurredAt` with
+an offset the owner can correct.
+
+The ordering inside stage 2 is deliberate and is argued in §11: **manual comes first, because
+auto-fill prefills manual controls and you cannot prefill a control that does not exist.** Two of
+those controls do not exist today.
 
 Out of scope, deliberately: uploading originals (decided against — see §9 below), cleaning up
 unreferenced media (§8), and any change to `lib/pod/fuzz.ts`.
@@ -145,10 +151,10 @@ came back unanswerable because PodSpaces is Developer Preview; §9's recommended
 its own merits). The §7.3 fixture nonetheless still shows `dy:originalUrl`, which now contradicts
 shipped behaviour.
 
-**Proposed:** remove it from the §7.3 fixture and keep the term reserved in §3 with a note that
-nothing writes it. Rule 4 makes a `dy:` term permanent once written; nothing has ever written this
-one, but §3 is also the record of what the namespace contains, so deleting it outright would lose
-that. This is flagged for the owner rather than decided here.
+**Decided with the owner, 2026-09-06:** remove it from the §7.3 fixture, and keep the term
+reserved in §3 with a note that nothing writes it. Rule 4 makes a `dy:` term permanent once
+written; nothing has ever written this one, but §3 is also the record of what the namespace
+contains, so deleting it outright would lose that record.
 
 ## 5. Derivative sizes
 
@@ -340,9 +346,70 @@ the test runs, not that it checks the thing. Each of these is applied on purpose
 **If a mutation does not go red, that is a finding about the test, not evidence there is no bug.**
 Twice in this project's history the reason was a defect in the test.
 
-## 11. Stage 2 — auto-place and auto-date
+## 11. Stage 2 — manual place and date, then auto-fill
 
-### Auto-place
+**A photo is one way to answer "where and when", never the only way.** Plenty of entries have no
+photo, plenty of photos have no GPS, and a scan or a screenshot has neither. So the manual
+controls are the substrate and auto-fill is a convenience layered on top — which also fixes the
+ordering: you cannot prefill a control that does not exist, so **manual is built first**.
+
+### 11.1 What the editor can and cannot set today
+
+Verified by reading `components/studio/entry-editor.tsx` on 2026-09-06. It has eleven fields:
+Trip, Slug, Headline, Story, When it happened, Latitude, Longitude, Precision, Tags, Travel mode,
+Status.
+
+**Manual date: half present.** "When it happened" takes a wall clock. The *offset* is not
+editable — `toOffsetDateTime` uses the stored offset if the entry has one, else `offsetHere()`,
+the editing machine's zone. Writing up a Japan trip from home therefore stamps `+02:00` on an
+evening in Tokyo, with no control anywhere to correct it. The file's own comment says the offset
+is copied rather than recomputed *so that* an entry edited from another zone is not rewritten into
+it — which is right, and is exactly why the remaining case needs a control rather than a default.
+
+**Manual place: half present.** Latitude, Longitude and Precision exist and go through
+`fuzzForPublication`. But `Place` in `lib/pod/schema.ts` also has `name`, `locality` and
+`country` — `schema:name`, `schema:addressLocality` and `schema:addressCountry` in §7.3 — and
+**nothing in the studio can set any of them.** They are read, serialised, and carried through an
+edit untouched, so the only way one exists is if something outside this app wrote it.
+
+That gap is worse than a missing field, because §9 leans on it. Inside the home radius the
+coordinate is dropped and, in §9's words, "the entry is still written, with its place name if it
+has one — it is the geometry that is absent, not the entry". Today an entry near home loses its
+geometry and has no name to fall back on, so it is placeless. **The mitigation §9 relies on does
+not currently exist.** This is a pre-existing defect that stage 2 fixes, not new scope invented
+here.
+
+### 11.2 The manual controls to add
+
+- **Place name, locality, country.** Three text inputs writing `Place.name` (language-tagged,
+  like every human-readable literal), `Place.locality` and `Place.country`. Independent of the
+  coordinate: a named place with no geometry is valid and is precisely what §9 wants near home.
+- **Offset for "when it happened".** The wall clock stays as it is; the offset becomes visible
+  and editable beside it, defaulting as it does today. Making it visible is most of the fix —
+  the current failure is silent.
+
+`placeFor` already composes a place out of "what the entry had" plus "what the form changed", and
+`touchedCoordinate` already distinguishes "left alone" from "deliberately emptied". Both extend to
+the name fields rather than being replaced; the three-outcome logic in the save path is the
+established pattern here and should not be reinvented.
+
+### 11.3 Auto-fill prefills, and never overwrites
+
+The rule, which the tests should pin directly:
+
+> **Auto-fill only ever writes into a control the owner has not touched. A photo added after a
+> manual edit never overwrites it, and adding a photo is never the only way to reach a value.**
+
+This is the same distinction `touchedCoordinate` already draws, applied to a second source of
+values. Getting it wrong in the other direction — a second photo quietly replacing the first
+photo's coordinate, or a photo replacing a typed place name — is the kind of silent data loss
+that only surfaces a day later, which `where-i-go-review-lessons` records as this project's
+characteristic defect shape.
+
+Auto-fill is also surfaced rather than magical: the owner is told a photo supplied a value, so a
+wrong pin is attributable to the photo instead of to the editor.
+
+### 11.4 Auto-place
 
 `PhotoMetadata.gps` feeds **straight into the existing `fuzzForPublication`**. §9 steps 1-4 run
 unchanged, before anything is written. There is no separate path for photo coordinates:
@@ -360,7 +427,7 @@ Note that `exifreader` returns float noise (`35.693799999999996` above). Coordin
 so the noise is harmless *because* fuzzing runs first, which is one more reason nothing may
 bypass it.
 
-### Auto-date
+### 11.5 Auto-date
 
 Decided 2026-09-06: **prefill the wall clock, flag the offset.**
 
@@ -377,6 +444,10 @@ into the editor's zone. Auto-date fits that model rather than changing it.
 - Absent -> prefill the wall clock from `DateTimeOriginal`, which genuinely is the time at the
   place, and **surface the offset as unconfirmed** with the machine's zone as a visible default.
   The owner sees `21:38 +02:00` and corrects it to `+09:00`.
+
+"Corrects it" requires somewhere to correct it, which is why §11.2's editable offset is a
+prerequisite rather than a nicety. Without it this design degrades to prefilling a wall clock and
+then stamping the wrong zone on it — worse than not auto-dating at all, because it looks right.
 
 The rejected alternative was deriving the offset from the photo's own GPS, which is almost always
 exactly right including DST, and costs a timezone-boundary dataset in the studio bundle for a
