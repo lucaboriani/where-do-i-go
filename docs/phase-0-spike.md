@@ -291,9 +291,15 @@ Binary-resource preconditions were verified on CSS only; not retested on ESS.
   benchmarked; question 6 was not run against it, so `rebuildIndex` cost on a hosted Pod
   remains unmeasured — and it is the number that actually matters, since 200 sequential reads
   over real RTT dominate everything measured locally.
-- **Storage quota.** Still unmeasured. PodSpaces is Developer Preview and explicitly not for
-  production or personal data, so its quota would not be representative anyway. §9's originals
-  question stays open.
+- **Storage quota.** Still unmeasured, and never became measurable. PodSpaces is Developer
+  Preview and explicitly not for production or personal data, so its quota would not be
+  representative anyway. **The dependency this file assumed did not hold.** "Also worth noting
+  while you are in there", above, said the quota answer "decides whether original-resolution
+  photos are uploaded at all". Phase 3 decided it without one: **originals are not uploaded**,
+  because every view renders the web-sized derivative and an original at a public URL carries the
+  GPS and device metadata the derivatives had stripped — neither reason needs a quota figure. See
+  `docs/data-model.md` §9 for the decision and §13 item 5 for the same result stated from the
+  other side. Quota blocks nothing; it is simply still unmeasured.
 - **Node version.** `@inrupt/solid-client-authn-core@5.0.0` declares `^22.0.0 || ^24.0.0` and
   `@inrupt/solid-client@3.0.0` declares `^20.0.0 || ^22.0.0`; within 22.x, `jsdom@30.0.1`
   (`^22.22.2`) sets the floor. Both `docs/versions.md` and `TODO.md` have been corrected to
