@@ -6,15 +6,23 @@ import { signInAsOwner } from "./sign-in";
  * The Solid login redirect — the one flow Playwright exists for in this project.
  *
  * WHY A BROWSER IS NECESSARY HERE AND NOWHERE ELSE. Everything else the studio
- * does is already pinned by fast tests: 23 component tests cover restoring,
- * signed-out, owner, not-owner and the expiry subscription against an injected
- * plain-object session, and test/session.test.ts covers signIn's arguments.
- * What none of them can reach is what an actual identity provider DOES with
- * those arguments — and the failure that matters is silent. Phase 0 found that
- * when the provider cannot use the static client ID document, login falls back
- * to DYNAMIC CLIENT REGISTRATION: the flow still completes, nothing throws and
- * no status code is wrong. There is no unit test of a screen on someone else's
- * server.
+ * does is already pinned by fast tests: test/studio-shell.test.tsx covers
+ * restoring, signed-out, owner, not-owner and the expiry subscription against
+ * an injected plain-object session, and test/session.test.ts covers signIn's
+ * arguments. What none of them can reach is what an actual identity provider
+ * DOES with those arguments — and the failure that matters is silent. Phase 0
+ * found that when the provider cannot use the static client ID document, login
+ * falls back to DYNAMIC CLIENT REGISTRATION: the flow still completes, nothing
+ * throws and no status code is wrong. There is no unit test of a screen on
+ * someone else's server.
+ *
+ * THE FILES ARE NAMED AND NO TOTAL IS GIVEN. This line said "23 component
+ * tests" until 2026-09-06, by which point `vitest list` reported 26 — the
+ * THIRD place on this branch found carrying that same stale number, after
+ * CLAUDE.md (fixed in 3c751c6, which also wrote the rule: name the file, do
+ * not reintroduce a total) and playwright.config.ts. A count in prose goes
+ * wrong the next time a test is added and nothing anywhere checks it, which
+ * is exactly why it went wrong three times. Let `vitest list` count.
  *
  * AND WHY IT IS TESTABLE AT ALL, WHICH PHASE 0 SAID IT WAS NOT. The provider
  * has to fetch `client-id.jsonld` over the network, so a dev machine cannot
