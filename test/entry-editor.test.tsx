@@ -2601,13 +2601,10 @@ describe("entry editor — the offset it stamps", () => {
       storage: fakeStorage().storage,
     });
 
-    // The fixture is only interesting if the list really lacks it.
-    expect(offsetOptions(), "+05:15 is one of the offsets this editor offers").not.toContain(
-      "+05:15",
-    );
-    // A controlled <select> whose value matches no option reads back as "", so
-    // this single assertion covers both "it is showing +05:15" and "an option
-    // for it exists".
+    // A controlled <select> whose value matches no option reads back as the
+    // FIRST option (measured: "-12:00", not ""), so this single assertion
+    // covers both "it is showing +05:15" and "an option for it exists" —
+    // neither "-12:00" nor "" is "+05:15".
     expect(
       shownValue(LABEL.offset),
       "the control blanked on an offset it does not offer, or replaced it with one it does",
@@ -2627,11 +2624,20 @@ describe("entry editor — the offset it stamps", () => {
     cleanup();
 
     // THE ALLOW-CASE, and the `Set` half of `Precision`'s pattern: an offset
-    // that IS in the list appears once, not twice.
+    // that IS in the list appears once, not twice. This render uses the
+    // unmodified `entry` (offset +09:00), so nothing unusual is unioned in
+    // and its rendered list IS the canonical thirty-eight — which is what
+    // makes it the right place to check that +05:15 is not among them; the
+    // odd-offset render above always has +05:15 unioned in and could never
+    // pass that check.
     await renderEditor(fake.session, {
       initial: { entry, etag: '"entry-7"' },
       storage: fakeStorage().storage,
     });
+    // The fixture is only interesting if the list really lacks it.
+    expect(offsetOptions(), "+05:15 is one of the offsets this editor offers").not.toContain(
+      "+05:15",
+    );
     expect(
       offsetOptions().filter((v) => v === "+09:00"),
       "the stored offset was appended to a list that already had it",
