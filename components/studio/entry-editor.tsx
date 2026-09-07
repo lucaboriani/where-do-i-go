@@ -1793,8 +1793,13 @@ export default function EntryEditor({
      *
      * THE SHAPE, NOT THE LIST, IS THE TEST. `+05:15` is not one of the
      * thirty-eight and must still be restored; `banana` from a hand-edited
-     * payload must not, because it would reach `dy:occurredAt`. One expression
-     * covers `""` and that, which is what collapsing absent into `""` bought.
+     * payload must not — not because it would reach `dy:occurredAt` (it would
+     * reach the composer and fail the save: `serialiseEntry` re-validates with
+     * `Entry.safeParse`, lib/pod/entry-model.ts, so a shape-invalid offset is
+     * refused there, not written to the Pod), but because showing it in the
+     * control would be indistinguishable from an offset this editor actually
+     * offers. One expression covers `""` and that, which is what collapsing
+     * absent into `""` bought.
      */
     setOffset(OFFSET_SHAPE.test(draft.offset) ? draft.offset : offset);
     setTagsText(draft.tagsText);

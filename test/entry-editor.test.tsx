@@ -2365,11 +2365,12 @@ describe("entry editor — the place it names", () => {
  *      makes those places unwritable, which for a travel diary is the wrong
  *      corner to cut;
  *   4. a stored offset the list does NOT contain still renders, rather than
- *      blanking the control — the `Precision` select's established pattern,
- *      where the current value joins the options instead of being mapped onto
- *      them. An entry written by another tool with `+05:15` must not silently
- *      become something else, and a controlled `<select>` whose value matches
- *      no option renders blank, which is how it would.
+ *      being silently swapped for a different one — the `Precision` select's
+ *      established pattern, where the current value joins the options instead
+ *      of being mapped onto them. An entry written by another tool with
+ *      `+05:15` must not silently become something else, and a controlled
+ *      `<select>` whose value matches no option reads back as its first
+ *      option — not blank — which is exactly how it would.
  *
  * WHAT IS NOT PINNED HERE, deliberately: the option TEXT. "+09:00" alone and
  * "+09:00 — Tokyo, Seoul" are both fine, and `setChoice` reads either. What may
@@ -2575,18 +2576,21 @@ describe("entry editor — the offset it stamps", () => {
 
   /**
    * AN OFFSET THE LIST DOES NOT HAVE, which is the `Precision` select's
-   * unavailable-value case with a sharper consequence: precision blank means a
-   * control that looks unfilled, and offset blank means a timestamp that either
-   * loses its offset or silently acquires this machine's.
+   * unavailable-value case with a sharper consequence than blanking: a
+   * controlled `<select>` whose value matches no option does not go blank —
+   * React explicitly selects the first non-disabled option instead — so
+   * losing the union below would not look unfilled, it would look ANSWERED,
+   * with a plausible offset the owner never chose silently written into
+   * `dy:occurredAt`.
    *
    * `+05:15` is not a zone anyone uses today, which is the point — an entry can
    * carry it because some other tool wrote it, and this editor's job is to show
    * it and put it back unchanged, not to correct it.
    *
    * WHAT WOULD BREAK IT: rendering only the thirty-eight, so the controlled
-   * `<select>` finds no matching option and renders blank; snapping the stored
-   * value onto the nearest listed offset, which is the "helpful" version of
-   * losing it.
+   * `<select>` finds no matching option and reads back as the first one on the
+   * list (`-12:00` here) instead of `+05:15`; snapping the stored value onto
+   * the nearest listed offset, which is the "helpful" version of losing it.
    */
   it("renders a stored offset the list does not contain, and puts it back unchanged", async () => {
     const pod = podFake();
@@ -2642,6 +2646,54 @@ describe("entry editor — the offset it stamps", () => {
       offsetOptions().filter((v) => v === "+09:00"),
       "the stored offset was appended to a list that already had it",
     ).toHaveLength(1);
+  });
+
+  /**
+   * A STORED `Z` NORMALISES TO `+00:00` ON AN EDIT — the one branch of
+   * `offsetOf` no fixture in this file had reached before this test.
+   *
+   * THE EXISTING `not.toContain("Z")` ASSERTION ABOVE CANNOT PIN THIS. It
+   * renders a CREATE, where nothing is unioned in from an existing entry, so
+   * it passes identically whether `offsetOf` normalises `Z` or not — it pins
+   * the LIST's own spelling, never the normalisation. Only an EDIT of an
+   * entry actually stored with `Z` drives the branch this test is about.
+   *
+   * WHAT WOULD BREAK IT: deleting the `found[1] === "Z" ? "+00:00" : found[1]`
+   * branch from `offsetOf`. The mutant does not crash — `offsetMinutes("Z")`
+   * is `Number("") * 60 + Number("")`, i.e. `0`, so it sorts beside `+00:00`
+   * rather than throwing — it silently shows `Z` in the control and writes
+   * `…T21:40:00Z` back on a save that never touched the offset, which is the
+   * bare spelling §6 and lib/pod/rdf.ts both refuse.
+   */
+  it("shows +00:00, not Z, for an entry stored with the bare UTC spelling", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    const bareUtc: Entry = { ...entry, occurredAt: "2026-03-29T21:40:00Z" };
+    // The mutation really happened.
+    expect(bareUtc.occurredAt).not.toBe(entry.occurredAt);
+
+    await renderEditor(fake.session, {
+      initial: { entry: bareUtc, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+
+    expect(
+      shownValue(LABEL.offset),
+      "a stored Z reached the control unnormalised",
+    ).toBe("+00:00");
+
+    // AND IT SURVIVES A SAVE THAT NEVER TOUCHED IT, spelled out rather than Z.
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the edit was never written").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(
+      occurred?.value,
+      "a Z-stamped entry was written back with Z instead of the explicit offset",
+    ).toBe("2026-03-29T21:40:00+00:00");
   });
 });
 
@@ -6896,8 +6948,15 @@ describe("entry editor — the place fields in a local draft", () => {
 
 /* ──────────────────────────────── 8j. the offset in a local draft ─────────
  *
- * The seventeenth field, and the second one on this form that is not text the
- * owner typed but a choice they made. §7.3: `dy:occurredAt` "carries the local
+ * The seventeenth field, and the second control on this form whose STORED
+ * VALUE MAY NOT APPEAR IN ITS OWN OPTION LIST — not "the second choice
+ * control" (Trip, Travel mode, Status, Precision and Photos are choices too;
+ * that count would make this the sixth). Precision is the first of the two:
+ * `gridOf(draft.precision) === null ? presetPrecision : draft.precision`
+ * refuses a restored precision the select cannot show. The offset is the
+ * second, and it is exactly why it follows `precisionOptions`' union shape
+ * rather than being refused the same way — see the note on `OFFSET_SHAPE`
+ * where `restore()` is defined. §7.3: `dy:occurredAt` "carries the local
  * UTC offset of the place" — until section 1c that offset was the entry's own
  * or, failing that, the EDITING MACHINE'S, and nothing on the form could say
  * otherwise. Now it is an answer, so it is something the local copy has to
@@ -7115,10 +7174,13 @@ describe("entry editor — the offset in a local draft", () => {
    *
    * MUTATIONS THIS MUST DIE UNDER, both of them:
    *
-   *   1. `setOffset(draft.offset)` unconditionally → the control shows `""`
-   *      (the blank a controlled `<select>` renders for a value matching no
-   *      option), so `shownValue(LABEL.offset)` reads `""` rather than
-   *      `+05:45`.
+   *   1. `setOffset(draft.offset)` unconditionally → the control shows `""`.
+   *      Unlike the `+05:15` case in section 1c, this really is blank:
+   *      `offsetOptions` unions in whatever the control holds, so an empty
+   *      state puts an empty-valued option into the list and the `<select>`
+   *      genuinely matches it. It is not the "no option matches" case —
+   *      that one reads back as the FIRST option, not blank, per section 1c
+   *      — so `shownValue(LABEL.offset)` reads `""` rather than `+05:45`.
    *   2. The restore fall-through consulting only `offsetHere(wall)` and never
    *      `offsetOf(existing?.occurredAt)` → the control shows `+09:00`, this
    *      machine's zone, instead of the entry's own. THIS is the mutation the
@@ -7183,6 +7245,50 @@ describe("entry editor — the offset in a local draft", () => {
       "the control showed the entry's own offset but a different one reached the Pod",
     ).toBe("2026-04-02T16:20:00+05:45");
     expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+  });
+
+  /**
+   * A SHAPE-INVALID, NON-EMPTY OFFSET IS REFUSED THE SAME WAY AN ABSENT ONE
+   * IS. `restore()`'s guard is `OFFSET_SHAPE.test(draft.offset) ? draft.offset
+   * : offset` — every fixture above only ever drives the `""` branch of that
+   * ternary (an absent key or a hand-emptied one), so a narrower guard,
+   * `draft.offset === "" ? offset : draft.offset`, would survive every test
+   * before this one. `"banana"` is not `""` and not `[+-]dd:dd`, so it is the
+   * one payload that can only reach the control through the SHAPE branch —
+   * a hand-edited or corrupted `localStorage` entry, not anything this
+   * editor itself would ever write.
+   *
+   * WHAT WOULD BREAK IT: the narrower `=== ""` guard above. Under it `banana`
+   * is shown in the control, reaches the composer on save, and fails there —
+   * `Entry.safeParse` (lib/pod/entry-model.ts) refuses the shape — so a save
+   * that would otherwise have worked is silently lost instead of the visible,
+   * correct fallback this test pins.
+   */
+  it("restores a draft carrying a shape-invalid offset onto the same fallback an absent one uses", async () => {
+    const fake = fakeStudioSession();
+    const bad = seededDraft({ offset: "banana" });
+    const store = fakeStorage({ [KEY]: JSON.stringify(bad) });
+    await renderEditor(fake.session, { storage: store.storage });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "a draft carrying a shape-invalid offset is no longer offered at all",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    // THE RESTORE REALLY HAPPENED, or the offset assertion below would hold
+    // just as well for an editor that restored nothing.
+    expect(
+      shownValue(LABEL.headline),
+      "the draft was offered but nothing was restored from it",
+    ).toBe(bad.headline);
+
+    requireOffsetControl();
+    expect(
+      shownValue(LABEL.offset),
+      "a shape-invalid offset from a hand-edited draft was shown rather than refused",
+    ).toBe("+09:00");
   });
 });
 

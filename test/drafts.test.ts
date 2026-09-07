@@ -854,10 +854,16 @@ describe("the place fields in a draft", () => {
  * back. No `v2` payload can carry an offset, because there was no control to
  * choose one with, so such a draft restores `""` — which the editor reads as
  * "this draft has nothing to say about the offset" and fills from the same
- * fallback chain it would have used anyway. `.default("")` rather than
- * `.optional()`, for the reason the place fields give: `.optional()` drops the
- * key from the parse output and loses the difference between an empty answer
- * and no answer.
+ * fallback chain it would have used anyway. `.default("")`, and THAT IS THE
+ * OPPOSITE CHOICE TO THE PLACE FIELDS BELOW (`.optional()`), not the same
+ * reason applied twice: for a place, `""` is an instruction — REMOVE THIS,
+ * the only way a name already published comes off the Pod — so collapsing it
+ * into "absent" would make removal impossible. An offset has no REMOVE
+ * instruction (§3 and §6 require `dy:occurredAt` to carry one and refuse it
+ * without, on read and on write), so `""` can only mean "this draft has
+ * nothing to say," which is the same thing absent already means. Absent and
+ * `""` are therefore one instruction here, and collapsing them is lossless
+ * rather than lossy.
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe("the offset in a draft", () => {
@@ -890,10 +896,15 @@ describe("the offset in a draft", () => {
   );
 
   /**
-   * `""` IS A REAL VALUE, and the assertion that catches `.optional()`: an
-   * absent key is not an empty answer, and the editor tells them apart —
-   * `""` means "this draft says nothing about the offset, use the fallback
-   * chain", which is exactly what a pre-control payload restores as.
+   * `""` IS A REAL VALUE, kept as itself rather than becoming an absent key.
+   * `.default("")` and `.optional()` answer THIS input identically — a
+   * present `""` stays a present `""` under either — so this test does not
+   * discriminate between the two operators; the one below it does, on a key
+   * that is genuinely absent. What this one pins is the value itself: `""`
+   * means "this draft says nothing about the offset, use the fallback
+   * chain", and the editor does not need to tell that apart from "absent" —
+   * one expression covers both, which is the whole reason `.default("")` was
+   * chosen over `.optional()` here.
    */
   it("keeps an empty offset as an empty offset, not as an absent field", async () => {
     const { readDraft, writeDraft } = await loadDrafts();
@@ -905,7 +916,7 @@ describe("the offset in a draft", () => {
     expect(back).toEqual(blank);
     expect(
       Object.keys(back!).sort(),
-      "an empty offset came back as an absent field: the schema is .optional()",
+      "an empty offset came back with the key missing entirely",
     ).toEqual(FIELDS);
   });
 
