@@ -38,8 +38,10 @@
  * worst, if the resource has cycled back to a matching tag, an overwrite of an
  * edit made elsewhere. A restored `created` would overwrite §7.3's "when the
  * record came into being" with whenever the draft happened to be saved. The
- * schema below is the fence: thirteen fields, and the parse is what reaches
- * storage.
+ * schema below is the fence: seventeen fields, and the parse is what reaches
+ * storage. It said thirteen from the day it was written until 2026-09-07, by
+ * which point `photos`, the three place fields and `offset` had made it four
+ * short — so when a field is added here, this number is part of the change.
  */
 import * as z from "zod";
 import { Photo, Status, TravelMode } from "@/lib/pod/schema";
@@ -113,6 +115,17 @@ export interface DraftAddress {
  * therefore `.optional()`, which keeps "absent" distinguishable from "emptied"
  * all the way to `restore()`. See their own docblock below: this is the one
  * field group where the version segment is not the only fence.
+ *
+ * **`offset` ARRIVED ON 2026-09-07 AND THE KEY DID NOT MOVE FOR IT EITHER** —
+ * the third time the version test is answered "no", and the second of the two
+ * ways of answering it. No `v2` payload can carry an offset, because there was
+ * no control to choose one with, so the half-restore a bump exists to prevent
+ * cannot arise: such a draft restores `""`, and `""` is not a default standing
+ * in for something lost — it is "this draft has nothing to say about the
+ * offset", which is the truth about that draft. `.default("")` rather than the
+ * place fields' `.optional()`, because unlike a place name an offset has no
+ * REMOVE instruction to keep distinguishable from absence. The field's own
+ * docblock below has the whole of that argument.
  */
 export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
 
@@ -121,7 +134,7 @@ export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.
  *
  * NOT `.strict()`, and that is load-bearing rather than an oversight: unknown
  * keys are STRIPPED. A payload written by a slightly different build, or one a
- * curious owner edited in devtools, still restores its sixteen legitimate
+ * curious owner edited in devtools, still restores its seventeen legitimate
  * fields instead of being thrown away — and the stripping is also what guarantees an
  * `etag` handed in by a caller spreading the editor's state can neither be
  * written nor read back, since the parse output is what reaches storage and what
@@ -146,8 +159,63 @@ const Draft = z.object({
   story: z.string(),
   /** The wall clock `<input type="datetime-local">` hands back: no offset,
    *  because that control has none. It becomes `dy:occurredAt` only at save
-   *  time, where the offset of the PLACE is supplied (§7.3). */
+   *  time, by concatenating the `offset` held beside it (§7.3). */
   occurred: z.string(),
+  /**
+   * THE OFFSET OF THE PLACE, AS THE OWNER CHOSE IT — the other half of the
+   * timestamp, and since 2026-09-07 a form value rather than a derived one.
+   *
+   * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", because
+   * normalising to UTC "destroys the fact that it was evening, which for a
+   * travel diary is most of the meaning". Until the editor grew a control for
+   * it, that offset was the entry's own or, failing that, THE EDITING
+   * MACHINE'S: writing up a Japan trip from home stamped an evening in Tokyo
+   * `+02:00`, silently, with nothing on the form that could correct it. It is
+   * now an answer, which is what makes it something the local copy has to keep
+   * — a restored draft that dropped it would hand the owner back the very
+   * guess the control exists to replace, under a banner that has just told them
+   * their draft came back.
+   *
+   * NOT CHECKED AGAINST THE EDITOR'S LIST, deliberately. The fence is the
+   * editor's own thirty-eight offsets and the shape check in its `restore()`;
+   * this module's job is to hand back what the form was holding. A schema that
+   * refused `+05:15` — which another tool can perfectly well have written, and
+   * which the editor is required to render rather than silently replace — would
+   * throw away the whole payload, prose included, and losing a long entry is
+   * the exact failure `docs/decisions.md` §10 says this store exists to
+   * prevent.
+   *
+   * ───────────────────────────────────────────────────────────────────────
+   * `.default("")`, AND THAT IS THE OPPOSITE ANSWER TO THE THREE PLACE FIELDS
+   * BELOW, which are `.optional()`. Both keep a pre-control payload READABLE,
+   * so both avoid the version bump; what separates them is whether `""` and
+   * absent are different INSTRUCTIONS.
+   *
+   * For place text they are. `""` there means REMOVE THIS, and it is the only
+   * way a name already on a world-readable resource comes off it, so collapsing
+   * it into "absent" would either delete a place nobody touched or make removal
+   * impossible.
+   *
+   * THERE IS NO "REMOVE THE OFFSET" INSTRUCTION. §3 and §6 require
+   * `dy:occurredAt` to carry one and refuse it without on read AND on write, so
+   * `""` cannot mean "the owner wants none" — it can only mean "this draft has
+   * nothing to say about the offset, use the fallback chain". Absent and `""`
+   * are therefore the SAME instruction, collapsing them is lossless rather than
+   * lossy, and `restore()` gets one case to handle instead of two.
+   *
+   * THE CONSEQUENCE IS ON THE EDITOR'S SIDE AND IS LOAD-BEARING THERE: `""`
+   * must never be written INTO the control. It shows as a blank `<select>` —
+   * measured — and the save after it composes a timestamp out of a wall clock
+   * and nothing, refused on the next read, which is a worse outcome than the
+   * guess this control replaced. See `restore()` in
+   * components/studio/entry-editor.tsx, which falls through to the same chain a
+   * fresh form uses instead.
+   *
+   * COST IF THIS IS EVER WRONG, recorded so it is findable: should a later
+   * build make an offset genuinely optional on an entry, this collapse hides
+   * the difference and the field needs revisiting.
+   */
+  offset: z.string().default(""),
   tagsText: z.string(),
   mode: z.union([TravelMode, z.literal("")]),
   status: Status,

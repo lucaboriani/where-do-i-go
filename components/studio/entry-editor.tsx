@@ -97,7 +97,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * PLAIN CONTROLS ON PURPOSE. TODO.md keeps layout deliberately unstyled until
  * phase 7, and native `<select>`, `<input>` and `<textarea>` need no Radix on a
- * screen with twelve controls on it. Every one of them has a real `<label>`.
+ * screen of sixteen controls. Every one of them has a real `<label>`.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -266,14 +266,24 @@ function offsetHere(wall: string): string {
  * the evening for every reader. Converting through a `Date` and back would
  * rewrite an entry edited from another time zone into that zone's offset — the
  * same instant, spelled as the wrong time of day, which for a travel diary is
- * most of the meaning. So only the OFFSET is supplied here, and on an edit it
- * is the one already stored.
+ * most of the meaning. So only the OFFSET is supplied here, and it is the one
+ * the owner's own control is holding.
+ *
+ * THE OFFSET IS REQUIRED, AND THE FALLBACK THAT USED TO BE ON THIS LINE HAS
+ * MOVED RATHER THAN GONE. It read `storedOffset ?? offsetHere(wall)` — the
+ * entry's own offset, else the EDITING MACHINE'S — which is the guess the
+ * offset control exists to replace, and it fired where nobody could see it. The
+ * same chain is now the control's INITIAL VALUE, where the owner can read it
+ * and correct it. Keeping a copy here as well would be a second chain that has
+ * to agree with the first and says nothing when it stops: the rule §9 step 3
+ * states for the precision — what the control shows is what gets applied —
+ * spelled for the offset.
  */
-function toOffsetDateTime(local: string, storedOffset: string | undefined): string | undefined {
+function toOffsetDateTime(local: string, offset: string): string | undefined {
   const parts = LOCAL_DATETIME.exec(local);
   if (!parts) return undefined;
   const wall = `${parts[1]}T${parts[2]}${parts[3] ?? ":00"}`;
-  return `${wall}${storedOffset ?? offsetHere(wall)}`;
+  return `${wall}${offset}`;
 }
 
 /** The offset an already-stored timestamp carries. `Z` is a valid offset and
@@ -290,6 +300,25 @@ function offsetOf(value: string | undefined): string | undefined {
 const wallClockOf = (value: string | undefined) => (value === undefined ? "" : value.slice(0, 16));
 
 /**
+ * This machine's clock, right now, as a wall clock with no offset on it.
+ *
+ * SPLIT OUT OF `nowWithOffset` FOR THE OFFSET CONTROL'S INITIAL VALUE, which
+ * needs the offset of the current instant and has no wall clock of its own to
+ * ask about: `occurred` is `""` on a create, and `offsetHere("")` is `+00:00`
+ * rather than this machine's zone — measured, not reasoned about, because
+ * `offsetHere` treats an unparseable date as zero minutes. A new entry
+ * defaulting to UTC while the owner sits in Tokyo is the exact silent
+ * wrong-offset bug the control exists to remove.
+ */
+function wallClockNow(): string {
+  const at = new Date();
+  return (
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    `T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`
+  );
+}
+
+/**
  * Now, with this machine's offset — the one instant a save is stamped with:
  * `dcterms:created` on a create, `schema:datePublished` on a first publication,
  * and, through `saveEntry`'s `now`, `dcterms:modified` on the entry and its
@@ -299,11 +328,52 @@ const wallClockOf = (value: string | undefined) => (value === undefined ? "" : v
  * `dy:occurredAt` they take the offset of wherever the owner is sitting.
  */
 function nowWithOffset(): string {
-  const at = new Date();
-  const wall =
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
-    `T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+  const wall = wallClockNow();
   return `${wall}${offsetHere(wall)}`;
+}
+
+/**
+ * THE OFFSETS ACTUALLY IN USE, west to east, and the odd ones are the point.
+ *
+ * `+05:45` is Nepal, `+08:45` is Eucla, `+12:45` is the Chathams, `-09:30` is
+ * the Marquesas, `+05:30` is India. A list of whole hours makes those places
+ * unwritable, which for a travel diary is the wrong corner to cut, and it is
+ * also why this is a `<select>` over a fixed list rather than a stepper: a
+ * numeric control that admits `+05:45` admits `+05:61` with it.
+ *
+ * `+00:00`, NEVER `Z`. Both are valid `xsd:dateTime` offsets and mean the same
+ * instant, but §6 and lib/pod/rdf.ts want the explicit spelling and `offsetOf`
+ * normalises a stored `Z` onto it — so a list offering `Z` would be a second
+ * spelling of one value, and the control would blank on every entry written
+ * with the other one.
+ *
+ * IN ORDER, RATHER THAN SORTED AT USE. The strings do not sort into this order:
+ * `-` precedes `+` in ASCII, so a string sort puts the western hemisphere first
+ * and then orders it backwards, `-01:00` before `-12:00`. `offsetMinutes` below
+ * is the comparator for the one case that cannot be written out here — an
+ * offset the entry carries that is not on this list.
+ */
+const OFFSETS = [
+  "-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00",
+  "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:00", "-01:00",
+  "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00", "+04:30",
+  "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00", "+08:00",
+  "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00", "+12:00",
+  "+12:45", "+13:00", "+14:00",
+] as const;
+
+/** What an offset has to LOOK like to be one, which is a wider fence than
+ *  `OFFSETS` on purpose: `+05:15` is not a zone anyone uses today and an entry
+ *  can still carry it, because some other tool wrote it. This editor's job is
+ *  to show such a value and put it back unchanged — so the shape is what is
+ *  checked, and the list is only what is OFFERED. */
+const OFFSET_SHAPE = /^[+-]\d{2}:\d{2}$/;
+
+/** `+05:45` → 345, `-09:30` → -570. A sort key and nothing else: no triple
+ *  carries minutes, and `toOffsetDateTime` concatenates the string itself. */
+function offsetMinutes(offset: string): number {
+  const sign = offset.startsWith("-") ? -1 : 1;
+  return sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
 }
 
 /** `dy:tag` is a token, not prose (§3): comma-separated in, trimmed, untagged. */
@@ -735,8 +805,9 @@ export const DRAFT_DEBOUNCE_MS = 800;
  *  name, so every create in this browser shares one draft. */
 const NEW_DRAFT_SCOPE = "new";
 
-/** The twelve fields the FORM holds — `Draft` minus the stamp, which is put on
- *  at the moment of the write and never earlier (§6). */
+/** The sixteen fields the FORM holds — `Draft` minus the stamp, which is put on
+ *  at the moment of the write and never earlier (§6). It read "twelve" until
+ *  2026-09-07, having missed `photos`, the three place fields and `offset`. */
 type DraftText = Omit<Draft, "savedAt">;
 
 /**
@@ -753,15 +824,15 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
   a.length === b.length && a.every((photo, at) => photo.contentUrl === b[at]?.contentUrl);
 
 /**
- * Have the fifteen fields moved between two snapshots?
+ * Have the sixteen fields moved between two snapshots?
  *
  * Field by field rather than `JSON.stringify`, which would answer "different"
- * for the same fifteen values in a different key order. The consequence of a
+ * for the same sixteen values in a different key order. The consequence of a
  * false "different" is not cosmetic: it is a local copy written back for text
  * the Pod already holds, which is exactly the resurrected draft the clear after
  * a save exists to prevent.
  *
- * The three coordinate fields are in here for the same reason the other eight
+ * The three coordinate fields are in here for the same reason the other nine
  * are: they are what the form holds. A comparison that skipped them would call
  * a form whose only change was the latitude "unchanged" and drop that change
  * from the local copy — the one field on this screen nobody can retype from
@@ -772,6 +843,10 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
  * So are the photos, and there the consequence is worse than retyping: a photo
  * attached while the Pod was answering is bytes that are already uploaded and
  * about to be referenced by nothing at all.
+ *
+ * And so is the offset, which is half of the timestamp: an offset corrected
+ * while the Pod was answering, dropped from this comparison, would leave the
+ * local copy holding the guess the owner had just replaced.
  */
 const sameText = (a: DraftText, b: DraftText) =>
   a.tripIri === b.tripIri &&
@@ -779,6 +854,7 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.headline === b.headline &&
   a.story === b.story &&
   a.occurred === b.occurred &&
+  a.offset === b.offset &&
   a.tagsText === b.tagsText &&
   a.mode === b.mode &&
   a.status === b.status &&
@@ -854,6 +930,38 @@ export default function EntryEditor({
   const [headline, setHeadline] = useState(existing?.headline.value ?? "");
   const [story, setStory] = useState(existing?.articleBody?.value ?? "");
   const [occurred, setOccurred] = useState(() => wallClockOf(existing?.occurredAt));
+  /**
+   * THE OTHER HALF OF THE TIMESTAMP, AND NOW AN ANSWER RATHER THAN A GUESS.
+   *
+   * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", because
+   * normalising to UTC destroys the fact that it was evening. Until this state
+   * existed the offset was computed at save time as
+   * `offsetOf(existing?.occurredAt) ?? offsetHere(wall)` — the entry's own,
+   * else THE EDITING MACHINE'S — so writing up a Japan trip from the sofa at
+   * home stamped an evening in Tokyo `+02:00`, silently, and no control on the
+   * form could correct it.
+   *
+   * THE INITIAL VALUE IS THAT SAME CHAIN, UNCHANGED. The behaviour has not
+   * moved; the guess has become visible and correctable, which is the whole
+   * change. On an edit it is the offset the entry already carries, so an edit
+   * that never opens this control writes the timestamp back exactly as stored.
+   *
+   * `wallClockNow()` RATHER THAN `occurred`, and that is not interchangeable:
+   * `occurred` is `""` on a create and `offsetHere("")` is `+00:00`, not this
+   * machine's zone. The control has a value at MOUNT, when there may be no date
+   * on the form at all, so the honest wall clock to ask about is the current
+   * instant.
+   *
+   * ONE CONSEQUENCE OF THAT, ON THE RECORD: in a zone with DST, a create
+   * defaults to TODAY'S offset rather than the one in force on the date the
+   * owner then types. The old code asked about the entry's own wall clock and
+   * so got that right by accident, in the one case where its answer was
+   * defensible at all. It is a fair trade because the value is now on screen
+   * and one click from correct, where before it was neither.
+   */
+  const [offset, setOffset] = useState(
+    () => offsetOf(existing?.occurredAt) ?? offsetHere(wallClockNow()),
+  );
   const [tagsText, setTagsText] = useState(existing?.tags.join(", ") ?? "");
   const [mode, setMode] = useState<Mode | "">(existing?.travelModeFrom ?? "");
   const [status, setStatus] = useState<EntryStatus>(existing?.status ?? "draft");
@@ -1101,9 +1209,46 @@ export default function EntryEditor({
     return [...grids].sort((a, b) => a - b);
   }, [gate, precision]);
 
-  /** The offset the stored timestamp carries, kept across the edit. See
-   *  toOffsetDateTime for why it is not recomputed from this machine. */
-  const storedOffset = offsetOf(existing?.occurredAt);
+  /**
+   * What the offset control offers: the thirty-eight, plus whatever it is
+   * currently holding.
+   *
+   * `precisionOptions`' SHAPE EXACTLY, including why it is a `Set`. It does not
+   * special-case the value it cannot offer — it unions the held value into the
+   * list, and the `Set` is what stops an offset that IS on the list appearing
+   * twice. That single shape covers all three things this control has to do
+   * with `+05:15`: render it rather than blanking, survive an edit that never
+   * touched it, and not duplicate `+09:00`.
+   *
+   * SILENT SUBSTITUTION IS THE FAILURE THIS PREVENTS, AND IT IS NOT THE BLANK
+   * CONTROL EVERYONE EXPECTS — measured, on this file's own tests, by deleting
+   * the `add` above and rendering an entry stored with `+05:15`: the control
+   * showed **`-12:00`**, the FIRST option, not an empty box. React marks no
+   * option as selected when the value matches none of them, and a single
+   * `<select>` with nothing selected displays and reports its first option. So
+   * the failure mode is an offset the owner never chose, in a control that
+   * looks answered.
+   *
+   * THE UNION IS THEREFORE UNCONDITIONAL, which is where this parts company
+   * with `precisionOptions`: that one adds `gridOf(precision)` only when it is
+   * a usable grid, because §9 step 3 refuses a precision the select cannot show
+   * and the value is validated again at save time. Here what the control shows
+   * has to equal what `toOffsetDateTime` concatenates for EVERY state it can be
+   * in, including one no code path can produce — a shape check on this line
+   * would buy a tidier option list at the price of a control disagreeing with
+   * the timestamp it is about to write.
+   *
+   * SORTED BY MINUTES, because `OFFSETS` is already in order and the one value
+   * that may not be on it has to land WHERE A READER WILL LOOK: `+05:15`
+   * belongs between `+05:00` and `+05:30`, and appending it after `+14:00`
+   * looks like a bug in the list. A string sort is not available — see
+   * `offsetMinutes`.
+   */
+  const offsetOptions = useMemo(() => {
+    const all = new Set<string>(OFFSETS);
+    all.add(offset);
+    return [...all].sort((a, b) => offsetMinutes(a) - offsetMinutes(b));
+  }, [offset]);
   const trip = trips.find((t) => t.iri === tripIri);
   /** The address is fixed once the resource exists: this editor writes, and
    *  moving a resource is a copy and a delete it does not do. */
@@ -1329,6 +1474,10 @@ export default function EntryEditor({
     headline,
     story,
     occurred,
+    // The offset the owner chose, beside the wall clock rather than folded into
+    // it: the control they type the time into has none, and a draft that kept
+    // only the wall clock would hand back the machine's guess.
+    offset,
     tagsText,
     mode,
     status,
@@ -1378,8 +1527,8 @@ export default function EntryEditor({
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the sixteen fields of `Draft` and nothing else — the fifteen
-   * the form holds, plus the `savedAt` stamp put on below. The ETag, the
+   * What goes in is the seventeen fields of `Draft` and nothing else — the
+   * sixteen the form holds, plus the `savedAt` stamp put on below. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
    * this state (§10), a draft outlives that read by however long the browser was
@@ -1402,6 +1551,7 @@ export default function EntryEditor({
           headline,
           story,
           occurred,
+          offset,
           tagsText,
           mode,
           status,
@@ -1455,6 +1605,9 @@ export default function EntryEditor({
     headline,
     story,
     occurred,
+    // Changing the offset alone has to arm a window: it is not typing, and this
+    // is the dependency that makes the state change reach the debounce.
+    offset,
     tagsText,
     mode,
     status,
@@ -1601,6 +1754,49 @@ export default function EntryEditor({
     setHeadline(draft.headline);
     setStory(draft.story);
     setOccurred(draft.occurred);
+    /**
+     * THE OFFSET GOES BACK ONLY IF THE DRAFT HAS ONE TO GIVE, and `""` is not
+     * one. This is the load-bearing half of `Draft.offset` being
+     * `.default("")` — see its docblock in lib/studio/drafts.ts.
+     *
+     * `""` ARRIVES FROM TWO PLACES AND MEANS THE SAME THING IN BOTH: a payload
+     * written before this control existed (the schema's default fills the
+     * absent key), and one somebody emptied by hand. Neither is an instruction,
+     * because there is no "remove the offset" — §3 and §6 require
+     * `dy:occurredAt` to carry one — so both mean "this draft has nothing to
+     * say about the offset".
+     *
+     * WRITING `""` THROUGH IS THE FAILURE, and it is a blank control under a
+     * banner that has just said the draft came back — measured, by making this
+     * line unconditional and running section 8j: `shownValue` read `""`. The
+     * save after it composes a timestamp out of a wall clock and nothing, which
+     * §3 and §6 refuse on the next read.
+     *
+     * THE FALL-THROUGH IS THE CONTROL'S CURRENT VALUE, which is `?? placeName`'s
+     * reasoning rather than `presetPrecision`'s, and the choice matters:
+     *
+     *   - "leave the control showing what it is showing" is the honest reading
+     *     of a draft with no opinion, and on an untouched form that value IS
+     *     `offsetOf(existing?.occurredAt) ?? offsetHere(…)` — the entry's own
+     *     offset on an edit, this machine's on a create — because that is what
+     *     the state was initialised with;
+     *   - re-deriving the chain here would be a SECOND copy of it, two things
+     *     that have to agree and say nothing when they stop, and it would
+     *     discard an offset the owner had corrected before clicking Restore.
+     *     Overwriting an explicit choice with a re-derived guess is the exact
+     *     class of bug this control was added to remove.
+     *
+     * `presetPrecision` is not the model here because the precision case is
+     * about a value that is UNUSABLE — what the control shows has to be what
+     * `fuzzForPublication` is given (§9 step 3) — whereas this is a value that
+     * is ABSENT, which is the place fields' case.
+     *
+     * THE SHAPE, NOT THE LIST, IS THE TEST. `+05:15` is not one of the
+     * thirty-eight and must still be restored; `banana` from a hand-edited
+     * payload must not, because it would reach `dy:occurredAt`. One expression
+     * covers `""` and that, which is what collapsing absent into `""` bought.
+     */
+    setOffset(OFFSET_SHAPE.test(draft.offset) ? draft.offset : offset);
     setTagsText(draft.tagsText);
     setMode(draft.mode);
     setStatus(draft.status);
@@ -1845,7 +2041,11 @@ export default function EntryEditor({
       headline: { value: headline.trim(), language },
       articleBody: body === "" ? undefined : { value: body, language },
       trip: trip.iri,
-      occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, storedOffset),
+      // The wall clock the owner typed and the offset they chose, concatenated
+      // and never converted — see `toOffsetDateTime`. `offset` is the control's,
+      // which starts as the entry's own on an edit, so an edit that never opened
+      // it writes the timestamp back exactly as it was stored.
+      occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, offset),
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
       place,
@@ -1921,7 +2121,7 @@ export default function EntryEditor({
        * are: §10's 412 tells the owner to reload, and the draft is what survives
        * the reload.
        *
-       * `text` is this render's snapshot of the eight fields — the same values
+       * `text` is this render's snapshot of the sixteen fields — the same values
        * the entry above was assembled from, because `save()` is synchronous up
        * to the await — so it is what reached the Pod. `settleDraft` compares it
        * with what is on the form now and keeps the difference.
@@ -1980,7 +2180,7 @@ export default function EntryEditor({
 
             The sentence above explains the DRAFT and stops there — it kept your
             text, the form is untouched — which accounts for the banner but not
-            for the nine controls underneath it going dead. Someone who reads
+            for the seventeen controls underneath it going dead. Someone who reads
             only that sentence has been told what happened and not what is now
             being withheld, and the fieldset does not announce itself.
 
@@ -2012,7 +2212,7 @@ export default function EntryEditor({
         className="mt-4"
         /*
           ONE PLACE THAT MARKS THE FORM AS TOUCHED, rather than a line in each of
-          eight handlers. React's `onChange` is delivered to ancestors, so this
+          sixteen handlers. React's `onChange` is delivered to ancestors, so this
           catches every control on the form including ones added later — and a
           field whose handler forgot the line would be a field whose typing is
           silently not backed up. `restore()` deliberately does NOT come through
@@ -2053,12 +2253,17 @@ export default function EntryEditor({
           browser stops it, and says so through the controls' own appearance and
           to a screen reader.
 
-          THE SAVE BUTTON IS IN HERE TOO — the ninth control, held by the same
-          attribute for the same reason. See the note on the button itself for
-          the one click that closes.
+          THE SAVE BUTTON IS IN HERE TOO — the seventeenth control and the last
+          one, held by the same attribute for the same reason. See the note on
+          the button itself for the one click that closes. It said "the ninth"
+          from the day the fieldset landed until 2026-09-07, by which point the
+          picker, the three place fields and the UTC offset had made it wrong by
+          eight: sixteen `Field`s are the fieldset's grid children now, and the
+          button is what follows them.
 
-          `grid gap-4` MOVED HERE FROM THE FORM. The eight fields were the
-          form's direct grid children; a wrapper around them is otherwise the
+          `grid gap-4` MOVED HERE FROM THE FORM, when there were eight fields
+          and they were the form's direct grid children; a wrapper around them
+          is otherwise the
           grid's only item, every field collapses into one cell and the gaps
           disappear. `display: contents` would have kept the form as the grid,
           and is declined: `fieldset` is the one element where browser support
@@ -2141,6 +2346,63 @@ export default function EntryEditor({
               aria-describedby="entry-when-hint"
               onChange={(event) => setOccurred(event.target.value)}
             />
+          </Field>
+
+          {/*
+            THE OTHER HALF OF THE TIMESTAMP, IMMEDIATELY BELOW THE CLOCK IT
+            BELONGS TO. §7.3: `dy:occurredAt` "carries the local UTC offset of
+            the place", and the control above hands back a wall clock with no
+            offset at all — so without this one the offset was the entry's own
+            or, failing that, the zone of whatever machine the form happened to
+            be open on. An evening in Tokyo written up at home became
+            `21:40+02:00`: the same instant, spelled as the wrong time of day,
+            which for a travel diary is most of the meaning.
+
+            INSIDE THE `<form>`, WHICH IS WHAT ARMS THE AUTOSAVE. React
+            delivers `onChange` to ancestors and the form's own handler is the
+            one place `touched` is set, so a "toolbar" spelling of this control
+            beside the datetime input but outside the form would move the state
+            and arm nothing: the owner corrects `+02:00` to `+09:00`, closes the
+            tab, and gets `+02:00` back. That is a bug this project has already
+            shipped once, in the photo pipeline, for exactly this reason.
+
+            NO `aria-label` HERE OR ON ANYTHING WRAPPING IT, and no
+            `<fieldset>`/`<legend>` pairing it with the clock. `getByLabelText`
+            matches `aria-label` on ANY element, this file has already lost six
+            tests to a wrapper that shadowed a real control, and a group named
+            "When" would be a second thing answering to the label above. The
+            `<label>` inside `Field` is the only name here.
+
+            HELD BY THE DRAFT FIELDSET AND BY NOTHING ELSE. It is deliberately
+            NOT tied to `coordinatesLive`: the privacy settings decide whether a
+            POINT may be published, and an offset is not a coordinate. An owner
+            whose settings cannot be read still gets to say what time of day it
+            was.
+          */}
+          <Field
+            id="entry-offset"
+            label="UTC offset"
+            hint="The offset of the place it happened in, not of wherever you are writing this. Kept exactly as chosen, so the time above always reads as that time of day."
+          >
+            <select
+              id="entry-offset"
+              name="entry-offset"
+              className={CONTROL}
+              value={offset}
+              aria-describedby="entry-offset-hint"
+              onChange={(event) => setOffset(event.target.value)}
+            >
+              {/* The value is the offset AS WRITTEN, because that string is
+                  what is concatenated onto the wall clock and what the draft
+                  carries — one spelling, end to end. The text is the same
+                  string: a list of place names would be a second thing to keep
+                  true, and a wrong one is worse than none. */}
+              {offsetOptions.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
           </Field>
 
           {/*
@@ -2490,15 +2752,15 @@ export default function EntryEditor({
           </Field>
 
           {/*
-            THE NINTH CONTROL, HELD WITH THE OTHER EIGHT AND BY THE SAME
-            ATTRIBUTE. It carries no margin of its own: the fieldset is the
+            THE SEVENTEENTH CONTROL, HELD WITH THE OTHER SIXTEEN AND BY THE
+            SAME ATTRIBUTE. It carries no margin of its own: the fieldset is the
             grid, so this row takes its gap from `gap-4` like every field above
             it, and the `mt-4` it wore while it stood outside would now be a
             second gap on top of that one. The wrapper `<div>` stays, bare —
             the grid stretches its items, so a button promoted to a direct child
             of the fieldset becomes a full-width bar.
 
-            THE LOSS IT CLOSES, which is why it moved. The eight fields shipped
+            THE LOSS IT CLOSES, which is why it moved. The fields of the day shipped
             held and this button did not, and that left exactly one click
             between an unanswered banner and the text it was offering. On a
             CREATE the click is harmless — the form behind the banner is empty
@@ -2542,7 +2804,7 @@ export default function EntryEditor({
             {/*
               THE REASON IS ON THE BUTTON, NOT ON THE FIELDSET THAT DOES THE
               HOLDING, AND IT MUST NOT BE TIDIED UPWARD. It reads as though it
-              belongs there — one element holds nine controls, so one element
+              belongs there — one element holds seventeen controls, so one element
               should carry the reason once — and that spelling is heard by
               nobody. Measured (jsdom 30.0.1, dom-accessibility-api 0.5.16;
               it is the ARIA computation rather than a jsdom quirk):
@@ -2556,11 +2818,12 @@ export default function EntryEditor({
               were still there — the accessibility-shaped version of a rule
               exercised at a path it does not cover.
 
-              THIS BUTTON ALONE, not all nine. The banner sits directly above
-              the eight fields and its own sentence is about them; Save is the
-              one whose refusal has a consequence the owner will go looking for.
-              And one reason attached to nine controls is that reason announced
-              nine times to anyone reading the form linearly.
+              THIS BUTTON ALONE, not all seventeen. The banner sits directly
+              above the sixteen fields and its own sentence is about them; Save
+              is the one whose refusal has a consequence the owner will go
+              looking for. And one reason attached to seventeen controls is that
+              reason announced seventeen times to anyone reading the form
+              linearly.
 
               CONDITIONAL, BOTH WAYS. With no offer the element it would name is
               not rendered, and a dangling IDREF computes to "" — so the honest
@@ -2685,14 +2948,14 @@ export default function EntryEditor({
  *     save     (held)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
  *     restore  (free)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
  *
- * Byte-identical. Nine controls that look perfectly editable while swallowing
+ * Byte-identical. Seventeen controls that look perfectly editable while swallowing
  * every keystroke — which is a worse failure than an ugly one, because the
  * owner's conclusion is that the app is broken rather than that something is
  * being asked of them. The programmatic half of the same defect is the Save
  * button's `aria-describedby`, above.
  *
- * ONE VARIANT COVERS ALL EIGHT FIELDS BECAUSE `:disabled` IS INHERITED IN FACT
- * IF NOT IN NAME: a control inside a `<fieldset disabled>` is "actually
+ * ONE VARIANT COVERS ALL SIXTEEN FIELDS BECAUSE `:disabled` IS INHERITED IN
+ * FACT IF NOT IN NAME: a control inside a `<fieldset disabled>` is "actually
  * disabled" per HTML, so `:disabled` matches it without the attribute being on
  * the control. That is the same mechanism the hold itself relies on.
  *
