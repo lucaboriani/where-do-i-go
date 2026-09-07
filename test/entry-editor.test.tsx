@@ -10288,11 +10288,11 @@ describe("entry editor — a photo after a draft was restored", () => {
  *
  * ───────────────────────────────────────────────────────────────────────────
  * RULING T4-B: THE TWO AUTHORSHIP RECORDS ARE SEEDED FROM THE ENTRY, exactly as
- * `coordinateAuthor` is (`entry-editor.tsx:1226-1228`).
+ * `coordinateAuthor` is (`entry-editor.tsx:1302-1304`).
  *
  * T3-B's defect in a new field, and worse-shaped. `occurred` is seeded
- * `wallClockOf(existing?.occurredAt)` (`:1054`) and `offset`
- * `offsetOf(existing?.occurredAt) ?? offsetHere(wallClockNow())` (`:1084`), so
+ * `wallClockOf(existing?.occurredAt)` (`:1130`) and `offset`
+ * `offsetOf(existing?.occurredAt) ?? offsetHere(wallClockNow())` (`:1160-1161`), so
  * ON AN EDIT THESE BOXES ARE NOT EMPTY — unlike the coordinate, which starts
  * blank by design. Authorship tracked as "only the owner's typing forbids
  * auto-fill" therefore reads a seeded value as unauthored, and a photo replaces
@@ -10323,6 +10323,38 @@ describe("entry editor — a photo after a draft was restored", () => {
  * implementation that tidies them into one flag fails both.
  *
  * ───────────────────────────────────────────────────────────────────────────
+ * RULING T4-E AMENDS T4-C AND DOES NOT UNDO IT: THE TWO ARE INDEPENDENT ONLY
+ * WHILE ONE SIDE IS THE OWNER.
+ *
+ * T4-C's argument turns on one side of the pair being a competent authority —
+ * the owner, who can see both halves and correct either. Photo-A's clock beside
+ * photo-B's zone has no authority anywhere in it. It composes exactly the
+ * "value that is nowhere" T3-A was written to prevent for the coordinate, and
+ * the composition CLEARS ITS OWN WARNING on the way past: the mark reads "a
+ * photo dated it and NOBODY offset it", and accepting the second photo's zone
+ * makes the offset a photo's. T4-C stands for owner-vs-photo (12e, 12f); it
+ * simply never considered photo-vs-photo. 12h and 12i are that pair, in both
+ * arrival orders — which order the owner picks first is an accident, so the
+ * answer cannot depend on it.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * RULING T4-F: A VALUE A PHOTO SUPPLIED IS CREDITED EVEN WHEN IT IS NOT A
+ * GUESS. §11.3, the parent of §11.4 and §11.5: the owner is told a photo
+ * supplied a value "so a wrong pin is attributable to the photo instead of to
+ * the editor". The mark alone leaves the both-tags case (12b) and the zone-only
+ * case attributed to nobody at all. 12b-bis, and it took no existing assertion
+ * with it.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * RULING T4-G: THE NOTE AND THE MARK HAVE DIFFERENT LIFETIMES. The note claims
+ * "the time above came from a.jpg", and a keystroke in the clock makes that
+ * uncheckable. The mark claims "the offset beside this time is this machine's
+ * guess", and a keystroke in the clock says nothing about the offset's
+ * authorship — so it is still TRUE. Choosing an offset ends the mark and
+ * nothing else does, which is what scenario 3 says in words and what 12c
+ * already pins from the other side. 12c-bis is the pair.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * A READING OF T4-A, NOT A NEW RULE: A PHOTO THAT CARRIED NO TIME AT ALL MARKS
  * NOTHING.
  *
@@ -10345,14 +10377,22 @@ describe("entry editor — a photo after a draft was restored", () => {
  *   - A LIVE REGION IS RULED OUT BY THE EXISTING SUITE. This project's own
  *     precedent for "structural, not wording" is section 7c — a clean save is
  *     `role="status"`, a stale one `role="alert"` — and it cannot be reused
- *     here. Section 10b already pins `queryAllByRole("alert")` to `[]` for a
- *     photo that works, and its fixture `jpegFile("scan.jpg")` carries
- *     `DateTimeOriginal` with NO `OffsetTimeOriginal`: scenario 3's exact
- *     state. An alert would turn that test red, and a second `status` region
- *     would move 10b's `getAllByRole("status")` count. `outcomeText()` scans
- *     both roles plus `aria-live` globally, so a persistent region about the
- *     offset would also leak into the save-outcome assertions in six other
- *     sections.
+ *     here. Section 10a — "a picked photo", the one that WORKS — pins
+ *     `queryAllByRole("alert")` to `[]` at `test:7739`, and its fixture is
+ *     `jpegFile("beach.jpg")`, which `jpegFile` builds with `DateTimeOriginal`
+ *     and NO `OffsetTimeOriginal` (`test:7560`): scenario 3's exact state,
+ *     reached in a test whose subject is photos rather than time. An alert
+ *     would turn that test red. Its `status` assertion on the next line is
+ *     `not.toHaveLength(0)` — a FLOOR, not a count, so a second `status`
+ *     region would not move it, and that is not the argument. `outcomeText()`
+ *     is: it scans both roles plus `aria-live` globally, so a persistent region
+ *     about the offset would leak into the save-outcome assertions in six other
+ *     sections. (Cited as 10b here until 2026-09-07. 10b is "a photo that
+ *     FAILS" and asserts the opposite — `findAllByRole("alert")` over
+ *     `broken.jpg` — so the pointer named the one section where an alert is
+ *     expected. Ruling T3-C, deferring a live region for the coordinate note,
+ *     rests on this same measurement, which is why the pointer is worth being
+ *     exact about.)
  *   - A SENTENCE ALONE WOULD BE VACUOUS HERE, AND VISIBLY SO. The offset
  *     control's permanent hint already reads "The offset of the place it
  *     happened in, not of wherever you are writing this." A regex about
@@ -10408,13 +10448,22 @@ describe("entry editor — a photo after a draft was restored", () => {
  * banner (8e) and reports as "the control never became live".
  *
  * WHAT IS DELIBERATELY NOT PINNED: the wording of the note beyond the two
- * fences above; whether it is one element or two; whether the photo's SECONDS
- * survive into the box (both are honest, and `toOffsetDateTime`'s
- * `LOCAL_DATETIME` already accepts either); and whether a photo that DID supply
- * the offset is credited with a provenance note of its own — that would be an
- * honest thing to say and forbidding it would be over-specification, which is
- * why the state attribute rather than "is there a note" is what the confirmed
- * cases assert on.
+ * fences above; whether it is one element or two; and whether the photo's
+ * SECONDS survive into the box (both are honest, and `toOffsetDateTime`'s
+ * `LOCAL_DATETIME` already accepts either).
+ *
+ * ONE ITEM LEFT THIS LIST ON 2026-09-07, AND THE REASON IS RECORDED BECAUSE IT
+ * WAS MINE. It read: "whether a photo that DID supply the offset is credited
+ * with a provenance note of its own — that would be an honest thing to say and
+ * forbidding it would be over-specification". Not forbidding it was right;
+ * leaving it optional was not. The guess mark is `null` for every photo that
+ * supplied BOTH halves, so under that reading a wrong `dy:occurredAt` from a
+ * camera with the wrong year is attributable to nothing on the form — which is
+ * §11.3's stated purpose for surfacing auto-fill at all, and §11.5's silence
+ * about it is no more a withdrawal than its silence about "never overwrites".
+ * 12b-bis pins it now (ruling T4-F); the state attribute is still what the
+ * MARK's absence is asserted on, because the two facts remain different — "who
+ * supplied this" and "is the offset beside it a guess".
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
@@ -10475,11 +10524,51 @@ const TIMED: ExifOptions = { orientation: 1, dateTimeOriginal: EXIF_WHEN };
 const TIMED_WITH_OFFSET: ExifOptions = { ...TIMED, offsetTimeOriginal: "+05:45" };
 /** A camera with a GPS and an unset clock: scenario 6's second leg. */
 const PINNED_ONLY: ExifOptions = { orientation: 1, gps: GPS_TOKYO };
+/**
+ * A SECOND PHONE, AND NEITHER OF ITS TWO TAGS IS THE FIRST'S — the fixture 12h
+ * needs and the one this suite did not have. `TIMED_WITH_OFFSET` was the ONLY
+ * fixture in the whole file carrying `offsetTimeOriginal`, so a second photo
+ * built from it would arrive with the same wall clock and the same zone as the
+ * first: "the first photo's value survived" would then be satisfied by the
+ * second photo winning, which is the shape 12h exists to catch.
+ *
+ * `+12:45` IS THE CHATHAMS, this file's established third value — on the offset
+ * control's list (12f chooses it by hand) and neither this machine's zone nor
+ * `TIMED_WITH_OFFSET`'s. That is what lets it discriminate in 12d's third leg,
+ * where the entry's stored `+05:45` is BYTE-IDENTICAL to the first photo's tag
+ * and the obvious fixture substitution would have proved nothing.
+ */
+const SECOND_WHEN = "2026:04:12 18:20:07";
+const TIMED_WITH_OTHER_OFFSET: ExifOptions = {
+  orientation: 1,
+  dateTimeOriginal: SECOND_WHEN,
+  offsetTimeOriginal: "+12:45",
+};
+/**
+ * A PHONE THAT WROTE THE ZONE AND NOT THE CLOCK — 12i's first photo, and the
+ * fixture the mirror case cannot be written without.
+ *
+ * LEGAL IN EXIF AND READ INDEPENDENTLY: `lib/media/exif.ts` guards 0x9003 and
+ * 0x9011 separately, so `{ offsetTimeOriginal }` with no `dateTimeOriginal` is
+ * what arrives here. MEASURED THROUGH THE REAL READER by the control below,
+ * not assumed — a fixture the reader dropped whole would make 12i's first pick
+ * a no-op, and the mirror a claim about a form nothing had touched.
+ */
+const OFFSET_ONLY: ExifOptions = { orientation: 1, offsetTimeOriginal: "+12:45" };
 
 const PHOTO_WALL = fromFixture(metadataOf(TIMED).dateTimeOriginal, "DateTimeOriginal");
 const PHOTO_OFFSET = fromFixture(
   metadataOf(TIMED_WITH_OFFSET).offsetTimeOriginal,
   "OffsetTimeOriginal",
+);
+/** The second photo's two tags, through the same reader for the same reason. */
+const SECOND_WALL = fromFixture(
+  metadataOf(TIMED_WITH_OTHER_OFFSET).dateTimeOriginal,
+  "second DateTimeOriginal",
+);
+const SECOND_OFFSET = fromFixture(
+  metadataOf(TIMED_WITH_OTHER_OFFSET).offsetTimeOriginal,
+  "second OffsetTimeOriginal",
 );
 
 /** This machine's zone. Asia/Tokyo is fixed at the top of this file and checked
@@ -10548,13 +10637,16 @@ describe("controls for section 12", () => {
    * NOT A TEST OF THE EDITOR — section 0's kind and section 11.0's, and it
    * passes on its first run for the same reason.
    *
-   * Everything below rests on three EXIF fixtures carrying exactly one
-   * combination each, on the photo's offset differing from this machine's, and
-   * on knowing what a `datetime-local` control does to a value in this
-   * environment. Stage 1 lost a Playwright leg to a mutation whose guard the
-   * specified fixture could not reach, with both briefed tests green.
+   * Everything below rests on five EXIF fixtures carrying exactly one
+   * combination each, on the photo's offset differing from this machine's, on
+   * the SECOND photo's two tags differing from the first's, and on knowing what
+   * a `datetime-local` control does to a value in this environment. Stage 1
+   * lost a Playwright leg to a mutation whose guard the specified fixture could
+   * not reach, with both briefed tests green — and 12d leg two is a live
+   * example in this very file, where the stored offset is byte-identical to the
+   * photo tag it is being told apart from.
    */
-  it("the three EXIF fixtures carry what this section thinks, and the controls coerce what it measured", () => {
+  it("the five EXIF fixtures carry what this section thinks, and the controls coerce what it measured", () => {
     /* ── the fixtures, through the real reader ──────────────────────────── */
     const timed = metadataOf(TIMED);
     expect(timed.dateTimeOriginal, "the date-only fixture's wall clock has moved").toBe(PHOTO_WALL);
@@ -10581,6 +10673,43 @@ describe("controls for section 12", () => {
       "the GPS-only fixture carries an offset, so the mark assertion in scenario 6's second leg is not about a photo that said nothing",
     ).toBeUndefined();
     expect(pinned.gps, "the GPS-only fixture carries no coordinate to fill with").toEqual(TOKYO);
+
+    /* ── THE TWO SECOND-PHOTO FIXTURES, AND WHETHER THEY REACH THE BRANCH ──
+       12h and 12i are about one photo standing beside ANOTHER photo's half, so
+       every one of their refusals is vacuous if the second file's tags cannot
+       be told from the first's, or if the reader drops them. */
+    const other = metadataOf(TIMED_WITH_OTHER_OFFSET);
+    expect(other.dateTimeOriginal, "the second two-tag fixture lost its date").toBe(SECOND_WALL);
+    expect(other.offsetTimeOriginal, "the second two-tag fixture lost its offset").toBe(
+      SECOND_OFFSET,
+    );
+    expect(
+      SECOND_WALL.slice(0, 16),
+      "both two-tag fixtures carry the same wall clock: 12h's 'the first photo's clock survived' would hold for an editor in which the SECOND photo won",
+    ).not.toBe(PHOTO_WALL.slice(0, 16));
+    for (const [what, taken] of [
+      ["the first photo's", PHOTO_OFFSET],
+      ["this machine's", MACHINE_OFFSET],
+    ] as const) {
+      expect(
+        SECOND_OFFSET,
+        `the second photo's offset is ${what}, so no assertion in 12d's third leg, 12h or 12i can tell whose offset the control is holding`,
+      ).not.toBe(taken);
+    }
+
+    const zoneOnly = metadataOf(OFFSET_ONLY);
+    expect(
+      zoneOnly.offsetTimeOriginal,
+      "the zone-only fixture's OffsetTimeOriginal does not survive the reader when no DateTimeOriginal stands beside it: 12i's first pick fills nothing, and the mirror case is a claim about a form no photo touched",
+    ).toBe(SECOND_OFFSET);
+    expect(
+      zoneOnly.dateTimeOriginal,
+      "the zone-only fixture carries a date, so 12i's first photo is not the case it claims",
+    ).toBeUndefined();
+    expect(
+      zoneOnly.gps,
+      "the zone-only fixture carries GPS, which 12i's assertions say nothing about",
+    ).toBeUndefined();
 
     /* ── and the values can tell the two sources apart ──────────────────── */
     expect(
@@ -10866,6 +10995,184 @@ describe("entry editor — a photo that carries OffsetTimeOriginal", () => {
   });
 });
 
+/* ── 12b-bis. a value a photo supplied is a value the photo can be blamed for ── */
+
+describe("entry editor — a photo that supplied the time, said out loud", () => {
+  /**
+   * RULING T4-F, AND IT CLOSES A SPEC GAP RATHER THAN CHANGING A DECISION.
+   *
+   * The normative line is §11.3, the parent of both auto-fill instances:
+   * "Auto-fill is also surfaced rather than magical: the owner is told a photo
+   * supplied a value, so a wrong pin is attributable to the photo instead of to
+   * the editor" (`docs/superpowers/specs/2026-09-06-media-pipeline-design.md`,
+   * §11.3). §11.5 does not restate it, exactly as it does not restate "never
+   * overwrites" — and reading its silence as a withdrawal would withdraw the
+   * no-overwrite rule with it.
+   *
+   * THE GAP, IN THE TWO STATES WHERE NOTHING ON SCREEN SAYS ANYTHING. The guess
+   * mark is `null` unless a photo dated the form AND nobody set the offset, so:
+   *
+   *   - A PHONE THAT WROTE BOTH TAGS is uncredited entirely. A camera reset to
+   *     factory time, or a phone with the year wrong, supplies both; the entry
+   *     publishes a wrong `dy:occurredAt` — "when the moment happened", the
+   *     most load-bearing fact on the entry — and the form attributes it to
+   *     nobody. This is the case 12b already covers for the VALUES and leaves
+   *     silent on the provenance.
+   *   - A PHONE THAT WROTE ONLY THE ZONE is uncredited for the same reason from
+   *     the other side: the offset moved, and neither the mark (there is no
+   *     photo clock) nor any note says which file moved it.
+   *
+   * IT COSTS EXISTING ASSERTIONS NOTHING, which is why it is closed here rather
+   * than filed: the section docblock already declares the note surface
+   * deliberately unpinned for confirmed offsets, `offsetMarkedAsGuess()` reads
+   * a state attribute rather than "is there a note", and no test in this file
+   * asserted anything at all about the WALL CLOCK control's description before
+   * this one.
+   *
+   * WHAT IS PINNED AND WHAT IS NOT. Pinned: the control holding an auto-filled
+   * value announces the file name, through an association that resolves. Not
+   * pinned: the wording, whether it is one element or two, and whether the two
+   * controls share a note — the file name is the fence a static hint can never
+   * satisfy, and `describedTextOf` is what makes the association real rather
+   * than a `title` or a dangling IDREF (8e-bis measured both).
+   *
+   * AND IT MUST NOT CREDIT WHAT THE PHOTO DID NOT SUPPLY, which is leg two's
+   * second half and the reason this is not "name the photo on every control": a
+   * note that says a zone-only photo supplied the clock is a false claim, and a
+   * rule that credits everything discriminates nothing.
+   *
+   * WHAT WOULD BREAK IT: today's code, where the guess mark is the only
+   * surface; crediting the clock whenever a photo is attached, which leg two's
+   * refusal catches; a note on a wrapper with an `aria-label` rather than an
+   * association (`PHOTOS_LABEL`'s six-test failure); a note that outlives the
+   * value it describes — the owner types over the clock and is still told where
+   * it came from (T4-G's coordinate precedent, and 11a's for the coordinate).
+   */
+  it("credits the photo for the clock it filled, and for the offset when it filled that too", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const both = jpegWithExif("kathmandu.jpg", TIMED_WITH_OFFSET);
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    requireOffsetControl();
+
+    /* ── THE ALLOW-CASE FIRST, 11a's shape: with no photo picked, neither
+       control names a file, so "never mention a file name" cannot pass. ─── */
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the wall clock names a photo before one has been attached",
+    ).not.toMatch(alt(both));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the offset control names a photo before one has been attached",
+    ).not.toMatch(alt(both));
+    const clockHint = describedTextOf(LABEL.occurredAt);
+    expect(
+      clockHint,
+      "the wall clock announces no description at all, so 'the note appeared' below cannot be told from 'the hint was always there'",
+    ).not.toBe("");
+
+    /* ── THE PREMISE: 12b's own case, both halves filled by one photo ───── */
+    await pickAndSettle(both, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.offset),
+        "the photo's offset never reached the control, so nothing here is about a photo that supplied both halves",
+      ).toBe(PHOTO_OFFSET);
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset is the photo's own and is marked as this machine's guess: 12b's assertion, repeated here because this test must not be satisfied by the mark coming back",
+    ).toBe(false);
+
+    /* ── THE CREDIT. The clock first: a wrong `dy:occurredAt` nobody can
+       attribute is the harm §11.3 names. ────────────────────────────────── */
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText(LABEL.occurredAt),
+        "the entry's timestamp came from a photo and nothing on the form says which one: a camera with the wrong year set publishes a wrong 'when it happened' attributable to the editor rather than to the file",
+      ).toHaveAccessibleDescription(alt(both));
+    });
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the credit is not reachable from the control it is about",
+    ).toMatch(alt(both));
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the credit replaced the control's permanent hint instead of joining it",
+    ).toContain(clockHint);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the offset moved because the photo carried OffsetTimeOriginal, and nothing says which file moved it",
+    ).toMatch(alt(both));
+
+    /* ── AND IT DOES NOT OUTLIVE THE VALUE, 11a's last leg and T4-G's
+       reasoning: a claim about a number the owner has typed over is one they
+       have no way to check. ─────────────────────────────────────────────── */
+    const RETYPED = "2026-04-11T09:30";
+    expect(RETYPED, "the retyped clock is the photo's own").not.toBe(PHOTO_WALL.slice(0, 16));
+    expect(typeAsUser(LABEL.occurredAt, RETYPED), "the wall-clock control refused the keystroke").
+      toBe(true);
+    expect(shownValue(LABEL.occurredAt), "the keystroke did not stick").toBe(RETYPED);
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the credit still names the photo over a clock the owner has typed themselves",
+    ).not.toMatch(alt(both));
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the keystroke took the permanent hint away with the credit",
+    ).toContain(clockHint);
+
+    cleanup();
+
+    /* ── LEG TWO: A PHOTO THAT WROTE ONLY THE ZONE ───────────────────────
+       The same gap from the other side, and its own refusal beside it: the
+       offset is credited, the clock — which this photo said nothing about —
+       is not. */
+    const second = mediaFake();
+    const zoneOnly = jpegWithExif("chathams.jpg", OFFSET_ONLY);
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    requireOffsetControl();
+    expect(
+      describedTextOf(LABEL.offset),
+      "the offset control names a photo before one has been attached",
+    ).not.toMatch(alt(zoneOnly));
+
+    await pickAndSettle(zoneOnly, second);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.offset),
+        "the zone-only photo's offset never reached the control, so this leg is about a form no photo touched",
+      ).toBe(SECOND_OFFSET);
+    });
+
+    expect(
+      describedTextOf(LABEL.offset),
+      "the offset the form will publish came from a photo and nothing says which one",
+    ).toMatch(alt(zoneOnly));
+    expect(
+      shownValue(LABEL.occurredAt),
+      "a photo with no DateTimeOriginal filled the wall clock",
+    ).toBe("");
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the wall clock credits a photo that said nothing about the time and filled nothing: a note that credits everything discriminates nothing",
+    ).not.toMatch(alt(zoneOnly));
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset is the photo's own and the form calls it this machine's guess",
+    ).toBe(false);
+  });
+});
+
 /* ─────────── 12c. the offset the owner must be told is not the photo's ───── */
 
 describe("entry editor — a photo with no OffsetTimeOriginal", () => {
@@ -11002,6 +11309,139 @@ describe("entry editor — a photo with no OffsetTimeOriginal", () => {
   });
 });
 
+/* ───── 12c-bis. two claims about the same pair, with two lifetimes ─────── */
+
+describe("entry editor — typing over the clock a photo filled", () => {
+  /**
+   * RULING T4-G, and it is a reading of scenario 3 rather than a new rule:
+   * scenario 3 says the mark "stops once the owner chooses", and choosing is
+   * something that happens to the OFFSET control. 12c pins that direction. This
+   * pins the other one — a keystroke in the WALL CLOCK, which is a different
+   * control and a different claim.
+   *
+   * TWO SURFACES, TWO CLAIMS, AND THEY STOP BEING TRUE AT DIFFERENT MOMENTS:
+   *
+   *   - THE NOTE claims "the time above came from evening.jpg". One keystroke
+   *     makes that unverifiable, and the coordinate's precedent applies without
+   *     amendment — "a note left standing beside a number the owner typed over
+   *     is a claim they have no way to check". It goes.
+   *   - THE MARK claims "the offset beside this time is this machine's guess".
+   *     A keystroke in the clock says NOTHING about who supplied the offset, so
+   *     the claim is still TRUE. It stays.
+   *
+   * THE DEFENCE THAT WAS OFFERED FOR CLEARING BOTH DOES NOT HOLD, which is why
+   * this is a test and not a preference. The comment on the clock's `onChange`
+   * argued that a typed-over clock leaves "the default every create opens with,
+   * which the control's permanent hint already covers". On an ordinary create
+   * the owner types a clock from memory beside a guess they were never misled
+   * about. Here the clock is still substantially the photo's — `07:05` nudged to
+   * `07:06` because the owner remembers it was a minute later — and clearing the
+   * mark leaves `07:06 +09:00` with §11.5's composition fully intact and the
+   * warning gone. A true warning that stays cannot mislead; one that is dropped
+   * can.
+   *
+   * THE NUDGE IS ONE MINUTE ON PURPOSE. Retyping the clock wholesale would be
+   * arguable as "a different moment entirely"; a minute is the case where the
+   * photo's date is still doing all the work and the offset is untouched.
+   *
+   * WHAT IS ASSERTED ABOUT THE DESCRIPTION AFTER THE KEYSTROKE IS ONLY THAT IT
+   * NO LONGER NAMES THE PHOTO. Whether the implementation replaces the note
+   * with a photo-less sentence about the machine's guess is not pinned here —
+   * the section docblock's "deliberately not pinned" list already covers the
+   * wording, and the state attribute is this file's grip on the state.
+   *
+   * WHAT WOULD BREAK IT: clearing the mark on a clock keystroke, which is
+   * today's code (one `creditTime` call carries both facts); leaving the note
+   * standing over a clock the owner typed; deriving the mark from
+   * `occurredAuthor` alone so that it also disappears; making the mark
+   * unclearable, which the last leg here and 12c both catch.
+   */
+  it("drops the note when the owner nudges the clock, and keeps the mark until an offset is chosen", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithExif("evening.jpg", TIMED);
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    requireOffsetControl();
+
+    /* ── THE ALLOW-CASE LEG, IN THE SAME RENDER: there is a note and a mark to
+       lose. Without it "the note went away" is satisfied by an editor that
+       never said anything. ─────────────────────────────────────────────────── */
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset is marked as a guess before any photo has been attached",
+    ).toBe(false);
+
+    await pickAndSettle(source, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the photo's date never reached the wall clock, so nothing below is about typing over an auto-filled clock",
+      ).not.toBe("");
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      offsetMarkedAsGuess(),
+      "the photo dated the entry beside this machine's offset and nothing marks it, so this test cannot tell 'the mark survived' from 'there was never a mark'",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the marked control does not name the photo, so 'the note went away' below is not about a note",
+    ).toMatch(alt(source));
+
+    /* ── ONE MINUTE LATER, TYPED BY THE OWNER ───────────────────────────── */
+    const NUDGED = `${PHOTO_WALL.slice(0, 14)}06`;
+    expect(
+      NUDGED,
+      "the nudge is the photo's own wall clock, so the keystroke below changes nothing and React delivers no `change`",
+    ).not.toBe(shownValue(LABEL.occurredAt));
+    expect(typeAsUser(LABEL.occurredAt, NUDGED), "the wall-clock control refused the keystroke").
+      toBe(true);
+    expect(shownValue(LABEL.occurredAt), "the keystroke did not stick").toBe(NUDGED);
+
+    /* THE NOTE HAS STOPPED BEING CHECKABLE. */
+    expect(
+      describedTextOf(LABEL.offset),
+      "a note still credits the photo for a clock the owner has typed over: a claim they have no way to check",
+    ).not.toMatch(alt(source));
+    expect(
+      screen.getByLabelText(LABEL.offset),
+      "the note still credits the photo, announced",
+    ).not.toHaveAccessibleDescription(alt(source));
+    /* …and the permanent hint survived it, 11a's guard in its shape. */
+    expect(
+      describedTextOf(LABEL.offset),
+      "the keystroke took the control's permanent hint away with the note",
+    ).not.toBe("");
+
+    /* THE MARK HAS NOT, BECAUSE THE OFFSET IS STILL NOBODY'S. */
+    expect(
+      shownValue(LABEL.offset),
+      "the keystroke moved the offset, which no keystroke in the clock may do",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "one minute typed into the clock cleared the mark on an offset nobody has chosen: the owner is left with the photo's date beside this machine's zone and §11.5's warning gone, which is the composition the warning exists for",
+    ).toBe(true);
+
+    /* ── AND CHOOSING THE OFFSET IS WHAT ENDS IT, exactly as 12c pins in the
+       un-nudged case: the mark is clearable, and this leg says by what. ──── */
+    setChoice(LABEL.offset, offsetPattern(PHOTO_OFFSET));
+    expect(shownValue(LABEL.offset), `the ${PHOTO_OFFSET} choice did not take`).toBe(PHOTO_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset the owner chose themselves is still marked as this machine's guess: the mark has become unclearable rather than long-lived",
+    ).toBe(false);
+    expect(
+      describedTextOf(LABEL.offset),
+      "choosing the offset brought the photo's note back",
+    ).not.toMatch(alt(source));
+  });
+});
+
 /* ─────── 12d. whose offset it is, and whose date a photo may not touch ──── */
 
 describe("entry editor — whose offset the mark belongs to", () => {
@@ -11030,7 +11470,7 @@ describe("entry editor — whose offset the mark belongs to", () => {
    * "this is a create".
    *
    * LEG TWO — an edit of the §7.3 entry with a stored `+05:45`. The boxes are
-   * NOT empty here (`:1054`, `:1084`), which is what makes this worse-shaped
+   * NOT empty here (`:1130`, `:1160-1161`), which is what makes this worse-shaped
    * than the coordinate's version: a fill replaces "when the moment happened"
    * while the replaced value is on screen. And the offset must be left alone
    * AND left unmarked — badging confirmed data because a photo lacked a tag is
@@ -11042,11 +11482,35 @@ describe("entry editor — whose offset the mark belongs to", () => {
    * with the fixture by coincidence — section 1c's reasoning for the same
    * substitution.
    *
-   * WHAT WOULD BREAK IT: seeding either record `nobody` on an edit (leg two);
-   * seeding from `initial === undefined` (leg one); seeding the wall clock's
-   * record from `occurred === ""`, which is the same defect spelled through the
-   * box; marking the offset whenever the attached photo lacked the tag (leg
-   * two's mark).
+   * LEG THREE — THE SAME EDIT, WITH A PHOTO THAT CARRIES THE OFFSET TOO, and
+   * the only leg here that touches `offsetAuthor`'s SEED. Leg two's photo has
+   * no `OffsetTimeOriginal` at all, which is what T4-A's refusal needs; that
+   * makes its offset assertion hold for an editor whose `offsetAuthor` starts
+   * `nobody` on every edit, because nothing ever offers a value. So the seed
+   * that leg two appears to pin is in fact unpinned, and the mutation
+   * `offsetAuthor = { kind: "nobody" }` passes legs one and two untouched.
+   *
+   * IT IS A THIRD LEG RATHER THAN A SUBSTITUTION IN LEG TWO, deliberately:
+   * swapping leg two's fixture for a two-tag one would buy T4-B's pin by
+   * selling T4-A's refusal, which needs a photo WITHOUT the tag. And a
+   * substitution would have been blind anyway — leg two's `STORED_OFFSET` is
+   * byte-identical to `TIMED_WITH_OFFSET`'s tag, so "the stored offset is
+   * still there" would have been satisfied by the photo's overwriting it.
+   * `TIMED_WITH_OTHER_OFFSET` carries `+12:45`, which is neither the stored
+   * offset nor this machine's, so the assertion discriminates.
+   *
+   * IT IS A PIN, NOT A CHANGE: the review established the invariant, that on an
+   * edit whose entry has a stored `occurredAt` no writer can take either record
+   * back to `nobody` — the seed is `owner`, `offerTimestamp` passes the current
+   * value or `{photo}`, both `onChange`s write or pass through, and `restore()`
+   * writes `{owner}` for a shape-valid offset. This leg is what makes that
+   * invariant fail out loud if a later change breaks it.
+   *
+   * WHAT WOULD BREAK IT: seeding either record `nobody` on an edit (leg two for
+   * `occurredAuthor`, leg three for `offsetAuthor`); seeding from `initial ===
+   * undefined` (leg one); seeding the wall clock's record from `occurred ===
+   * ""`, which is the same defect spelled through the box; marking the offset
+   * whenever the attached photo lacked the tag (leg two's mark).
    */
   it("dates an edit that has no date, and leaves the date and the offset an entry was stored with alone", async () => {
     const media = mediaFake();
@@ -11169,6 +11633,98 @@ describe("entry editor — whose offset the mark belongs to", () => {
       pod.wire(),
       "the photo's wall clock is on the wire for an edit that kept its own date",
     ).not.toContain(PHOTO_WALL.slice(0, 16));
+
+    cleanup();
+
+    /* ── LEG THREE: THE SAME EDIT, AND A PHOTO THAT CARRIES BOTH TAGS ─────
+       The leg that pins `offsetAuthor`'s seed. Leg two's photo carries no
+       offset, so its "the stored offset is still there" holds for an editor
+       whose `offsetAuthor` starts `nobody` on every edit — nothing ever offers
+       it a value to refuse. Here something does. */
+    const third = podFake();
+    const carrying = mediaFake();
+    const chathams = jpegWithExif("chathams.jpg", TIMED_WITH_OTHER_OFFSET);
+
+    /* THE FENCE, BEFORE THE RENDER: this photo's two tags are neither the
+       entry's nor this machine's, so every assertion below can say whose value
+       the control is holding. `STORED_OFFSET` is byte-identical to
+       `TIMED_WITH_OFFSET`'s `+05:45`, which is exactly why that fixture could
+       not have been used here. */
+    expect(
+      SECOND_OFFSET,
+      "the photo's offset is the one the entry was stored with, so 'the stored offset stands' would be satisfied by the photo overwriting it",
+    ).not.toBe(STORED_OFFSET);
+    expect(
+      SECOND_OFFSET,
+      "the photo's offset is this machine's, so an editor that read the machine would agree by coincidence",
+    ).not.toBe(MACHINE_OFFSET);
+    expect(
+      SECOND_WALL.slice(0, 16),
+      "the photo's wall clock is the one the entry was stored with",
+    ).not.toBe(STORED_WALL);
+
+    await renderEditor(fake.session, {
+      initial: { entry: nepal, etag: '"entry-7"' },
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the stored wall clock is not in the box").toBe(
+      STORED_WALL,
+    );
+    expect(shownValue(LABEL.offset), "the stored offset is not in the control").toBe(STORED_OFFSET);
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so the control could not show it even if the fill this leg forbids did happen`,
+    ).toContain(SECOND_OFFSET);
+
+    setText(LABEL.headline, "First night in Shinjuku, revisited again");
+    await pickAndSettle(chathams, carrying);
+
+    expect(
+      shownValue(LABEL.offset),
+      "a photo's OffsetTimeOriginal replaced the offset the entry was stored with: `offsetAuthor` is seeded `nobody` on an edit, and leg two cannot see it because its photo carries no offset to offer",
+    ).toBe(STORED_OFFSET);
+    expect(
+      shownValue(LABEL.occurredAt),
+      "the same photo's DateTimeOriginal replaced the stored wall clock",
+    ).toBe(STORED_WALL);
+    expect(
+      offsetMarkedAsGuess(),
+      "the entry's own stored offset is marked as this machine's guess (T4-A)",
+    ).toBe(false);
+    expect(
+      describedTextOf(LABEL.offset),
+      "a note credits the photo for the offset the entry arrived with",
+    ).not.toMatch(alt(chathams));
+
+    /* AND WHAT A STRANGER CAN FETCH IS STILL THE ENTRY'S OWN TIMESTAMP, both
+       halves of it — the box above would already have failed for the ordinary
+       defect, and this covers the one that composes at SAVE time. */
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(third.entryPut()).toBeDefined());
+
+    const last = third.entryPut()!;
+    const lastQuads = quadsOf(last.body, last.url);
+    /* The mutation half: this is a save that changed something. */
+    expect(oneObject(lastQuads, `${last.url}#it`, SCHEMA.headline)?.value).toBe(
+      "First night in Shinjuku, revisited again",
+    );
+    expect(
+      oneObject(lastQuads, `${last.url}#it`, DY.occurredAt)?.value,
+      "the entry was published with a timestamp built from the photo's tags instead of its own",
+    ).toBe(nepal.occurredAt);
+    expect(
+      third.wire(),
+      "the photo's offset is on the wire for an edit that kept its own",
+    ).not.toContain(SECOND_OFFSET);
+    expect(
+      third.wire(),
+      "the photo's wall clock is on the wire for an edit that kept its own date",
+    ).not.toContain(SECOND_WALL.slice(0, 16));
   });
 });
 
@@ -11439,5 +11995,300 @@ describe("entry editor — a photo that carries one of the two", () => {
       payload.offset,
       "the `offset` state holds a stringified absence, or an offset a photo with no time supplied",
     ).toBe(MACHINE_OFFSET);
+  });
+});
+
+/* ─── 12h/12i. two photos, and the timestamp that happened at neither ────── */
+
+describe("entry editor — a second photo with an offset of its own", () => {
+  /**
+   * RULING T4-E, AND IT IS 11c FOR THE TIMESTAMP. §11.3 names this direction
+   * explicitly for the coordinate — "the first photo wins, not the last one" —
+   * and until this test the time had no analogue: `TIMED_WITH_OFFSET` was the
+   * only fixture in the suite carrying `offsetTimeOriginal`, and no test in
+   * section 12 attached two photos.
+   *
+   * THE SEQUENCE, WHICH IS THE ONE ANY DAY'S WALK PRODUCES:
+   *
+   *   1. `tokyo.jpg` — a phone in Tokyo with the clock set and no zone tag.
+   *      The clock fills, the offset is left as this machine's guess, the mark
+   *      goes on and the note names the photo. This is 12c's state exactly.
+   *   2. `chathams.jpg` — a phone that writes both. The clock is REFUSED,
+   *      correctly, because the first photo already supplied it.
+   *   3. And then the offset is ACCEPTED, because `offsetAuthor` is still
+   *      `nobody` — the guard asks only about the offset's own record and never
+   *      about whose clock is standing beside it.
+   *   4. Which composes `07:05` in Tokyo with `+12:45` in the Chathams and, in
+   *      the same motion, clears the mark and removes the note: `creditTime`
+   *      derives the mark from "a photo dated it and NOBODY offset it", and
+   *      step 3 has just made the offset a photo's.
+   *
+   * WHY IT IS WORSE THAN THE COORDINATE'S VERSION, AND WHY IT IS T3-A's "value
+   * that is nowhere" AFTER ALL. T4-C says a wall clock and an offset are not
+   * one unit, and it stands: the owner correcting WHEN beside a photo supplying
+   * WHERE is coherent, because one side is a competent authority who can see
+   * both halves and fix either. Photo-A's clock beside photo-B's zone has no
+   * authority anywhere in it, and neither the timestamp nor the warning about
+   * it survives. §11.5's own words for what that publishes: "worse than not
+   * auto-dating at all, because it looks right".
+   *
+   * FOUR ASSERTIONS ARE THE DEFECT, AND THE OTHERS ARE THE PREMISE THAT KEEPS
+   * THEM HONEST — the clock, the offset, the mark, and the value on the wire.
+   * The wire is not decoration: the two halves are concatenated by `save()` at
+   * a single line, so an editor could hold both wrong values on screen and be
+   * caught only there, and 12a's reasoning about "half a check" applies with
+   * the sign reversed.
+   *
+   * THE ALLOW-CASE IS IN THE SAME RENDER, per the shape three of Task 3's
+   * scenarios and three of Task 4's got wrong: before the second pick, the
+   * first photo's fill, mark and note are all asserted, so "the first photo's
+   * value survived" cannot be satisfied by an editor in which nothing fills.
+   *
+   * WHAT WOULD BREAK IT: today's code, which guards the zone branch on
+   * `offsetTo.kind === "nobody"` alone; guarding it on "no photo has been
+   * attached before" rather than on WHOSE clock is beside it, which would break
+   * 12b, where the same photo supplies both; clearing the mark whenever any
+   * offset arrives from anywhere.
+   *
+   * WHAT IT MUST NOT COST: 12b. One photo carrying both tags fills both, and
+   * the guard has to let that through — which is the case where the clock's
+   * record already names the photo being offered.
+   */
+  it("refuses a second photo's offset beside the first photo's clock, and keeps the warning", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const first = jpegWithExif("tokyo.jpg", TIMED);
+    const second = jpegWithExif("chathams.jpg", TIMED_WITH_OTHER_OFFSET);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so the control could not show it even if the fill this test forbids did happen`,
+    ).toContain(SECOND_OFFSET);
+
+    /* ── THE FIRST PHOTO, AND EVERY ASSERTION BELOW RESTS ON IT ─────────── */
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the first photo's date never reached the wall clock, so nothing here is about a second photo standing beside it",
+      ).not.toBe("");
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      offsetMarkedAsGuess(),
+      "the first photo dated the form beside this machine's offset and nothing marks it: 'the mark survived' below cannot be told from 'there was never a mark'",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the marked control does not name the first photo, so 'the note still names it' below is not about a note",
+    ).toMatch(alt(first));
+
+    /* ── THE SECOND PHOTO REALLY LANDED — 11c's guard, in its shape: without
+       it every refusal below holds for an editor that dropped the pick. ─── */
+    await pickAndSettle(second, media);
+    expect(rig.processed, "the second file never reached the pipeline").toHaveLength(2);
+    expect(media.puts, "the second photo's derivatives never went up").toHaveLength(4);
+    expect(media.containers(), "both photos went to one container").toHaveLength(2);
+    await screen.findByRole("img", { name: alt(second) });
+
+    /* ── THE REFUSALS ───────────────────────────────────────────────────── */
+    expect(
+      wallClockShapes(PHOTO_WALL),
+      `the wall clock shows ${JSON.stringify(shownValue(LABEL.occurredAt))}: the second photo replaced the first photo's clock`,
+    ).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo's zone was accepted beside the FIRST photo's clock: the guard asks whether anyone has set the offset and never whose clock it is standing next to, and the two halves now describe an instant that happened at neither place",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "accepting the second photo's zone cleared the mark on the first photo's clock: the composition §11.5 exists to warn about, with the warning removed by the act of composing it",
+    ).toBe(true);
+
+    /* AND THE NOTE STILL NAMES THE PHOTO THE CLOCK IS ACTUALLY FROM — 11c's
+       last assertion, for its reason: the value right and the provenance wrong
+       is worse than no note at all. */
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note stopped naming the photo whose clock is in the box",
+    ).toMatch(alt(first));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note credits the second photo, which supplied neither the clock in the box nor the offset beside it",
+    ).not.toMatch(alt(second));
+
+    /* ── AND WHAT A STRANGER CAN FETCH IS ONE PLACE'S TIME, NOT TWO ─────── */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-two-cameras");
+    setText(LABEL.headline, "Two cameras, one morning");
+    setText(LABEL.articleBody, "One of them had been to the Chathams.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const occurred = oneObject(quadsOf(put.body, put.url), `${put.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod at all").toBeDefined();
+    expect(
+      occurred!.value,
+      "the published timestamp is the first photo's wall clock on the second photo's offset: an instant that happened at neither place, and §11.5's failure exactly",
+    ).not.toBe(`${PHOTO_WALL.slice(0, 16)}:00${SECOND_OFFSET}`);
+    expect(
+      occurred!.value.slice(-6),
+      "the published offset is not the one the control holds",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the published wall clock is not the first photo's",
+    ).toBe(PHOTO_WALL.slice(0, 16));
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(
+      pod.wire(),
+      "the second photo's zone is on the wire for an entry it did not date",
+    ).not.toContain(SECOND_OFFSET);
+    expect(
+      pod.wire(),
+      "the second photo's wall clock is on the wire",
+    ).not.toContain(SECOND_WALL.slice(0, 16));
+  });
+});
+
+describe("entry editor — a second photo with a clock of its own", () => {
+  /**
+   * THE MIRROR OF 12h, AND UNGUARDED IN THE SAME PLACE FOR THE SAME REASON.
+   * The order of the two picks is an accident of which photo the owner reaches
+   * for first; the composition it produces is identical, so the answer has to
+   * be. Here `chathams.jpg` carries a zone and NO clock — legal in EXIF and
+   * read independently by `lib/media/exif.ts` — and `tokyo.jpg` then arrives
+   * with a clock and no zone. The wall branch asks only `occurredTo.kind ===
+   * "nobody"`, so it fills, and the form holds Tokyo's clock on the Chathams'
+   * offset.
+   *
+   * IT IS THE HALF THE OBVIOUS FIX MISSES. Guarding the ZONE branch on whose
+   * clock stands beside it — the fix 12h asks for — leaves this direction
+   * exactly as it is, because nothing in the wall branch asks whose OFFSET is
+   * standing beside the clock. Two guards, or neither.
+   *
+   * NOTHING IS MARKED HERE, IN EITHER STATE, AND THAT IS NOT AN OVERSIGHT. The
+   * offset is a photo's rather than this machine's, so T4-A's condition never
+   * holds and there is no surface on the form that would warn about this
+   * composition — which is the argument for refusing it rather than admitting
+   * it and explaining it. A refusal costs the owner one keystroke in a clock
+   * they can see; admitting it costs them a timestamp that is wrong and
+   * unmarked.
+   *
+   * THE ALLOW-CASE IS THE FIRST PICK, IN THE SAME RENDER: the zone-only photo
+   * must fill the offset, and does today. Without it "the clock stayed empty"
+   * is an absence rather than a refusal — the exact shape three of Task 3's
+   * scenarios and three of Task 4's had.
+   *
+   * THE DRAFT IS READ AT THE END FOR 11d's AND 12g's REASON, and here it is
+   * load-bearing twice: `setOccurred(String(metadata.dateTimeOriginal))` on a
+   * photo with no date writes the characters `undefined` into the state and the
+   * `datetime-local` control reads that back as `""` (measured by the control
+   * above), so the box cannot tell a refusal from a stringified absence and the
+   * flushed draft is the only surface in this test that can.
+   *
+   * WHAT WOULD BREAK IT: today's code, in which the second photo's clock fills;
+   * refusing the FIRST photo's offset too, which the first leg catches; filling
+   * the clock and leaving the offset behind, which is the same composition
+   * spelled through one control.
+   */
+  it("refuses a second photo's clock beside the first photo's offset", async () => {
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    const first = jpegWithExif("chathams.jpg", OFFSET_ONLY);
+    const second = jpegWithExif("tokyo.jpg", TIMED);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: store.storage });
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so a controlled <select> could not show it even if the first pick's fill were correct`,
+    ).toContain(SECOND_OFFSET);
+
+    /* ── THE ALLOW-CASE: a photo that carries only a zone supplies it ───── */
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.offset),
+        "the zone-only photo's OffsetTimeOriginal never reached the control, so this render holds no photo's offset and every refusal below is about nothing",
+      ).toBe(SECOND_OFFSET);
+    });
+    expect(
+      shownValue(LABEL.occurredAt),
+      "a photo that carries no DateTimeOriginal filled the wall clock",
+    ).toBe("");
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset came from the photo and is marked as this machine's guess anyway",
+    ).toBe(false);
+
+    /* ── THE SECOND PHOTO REALLY LANDED ─────────────────────────────────── */
+    await pickAndSettle(second, media);
+    expect(rig.processed, "the second file never reached the pipeline").toHaveLength(2);
+    expect(media.puts, "the second photo's derivatives never went up").toHaveLength(4);
+    expect(media.containers(), "both photos went to one container").toHaveLength(2);
+    await screen.findByRole("img", { name: alt(second) });
+
+    /* ── THE REFUSAL ────────────────────────────────────────────────────── */
+    expect(
+      shownValue(LABEL.occurredAt),
+      "the second photo's clock was accepted beside the FIRST photo's zone: Tokyo's five past seven on the Chathams' offset, which is 12h's composition reached by picking the two photos in the other order",
+    ).toBe("");
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo moved the offset the first one supplied",
+    ).toBe(SECOND_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset is a photo's, not this machine's, and the form says it is a guess",
+    ).toBe(false);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the offset control credits the photo that supplied neither the offset it holds nor a clock the form kept",
+    ).not.toMatch(alt(second));
+
+    /* ── AND NOT A STRINGIFIED ABSENCE EITHER, in the one surface that can
+       see one: the box reads `""` for both, the state does not. ─────────── */
+    cleanup();
+
+    expect(
+      store.calls.set,
+      "nothing was kept at all, so the draft cannot answer this: the picks armed no autosave window",
+    ).not.toEqual([]);
+    const flushed = store.calls.set.at(-1)!;
+    expect(flushed.key).toBe(draftKeyFor(OWNER, NEW_SCOPE));
+    const payload = parseDraft(flushed.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+    expect(
+      payload.occurred,
+      "the `occurred` state holds the second photo's wall clock, or a stringified absence the control cannot show",
+    ).toBe("");
+    expect(
+      payload.offset,
+      "the `offset` state is not the one the first photo supplied",
+    ).toBe(SECOND_OFFSET);
   });
 });
