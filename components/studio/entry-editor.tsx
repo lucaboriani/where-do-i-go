@@ -85,12 +85,20 @@
  *   same rule the place, `created` and `datePublished` follow. The binaries
  *   have no other reference, so dropping the triple orphans the bytes.
  *
- * A PHOTO'S EXIF `DateTimeOriginal` IS DELIBERATELY NOT WIRED TO
- * `schema:dateCreated` YET. §6 requires a UTC offset on every `xsd:dateTime`,
- * and lib/media/exif.ts yields an offset-less wall clock — EXIF has no zone and
- * `OffsetTimeOriginal` is usually absent (§11.5). Inventing this machine's
- * offset for a photo taken elsewhere would stamp the wrong instant onto a
- * permanent record. An existing `dateCreated` is carried through untouched.
+ * A PHOTO'S EXIF `DateTimeOriginal` IS STILL NOT WIRED TO THE PHOTO'S OWN
+ * `schema:dateCreated`, AND AS OF 2026-09-07 IT DOES REACH THE ENTRY'S
+ * TIMESTAMP — THROUGH THE FORM, exactly as the GPS below does. §6 requires a UTC
+ * offset on every `xsd:dateTime`, and lib/media/exif.ts yields an offset-less
+ * wall clock — EXIF has no zone and `OffsetTimeOriginal` is usually absent
+ * (§11.5) — so inventing this machine's offset for a photo taken elsewhere
+ * would stamp the wrong instant onto a permanent record. That argument still
+ * forbids the direct write, and an existing `dateCreated` is carried through
+ * untouched. What it never forbade is the pair of CONTROLS: the wall clock
+ * lands in "When it happened", the half EXIF does not carry is the offset
+ * select beside it, and the owner is TOLD when that half is only this machine's
+ * guess instead of reading `21:38 +02:00` in which both halves look like data
+ * (§11.5: "worse than not auto-dating at all, because it looks right"). See
+ * `offerTimestamp`, `TimeAuthor` and `OFFSET_GUESS_ID`.
  *
  * A PHOTO'S GPS *IS* WIRED, AS OF 2026-09-07, AND IT IS WIRED TO THE FORM.
  * This paragraph used to end "neither wire is stage 1's", which was true of
@@ -532,6 +540,35 @@ const coordinateSourceNote = (name: string) =>
   `Latitude and longitude came from ${name}. Type in either box to replace them.`;
 
 /**
+ * THE UNCONFIRMED OFFSET'S END OF THE ASSOCIATION — `COORDINATE_SOURCE_ID`'s
+ * shape, for its reasons: `aria-describedby` from the control itself and never
+ * an `aria-label` on a wrapper (a `<section aria-label="Photos">` around the
+ * picker once cost this file six tests, because a named wrapper shadows the
+ * control inside it), and RENDERED EXACTLY WHEN SOMETHING POINTS AT IT, because
+ * an id naming an element that is not there computes to the empty string —
+ * silently, with nothing on screen to show for it.
+ *
+ * THE SENTENCE IS ONE HALF OF THE FACT; THE `data-offset-unconfirmed` ATTRIBUTE
+ * ON THE CONTROL IS THE OTHER. Wording alone cannot carry this state, and this
+ * control is the proof: its PERMANENT hint already says the offset is "not of
+ * wherever you are writing this", so a reader — or a test — fenced on phrasing
+ * would find the same words in the confirmed cases as in the guessed one. Both
+ * halves are written by `creditTime`, which is what stops them drifting.
+ */
+const OFFSET_GUESS_ID = "entry-offset-guess";
+
+/** Names the FILE, which is the only name the photo has on screen, and says
+ *  WHICH HALF it did not supply rather than only where the value came from:
+ *  §11.5's whole argument is that `21:38 +02:00` reads as data in both halves,
+ *  so a note that credited the photo without saying that would leave the owner
+ *  unable to act on it. The last sentence is there because the first two
+ *  otherwise read as a hold — the control is live, and one click answers it. */
+const offsetGuessNote = (name: string) =>
+  `The time above came from ${name}. The offset is not from the photo — it is this ` +
+  `machine's guess, because ${name} carries no time zone of its own. Choose the offset of ` +
+  `the place it happened in.`;
+
+/**
  * WHO PUT THE COORDINATE IN THE BOXES — the record §11.3 turns on, and a
  * different question from `touchedCoordinate`.
  *
@@ -586,6 +623,45 @@ const coordinateSourceNote = (name: string) =>
  * ENTRY rather than from the form.
  */
 type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
+
+/**
+ * WHO SUPPLIED EACH HALF OF THE TIMESTAMP — `CoordinateAuthor`'s question, with
+ * its three answers and its whole argument for asking it explicitly rather than
+ * reading it off an empty box, asked TWICE.
+ *
+ * TWO RECORDS, NOT ONE, AND THE SYMMETRY WITH THE COORDINATE IS THE TRAP
+ * (ruling T4-C). `coordinateAuthor` is deliberately ONE record for a pair,
+ * because a latitude from the owner beside a longitude from a photo is a point
+ * that is nowhere. A timestamp does not compose that way: a wall clock is "the
+ * time at the place" and the offset is "the place's zone", so the owner
+ * correcting WHEN while the photo supplies WHERE is coherent, and so is the
+ * reverse. Fusing them into one flag would refuse a fill that is honest and buy
+ * nothing at all.
+ *
+ * SEEDED FROM THE ENTRY, AND THAT CONDITION IS RULING T4-B — the defect
+ * `coordinateAuthor` shipped with for a day (T3-B), on a field where it is
+ * worse shaped. `occurred` and `offset` are NOT empty on an edit: both are
+ * seeded from `existing.occurredAt`, so "nothing has been typed here" cannot
+ * mean "there is nothing here". A record reading `nobody` on an edit lets a
+ * photo replace `dy:occurredAt` — "when the moment happened", the single most
+ * load-bearing fact on a travel diary entry — with the value it replaced
+ * visible on screen the whole time. The coordinate's version of this at least
+ * hid behind an empty box.
+ *
+ * AND IT IS NOT `initial === undefined ? nobody : owner`, WHICH IS THE LAZY
+ * SPELLING THE FIX ROUND MEASURED: it switches auto-date off for every edit ever
+ * made, silently, while every refusal a test can make of these records still
+ * passes. What separates the two is the ALLOW-CASE — an edit of an entry with
+ * no `dy:occurredAt` at all (the field is `.optional()`), where there is nothing
+ * to protect and the photo may still date it.
+ *
+ * `nobody` MEANS ONE MORE THING ON THE OFFSET THAN IT DOES ON THE CLOCK, and
+ * `offsetGuess` is what does something with it: the offset control always shows
+ * a value, so an unauthored offset is not an absence — it is
+ * `offsetHere(wallClockNow())`, THIS MACHINE'S GUESS, which is the state §11.5
+ * says the owner must be able to see.
+ */
+type TimeAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
 
 /** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
  *  type for it, and this file imports no Zod. */
@@ -1252,6 +1328,74 @@ export default function EntryEditor({
     setCoordinateSource(to.kind === "photo" ? to.name : null);
   }
 
+  /**
+   * WHO SUPPLIED THE WALL CLOCK, AND WHO SUPPLIED THE OFFSET — see `TimeAuthor`
+   * for why these are two records rather than one, and for why they are seeded
+   * from the entry rather than from the boxes.
+   *
+   * REFS, AND READ AT THE MOMENT OF THE FILL, for `coordinateAuthor`'s reason:
+   * a fill happens in `attach`'s continuation, after the decode and two PUTs,
+   * so a closure would answer "who supplied this?" as of a moment that can be
+   * several seconds old — and the two things that happen inside that window are
+   * exactly the two these records exist to refuse, the owner typing while the
+   * photo uploads and a second photo settling.
+   *
+   * DECLARED HERE, ABOVE `attach`, for the reason `touched`'s note gives at
+   * length: `react-hooks/immutability` refuses a `.current` write inside a
+   * function that closes over a `useRef` declared BELOW it, and it reports the
+   * pre-existing writes rather than the new declaration when you get it wrong.
+   */
+  const occurredAuthor = useRef<TimeAuthor>(
+    existing?.occurredAt === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
+  const offsetAuthor = useRef<TimeAuthor>(
+    existing?.occurredAt === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
+  /**
+   * THE PHOTO WHOSE DATE IS STANDING BESIDE THIS MACHINE'S GUESSED OFFSET, or
+   * `null`. State rather than a ref, because the mark and the note are RENDERED
+   * and a ref changing re-renders nothing — `coordinateSource`'s reason.
+   *
+   * IT IS A RECORD, NOT A COMPARISON, and that is not a detail: marking the
+   * offset whenever it equals `offsetHere(wallClockNow())` would tell an owner
+   * who deliberately chose the zone they are sitting in — for most entries the
+   * right answer — that their own choice is a guess.
+   */
+  const [offsetGuess, setOffsetGuess] = useState<string | null>(null);
+  /**
+   * THE ONE WRITER for both records and for the mark — `creditCoordinate`'s
+   * deal, with one more thing to keep true: the mark reads BOTH records, so
+   * deriving it anywhere else would be a second copy of the rule that says
+   * nothing when the two stop agreeing.
+   *
+   * THE RULE, IN ONE LINE: the offset is marked when a PHOTO supplied the wall
+   * clock and NOBODY supplied the offset. Both halves of that are load-bearing.
+   *
+   *   - `nobody` on the offset IS this machine's guess (see `TimeAuthor`), so
+   *     the mark is ruling T4-A's "the displayed offset is the machine's own"
+   *     without interrogating the value. On an edit the entry's stored offset is
+   *     seeded `owner`, so a photo that lacks the tag casts no doubt on it —
+   *     badging confirmed data because a photo said nothing is §11.5's error
+   *     with the sign flipped.
+   *   - `photo` on the wall clock is what makes this §11.5's composition rather
+   *     than the ordinary default every create opens with. A photo that carried
+   *     no time at all leaves the offset exactly as it was and has said nothing
+   *     about it, and a note "naming the photo and the fact that the offset is
+   *     not from it" is meaningless about such a photo. So the mark follows the
+   *     auto-DATE.
+   *
+   * A CALLER THAT CHANGES ONE RECORD PASSES THE OTHER'S CURRENT VALUE, which is
+   * how two independent records (T4-C) share one writer without becoming one
+   * flag.
+   */
+  function creditTime(occurredTo: TimeAuthor, offsetTo: TimeAuthor) {
+    occurredAuthor.current = occurredTo;
+    offsetAuthor.current = offsetTo;
+    setOffsetGuess(
+      occurredTo.kind === "photo" && offsetTo.kind === "nobody" ? occurredTo.name : null,
+    );
+  }
+
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
   );
@@ -1386,6 +1530,22 @@ export default function EntryEditor({
    *  `undefined` is what keeps `coordinateHelp` from pointing at an element that
    *  is not rendered — the two are decided by the same value on purpose. */
   const coordinateSourceId = coordinateSource === null ? undefined : COORDINATE_SOURCE_ID;
+
+  /**
+   * The offset control's permanent hint, plus the guess note while there is one
+   * — `coordinateHelp`'s shape, for its reason: every half of this is silent
+   * when it is wrong. An id that names nothing computes to the empty string, and
+   * an attribute left on permanently reads as correct markup while announcing a
+   * reason that has stopped being true.
+   *
+   * ONE CONTROL RATHER THAN THREE, so no parameters: the hint's id is `Field`'s
+   * own `${id}-hint`, and the note is decided by the same value that decides
+   * whether it is rendered.
+   */
+  const offsetHelp = (): string =>
+    ["entry-offset-hint", offsetGuess === null ? undefined : OFFSET_GUESS_ID]
+      .filter((id): id is string => id !== undefined)
+      .join(" ");
 
   /**
    * What the precision control offers: the fixed grids, the owner's own default
@@ -1594,6 +1754,85 @@ export default function EntryEditor({
   }
 
   /**
+   * §11.5, AND IT IS THE SAME OFFER `offerCoordinate` MAKES, MADE TWICE: a
+   * photo may fill a half nobody has supplied, and may never take one away.
+   *
+   * THE WALL CLOCK GOES IN UNSHIFTED, WHICH IS WHAT THE FIELD MEANS. §7.3:
+   * `dy:occurredAt` "carries the local UTC offset of the place", so the value is
+   * the time it was THERE and `toOffsetDateTime` copies it rather than
+   * recomputing it — see its docblock, whose reasoning this fill depends on.
+   * Routing the photo's `07:05` through a `Date` would rewrite five past seven
+   * in Tokyo as whatever o'clock it is here, and for any photo taken on the far
+   * side of this machine's midnight it would move the DATE, not merely the hour.
+   *
+   * TO THE MINUTE, THROUGH `wallClockOf`, WHICH IS THE ONE SPELLING OF "a
+   * timestamp, as this control shows it". Keeping the photo's `:33` is legal end
+   * to end — `LOCAL_DATETIME` accepts optional seconds and passes them through
+   * — but a `datetime-local` with no `step` neither displays nor edits seconds,
+   * so they would be a third of a minute the owner cannot see and the first
+   * keystroke would silently drop. `toOffsetDateTime` supplies the `:00` §6
+   * wants, exactly as it does for a hand-typed clock.
+   *
+   * NO §9 GATE HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION.
+   * `offerCoordinate` asks `coordinatesLive` because the fail-closed posture is
+   * about publishing a POINT; an offset is not a coordinate and neither is a
+   * wall clock. The offset control is deliberately not tied to that gate either
+   * — see its own note in the form — because an owner whose privacy settings
+   * cannot be read still gets to say what time of day it was.
+   *
+   * BOTH TAGS ARE OPTIONAL AND NEITHER GUARD IS DECORATION. `readMetadata`
+   * returns `{}` for a file it cannot read at all — a scan, a screenshot, a
+   * camera whose clock was never set, which it rejects by sentinel — and that is
+   * the case this meets most often. The obvious
+   * `setOccurred(String(metadata.dateTimeOriginal))` writes the nine characters
+   * `undefined` into the state; a `datetime-local` reads that back as empty, so
+   * the box CANNOT show the defect and the autosaved draft is the only surface
+   * that can.
+   */
+  function offerTimestamp(name: string, metadata: PipelineResult["metadata"]) {
+    /* FIRST WRITER WINS, PER HALF — `nobody` is the only answer that admits a
+       fill, and `TimeAuthor` is where the other two are argued out, including
+       why an edit's NON-empty box is not the question being asked here. */
+    let occurredTo = occurredAuthor.current;
+    let offsetTo = offsetAuthor.current;
+    let filled = false;
+
+    const wall = metadata.dateTimeOriginal;
+    if (wall !== undefined && occurredTo.kind === "nobody") {
+      setOccurred(wallClockOf(wall));
+      occurredTo = { kind: "photo", name };
+      filled = true;
+    }
+
+    /* THE HALF EXIF USUALLY HAS NOTHING TO SAY ABOUT (§11.5), and when it does
+       say something it is already `+09:00`-shaped: lib/media/exif.ts reads tag
+       0x9011 and validates it against `/^[+-]\d{2}:\d{2}$/`, so what arrives
+       here is an offset or nothing. It goes in AS READ — never through
+       `offsetHere` or a `Date`, either of which answers with this machine's zone
+       — and `offsetOptions` unions whatever the control holds into the list, so
+       an offset the list does not carry renders instead of the select silently
+       showing its first option. */
+    const zone = metadata.offsetTimeOriginal;
+    if (zone !== undefined && offsetTo.kind === "nobody") {
+      setOffset(zone);
+      offsetTo = { kind: "photo", name };
+      filled = true;
+    }
+
+    /* UNCONDITIONAL, AND IDEMPOTENT WHEN NOTHING FILLED: the mark is derived
+       from these two records in one place, so re-crediting them with what they
+       already hold recomputes the same answer. What it must not do is leave a
+       fill uncredited, which is why it is not inside either branch. */
+    creditTime(occurredTo, offsetTo);
+    /* A fill is a change to the form, and every change arms the autosave —
+       `offerCoordinate`'s line, with its reasoning: armed twice over already by
+       the time this runs, and an idempotent write of `true` cannot disagree with
+       the other two. Guarded by `filled` because a photo that supplied neither
+       half has changed nothing to keep. */
+    if (filled) touched.current = true;
+  }
+
+  /**
    * PROCESS, UPLOAD, THEN HOLD A `Photo` — never the `File`.
    *
    * The order is the decision recorded at the top of this file: by the time
@@ -1660,9 +1899,11 @@ export default function EntryEditor({
         derivatives: { web: derived.web, thumb: derived.thumb },
         blurDataUrl: derived.blurDataUrl,
         // `derived.metadata` is not uploaded, and that is what stripping means:
-        // the derivatives are re-encoded without it. Its GPS is READ below, into
-        // the form; its `DateTimeOriginal` is still deliberately unused, because
-        // it has no UTC offset and §6 requires one.
+        // the derivatives are re-encoded without it. Its GPS and its two time
+        // tags are READ below, into the form and nowhere else: `DateTimeOriginal`
+        // has no UTC offset and §6 requires one, so the offset comes from the
+        // control beside the clock — the photo's own when it carried one, and
+        // otherwise a guess the owner is told about (`offerTimestamp`).
       });
       if (!stored.ok) {
         move({ key, name, state: "failed", message: describe(stored.error) });
@@ -1678,6 +1919,11 @@ export default function EntryEditor({
        * and its note names a file the form no longer holds.
        */
       offerCoordinate(name, derived.metadata);
+      /* THE TWO OFFERS ARE INDEPENDENT AND BOTH ARE MADE, in either order: a
+         photo may carry GPS and no clock, a clock and no GPS, both or neither
+         (lib/media/exif.ts reads them from different IFDs and guards each
+         separately), and neither half may stand in for the other or clear it. */
+      offerTimestamp(name, derived.metadata);
     } catch (cause) {
       move({
         key,
@@ -2095,6 +2341,35 @@ export default function EntryEditor({
      * absent into `""` bought.
      */
     setOffset(OFFSET_SHAPE.test(draft.offset) ? draft.offset : offset);
+    /**
+     * AND A RESTORED TIMESTAMP IS NOT ONE A PHOTO MAY REPLACE — the coordinate's
+     * credit further down, for its reason: `restore()` writes these controls
+     * without a DOM event, so it comes through neither `onChange`, and without
+     * this the records would still read `nobody` over a form that visibly holds
+     * a date. Attach a photo and it takes both halves: the overwrite §11.3
+     * forbids, reached by the one path that does not look like typing.
+     *
+     * EACH RECORD MIRRORS ITS OWN SETTER, which is why the two lines are not
+     * spelled alike. `setOccurred` above writes UNCONDITIONALLY, so the record
+     * has to say whatever the payload said — and `""` is a draft with no date
+     * in it, the common case, which leaves the clock open rather than switching
+     * auto-date off for the rest of the session. `setOffset` writes only when
+     * the payload's offset has the shape, so when it has nothing to say the
+     * control keeps its value and the record keeps its author.
+     *
+     * A RESTORED OFFSET IS THE OWNER'S ALTHOUGH THE PAYLOAD CANNOT SAY WHETHER
+     * THEY CHOSE IT OR THIS MACHINE GUESSED IT — `Draft` keeps no provenance —
+     * and the cost is recorded rather than hidden: a draft whose offset was an
+     * unconfirmed guess comes back WITHOUT the mark. The other way round is
+     * worse in the direction §11.3 cares about, a photo silently replacing an
+     * offset the owner chose, corrected, and accepted back off the banner. A
+     * mark that survives a restore needs a field in lib/studio/drafts.ts and a
+     * test that asks for it.
+     */
+    creditTime(
+      draft.occurred.trim() === "" ? { kind: "nobody" } : { kind: "owner" },
+      OFFSET_SHAPE.test(draft.offset) ? { kind: "owner" } : offsetAuthor.current,
+    );
     setTagsText(draft.tagsText);
     setMode(draft.mode);
     setStatus(draft.status);
@@ -2702,7 +2977,21 @@ export default function EntryEditor({
               className={CONTROL}
               value={occurred}
               aria-describedby="entry-when-hint"
-              onChange={(event) => setOccurred(event.target.value)}
+              /* THE KEYSTROKE IS WHAT MAKES THE CLOCK THE OWNER'S, recorded
+                 here rather than in the form's own `onChange` for the reason the
+                 coordinate boxes give: that handler catches every control on the
+                 form, and this record is about this one. §11.3 in one line —
+                 from now on a photo may offer no wall clock.
+                 AND THE OFFSET'S RECORD PASSES THROUGH UNTOUCHED (T4-C): the
+                 owner correcting WHEN says nothing about the zone. What does
+                 change is the mark, because it follows the auto-DATE: a clock
+                 the owner has typed over is not a photo's clock any more, and
+                 the offset beside it is back to being the default every create
+                 opens with, which the control's permanent hint already covers. */
+              onChange={(event) => {
+                creditTime({ kind: "owner" }, offsetAuthor.current);
+                setOccurred(event.target.value);
+              }}
             />
           </Field>
 
@@ -2747,8 +3036,24 @@ export default function EntryEditor({
               name="entry-offset"
               className={CONTROL}
               value={offset}
-              aria-describedby="entry-offset-hint"
-              onChange={(event) => setOffset(event.target.value)}
+              /* THE STATE, ON THE CONTROL THAT HOLDS THE VALUE IN DOUBT — not
+                 on a wrapper, which is not what holds it, and not on the note,
+                 which is the sentence rather than the state. `undefined` rather
+                 than `"false"` for `coordinateHelp`'s reason: an attribute left
+                 on permanently reads as correct markup and answers a question
+                 nobody asked. See `creditTime` for the rule and
+                 `OFFSET_GUESS_ID` for why wording cannot carry this alone. */
+              data-offset-unconfirmed={offsetGuess === null ? undefined : "true"}
+              aria-describedby={offsetHelp()}
+              /* THE CHOICE IS WHAT ENDS THE GUESS (scenario 4), and it is one
+                 assignment rather than a second piece of state: the mark and the
+                 note both follow this record, so "the owner has chosen" and "the
+                 note has stopped being true" cannot come apart. The wall clock's
+                 record passes through untouched (T4-C). */
+              onChange={(event) => {
+                creditTime(occurredAuthor.current, { kind: "owner" });
+                setOffset(event.target.value);
+              }}
             >
               {/* The value is the offset AS WRITTEN, because that string is
                   what is concatenated onto the wall clock and what the draft
@@ -2762,6 +3067,30 @@ export default function EntryEditor({
               ))}
             </select>
           </Field>
+
+          {/*
+            WHY THE OFFSET ABOVE IS NOT DATA, WHILE THAT IS TRUE.
+
+            §11.5, and the sentence half of it: a wall clock the photo supplied
+            sits beside a zone it did not, and "the owner sees 21:38 +02:00" is
+            only a problem because every part of that reads as a reading. The
+            other half is `data-offset-unconfirmed` on the control itself — see
+            `OFFSET_GUESS_ID` for why neither half does this alone, and why this
+            is not a `role="alert"`: a photo that works announces nothing, and a
+            persistent live region about the offset would leak into every
+            save-outcome the form reports.
+
+            UNDER THE CONTROL AND ITS OWN HINT, named by `offsetHelp()`, and
+            RENDERED EXACTLY WHEN SOMETHING POINTS AT IT — `COORDINATE_SOURCE_ID`
+            's shape: a live `aria-describedby` naming an element that is not
+            there computes to the empty string, and the owner is back to a date
+            and a zone that appeared from nowhere.
+          */}
+          {offsetGuess !== null && (
+            <p id={OFFSET_GUESS_ID} className="text-sm text-muted-foreground">
+              {offsetGuessNote(offsetGuess)}
+            </p>
+          )}
 
           {/*
             WHERE THE OWNER WAS, IN WORDS — the three fields §9's mitigation
