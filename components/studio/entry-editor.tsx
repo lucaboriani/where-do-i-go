@@ -540,33 +540,84 @@ const coordinateSourceNote = (name: string) =>
   `Latitude and longitude came from ${name}. Type in either box to replace them.`;
 
 /**
- * THE UNCONFIRMED OFFSET'S END OF THE ASSOCIATION — `COORDINATE_SOURCE_ID`'s
- * shape, for its reasons: `aria-describedby` from the control itself and never
+ * THE TIMESTAMP'S THREE NOTES, ONE PER CLAIM — `COORDINATE_SOURCE_ID`'s shape
+ * and all of its reasons: `aria-describedby` from the control itself and never
  * an `aria-label` on a wrapper (a `<section aria-label="Photos">` around the
  * picker once cost this file six tests, because a named wrapper shadows the
- * control inside it), and RENDERED EXACTLY WHEN SOMETHING POINTS AT IT, because
- * an id naming an element that is not there computes to the empty string —
- * silently, with nothing on screen to show for it.
+ * control inside it), and each one RENDERED EXACTLY WHEN SOMETHING POINTS AT
+ * IT, because an id naming an element that is not there computes to the empty
+ * string — silently, with nothing on screen to show for it.
  *
- * THE SENTENCE IS ONE HALF OF THE FACT; THE `data-offset-unconfirmed` ATTRIBUTE
- * ON THE CONTROL IS THE OTHER. Wording alone cannot carry this state, and this
- * control is the proof: its PERMANENT hint already says the offset is "not of
- * wherever you are writing this", so a reader — or a test — fenced on phrasing
- * would find the same words in the confirmed cases as in the guessed one. Both
- * halves are written by `creditTime`, which is what stops them drifting.
+ * THREE, BECAUSE THERE ARE THREE CLAIMS AND THEY STOP BEING TRUE AT THREE
+ * DIFFERENT MOMENTS. One element per claim is what makes each of them
+ * removable on its own; a single sentence covering all three would have to
+ * outlive the shortest-lived thing in it.
+ *
+ *   `OCCURRED_SOURCE_ID` — "the time came from a.jpg". Dies at the first
+ *     keystroke in the clock: §11.3's provenance rule (the owner is told a
+ *     photo supplied a value, "so a wrong pin is attributable to the photo
+ *     instead of to the editor") is what puts it there, and the coordinate's
+ *     rule — "a note left standing beside a number the owner typed over is a
+ *     claim they have no way to check" — is what takes it away.
+ *   `OFFSET_SOURCE_ID` — "the offset came from a.jpg". §11.3 again, for the
+ *     half a modern phone does write. Dies when the owner chooses an offset.
+ *   `OFFSET_GUESS_ID` — "the offset beside this time is this machine's guess"
+ *     (§11.5). Dies ONLY when the offset acquires an author, which is ruling
+ *     T4-G: a keystroke in the CLOCK says nothing about who supplied the
+ *     OFFSET, so the warning is still true after one and stays. It loses the
+ *     photo's NAME at that keystroke, for `OCCURRED_SOURCE_ID`'s reason, and
+ *     keeps saying the thing that is still checkable.
+ *
+ * WHY §11.3's CREDIT IS NOT OPTIONAL HERE, recorded because this file argued
+ * the other way for a day: the guess mark is `null` whenever the photo supplied
+ * BOTH halves, so a camera reset to factory time publishes a wrong
+ * `dy:occurredAt` — the most load-bearing fact on the entry — attributable to
+ * the editor rather than to the file. §11.5 is silent about provenance because
+ * it does not restate its parent, exactly as it does not restate "never
+ * overwrites"; reading that silence as a withdrawal would withdraw the
+ * no-overwrite rule with it.
+ *
+ * AND THE SENTENCES ARE ONE HALF OF THE GUESS; THE `data-offset-unconfirmed`
+ * ATTRIBUTE ON THE CONTROL IS THE OTHER. Wording alone cannot carry that state,
+ * and this control is the proof: its PERMANENT hint already says the offset is
+ * "not of wherever you are writing this", so a reader — or a test — fenced on
+ * phrasing would find the same words in the confirmed cases as in the guessed
+ * one. Every one of these is written by `creditTime`, which is what stops them
+ * drifting from each other or from the records.
  */
+const OCCURRED_SOURCE_ID = "entry-when-source";
+const OFFSET_SOURCE_ID = "entry-offset-source";
 const OFFSET_GUESS_ID = "entry-offset-guess";
 
-/** Names the FILE, which is the only name the photo has on screen, and says
- *  WHICH HALF it did not supply rather than only where the value came from:
- *  §11.5's whole argument is that `21:38 +02:00` reads as data in both halves,
- *  so a note that credited the photo without saying that would leave the owner
- *  unable to act on it. The last sentence is there because the first two
- *  otherwise read as a hold — the control is live, and one click answers it. */
-const offsetGuessNote = (name: string) =>
-  `The time above came from ${name}. The offset is not from the photo — it is this ` +
-  `machine's guess, because ${name} carries no time zone of its own. Choose the offset of ` +
-  `the place it happened in.`;
+/** Names the FILE, which is the only name a photo has on screen — its
+ *  `contentUrl` is a content-addressed hash nobody can read. The second
+ *  sentence is there because the first otherwise reads as a hold: the control
+ *  is live, and typing replaces this. `coordinateSourceNote`'s shape. */
+const occurredSourceNote = (name: string) =>
+  `The time came from ${name}. Type in the box to replace it.`;
+
+const offsetSourceNote = (name: string) =>
+  `The offset came from ${name}. Choose another to replace it.`;
+
+/**
+ * THE GUESS, AND IT SAYS WHICH HALF THE PHOTO DID NOT SUPPLY rather than only
+ * where the value came from: §11.5's whole argument is that `21:38 +02:00`
+ * reads as data in both halves, so a note that credited the photo without
+ * saying that would leave the owner unable to act on it.
+ *
+ * `null` IS THE STATE AFTER THE OWNER TYPES IN THE CLOCK, not a missing name.
+ * The claim "the offset is not from a.jpg" needs a.jpg's clock to still be in
+ * the box to mean anything; the claim "the offset is this machine's guess" does
+ * not, and it is the one that is still true (T4-G). So the name goes and the
+ * warning stays, in one sentence that no longer promises something the owner
+ * cannot check.
+ */
+const offsetGuessNote = (name: string | null) =>
+  name === null
+    ? `The offset is this machine's guess for the time above, not the time zone of the place ` +
+      `it happened in. Choose that offset if it was somewhere else.`
+    : `The offset is not from ${name} — the photo carries no time zone of its own, so this is ` +
+      `this machine's guess. Choose the offset of the place it happened in.`;
 
 /**
  * WHO PUT THE COORDINATE IN THE BOXES — the record §11.3 turns on, and a
@@ -660,6 +711,12 @@ type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"
  * a value, so an unauthored offset is not an absence — it is
  * `offsetHere(wallClockNow())`, THIS MACHINE'S GUESS, which is the state §11.5
  * says the owner must be able to see.
+ *
+ * AND `photo` CARRIES THE FILE NAME FOR A SECOND REASON AS OF 2026-09-07
+ * (ruling T4-E): a fill has to ask not only WHETHER the other half is a
+ * photo's but WHOSE. Photo A's clock beside photo B's zone is the one
+ * composition in this task with no authority anywhere in it — see
+ * `offerTimestamp`.
  */
 type TimeAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
 
@@ -1352,24 +1409,43 @@ export default function EntryEditor({
     existing?.occurredAt === undefined ? { kind: "nobody" } : { kind: "owner" },
   );
   /**
-   * THE PHOTO WHOSE DATE IS STANDING BESIDE THIS MACHINE'S GUESSED OFFSET, or
-   * `null`. State rather than a ref, because the mark and the note are RENDERED
-   * and a ref changing re-renders nothing — `coordinateSource`'s reason.
+   * THE SAME TWO FACTS AGAIN AS STATE, BECAUSE THE NOTES ARE RENDERED and a ref
+   * changing re-renders nothing — `coordinateSource`'s reason, twice. Which
+   * photo the clock came from, and which the offset came from; `null` for a
+   * value no photo supplied.
+   */
+  const [occurredSource, setOccurredSource] = useState<string | null>(null);
+  const [offsetSource, setOffsetSource] = useState<string | null>(null);
+  /**
+   * IS THE OFFSET THIS MACHINE'S GUESS, STANDING BESIDE A CLOCK A PHOTO
+   * SUPPLIED? §11.5's state, and the one the owner must be able to see.
+   *
+   * A BOOLEAN AND NOT A NAME, as of ruling T4-G. It held the photo's name until
+   * 2026-09-07, which fused two facts with two lifetimes into one value: the
+   * name is only checkable while the photo's clock is still in the box, and the
+   * warning is true for as long as nobody has answered the offset. The name now
+   * comes from `occurredSource` — so a keystroke in the clock takes the name
+   * out of the sentence and leaves the warning standing.
    *
    * IT IS A RECORD, NOT A COMPARISON, and that is not a detail: marking the
    * offset whenever it equals `offsetHere(wallClockNow())` would tell an owner
    * who deliberately chose the zone they are sitting in — for most entries the
    * right answer — that their own choice is a guess.
    */
-  const [offsetGuess, setOffsetGuess] = useState<string | null>(null);
+  const [offsetGuess, setOffsetGuess] = useState(false);
   /**
-   * THE ONE WRITER for both records and for the mark — `creditCoordinate`'s
-   * deal, with one more thing to keep true: the mark reads BOTH records, so
-   * deriving it anywhere else would be a second copy of the rule that says
-   * nothing when the two stop agreeing.
+   * THE ONE WRITER for the two records and all three surfaces —
+   * `creditCoordinate`'s deal, with more to keep true: the mark reads BOTH
+   * records, so deriving it anywhere else would be a second copy of the rule
+   * that says nothing when the two stop agreeing.
    *
-   * THE RULE, IN ONE LINE: the offset is marked when a PHOTO supplied the wall
-   * clock and NOBODY supplied the offset. Both halves of that are load-bearing.
+   * THE TWO CREDITS ARE THE RECORDS, RESTATED. `photo` means a file supplied
+   * this half and is named for it (§11.3); `owner` and `nobody` both mean
+   * nothing on screen may credit a photo for it.
+   *
+   * THE MARK, IN ONE LINE: the offset is a guess while NOBODY has supplied it
+   * and a photo has supplied the clock beside it. Three halves, all
+   * load-bearing:
    *
    *   - `nobody` on the offset IS this machine's guess (see `TimeAuthor`), so
    *     the mark is ruling T4-A's "the displayed offset is the machine's own"
@@ -1380,9 +1456,16 @@ export default function EntryEditor({
    *   - `photo` on the wall clock is what makes this §11.5's composition rather
    *     than the ordinary default every create opens with. A photo that carried
    *     no time at all leaves the offset exactly as it was and has said nothing
-   *     about it, and a note "naming the photo and the fact that the offset is
-   *     not from it" is meaningless about such a photo. So the mark follows the
-   *     auto-DATE.
+   *     about it, so it marks nothing.
+   *   - `|| was` IS RULING T4-G, and it is the whole of it. The clock's own
+   *     `onChange` credits the owner, which used to clear the mark — so the
+   *     owner nudging `07:05` to `07:06`, because they remember it was a minute
+   *     later, left `07:06 +09:00` with §11.5's composition fully intact and
+   *     the warning gone. A keystroke in the clock says nothing about who
+   *     supplied the OFFSET, so the warning is still true; what it does say is
+   *     that the note may no longer name the photo, and `occurredSource`
+   *     handles that on its own line. Choosing an offset is what ends the mark,
+   *     which is what scenario 3 says in words.
    *
    * A CALLER THAT CHANGES ONE RECORD PASSES THE OTHER'S CURRENT VALUE, which is
    * how two independent records (T4-C) share one writer without becoming one
@@ -1391,9 +1474,9 @@ export default function EntryEditor({
   function creditTime(occurredTo: TimeAuthor, offsetTo: TimeAuthor) {
     occurredAuthor.current = occurredTo;
     offsetAuthor.current = offsetTo;
-    setOffsetGuess(
-      occurredTo.kind === "photo" && offsetTo.kind === "nobody" ? occurredTo.name : null,
-    );
+    setOccurredSource(occurredTo.kind === "photo" ? occurredTo.name : null);
+    setOffsetSource(offsetTo.kind === "photo" ? offsetTo.name : null);
+    setOffsetGuess((was) => offsetTo.kind === "nobody" && (occurredTo.kind === "photo" || was));
   }
 
   const [target, setTarget] = useState<Target | null>(
@@ -1532,18 +1615,36 @@ export default function EntryEditor({
   const coordinateSourceId = coordinateSource === null ? undefined : COORDINATE_SOURCE_ID;
 
   /**
-   * The offset control's permanent hint, plus the guess note while there is one
-   * — `coordinateHelp`'s shape, for its reason: every half of this is silent
-   * when it is wrong. An id that names nothing computes to the empty string, and
-   * an attribute left on permanently reads as correct markup while announcing a
-   * reason that has stopped being true.
+   * EACH CONTROL'S PERMANENT HINT, PLUS WHATEVER IS CURRENTLY TRUE ABOUT WHERE
+   * ITS VALUE CAME FROM — `coordinateHelp`'s shape, for its reason: every half
+   * of this is silent when it is wrong. An id that names nothing computes to
+   * the empty string, and an attribute left on permanently reads as correct
+   * markup while announcing a reason that has stopped being true.
    *
-   * ONE CONTROL RATHER THAN THREE, so no parameters: the hint's id is `Field`'s
-   * own `${id}-hint`, and the note is decided by the same value that decides
-   * whether it is rendered.
+   * THE HINT IS ALWAYS FIRST, so the credit or the warning is heard as an
+   * addition to what the control is for rather than in place of it.
+   *
+   * ONE FUNCTION PER CONTROL RATHER THAN `coordinateHelp`'s PARAMETERS: there
+   * are two controls and each has its own set of things that can be true of it,
+   * and the guess note belongs to the offset alone — the clock is not in doubt,
+   * it is the thing the offset is in doubt BESIDE.
    */
+  const occurredHelp = (): string =>
+    ["entry-when-hint", occurredSource === null ? undefined : OCCURRED_SOURCE_ID]
+      .filter((id): id is string => id !== undefined)
+      .join(" ");
+
+  /* The guess and the credit are mutually exclusive by construction — the mark
+     requires the offset to be NOBODY's and the credit requires it to be a
+     photo's — but both are listed rather than branched, because that exclusion
+     lives in `creditTime` and a second copy of it here is a second thing to
+     keep true. */
   const offsetHelp = (): string =>
-    ["entry-offset-hint", offsetGuess === null ? undefined : OFFSET_GUESS_ID]
+    [
+      "entry-offset-hint",
+      offsetGuess ? OFFSET_GUESS_ID : undefined,
+      offsetSource === null ? undefined : OFFSET_SOURCE_ID,
+    ]
       .filter((id): id is string => id !== undefined)
       .join(" ");
 
@@ -1780,6 +1881,41 @@ export default function EntryEditor({
    * — see its own note in the form — because an owner whose privacy settings
    * cannot be read still gets to say what time of day it was.
    *
+   * AND A HALF MAY ONLY JOIN THE OTHER HALF IT BELONGS WITH — ruling T4-E, and
+   * the guard that closes the one reachable data defect this task shipped.
+   * `offerCoordinate` needs no analogue: a photo either carries both GPS tags
+   * or neither (lib/media/exif.ts sets `gps` only when both are present), so
+   * `coordinateAuthor` is one record for a pair and a mixed coordinate cannot
+   * be composed from two photos at all. The timestamp's two halves arrive
+   * independently, and any day's walk produces the sequence:
+   *
+   *   1. `tokyo.jpg` — a clock and no zone. The clock fills, the offset is
+   *      left as this machine's guess, and the mark and the note go on.
+   *   2. `chathams.jpg` — a phone that writes both. Its clock is refused,
+   *      correctly, because the first photo already supplied one.
+   *   3. Its ZONE was then accepted, because the offset was still `nobody`'s —
+   *      which composed Tokyo's `07:05` with the Chathams' `+12:45`, an instant
+   *      that happened at NEITHER place, and cleared the mark in the same
+   *      motion, because the mark reads "a photo dated it and nobody offset
+   *      it". §11.5's stated failure, reached by two photos, with the warning
+   *      removed by the act of composing it.
+   *
+   * T4-C IS NOT WHAT PERMITTED THAT, AND STANDS. It says the wall clock and the
+   * offset are independent because the owner correcting WHEN beside a photo
+   * supplying WHERE is coherent — one side is a competent authority who can see
+   * both halves and fix either. Photo A's clock beside photo B's zone has no
+   * authority anywhere in it: it is T3-A's "value that is nowhere", and neither
+   * the value nor any warning about it survives. So each branch asks WHOSE the
+   * other half is, not merely whether it is spoken for, and `{ kind: "photo" }`
+   * carrying the file name is what makes that askable.
+   *
+   * BOTH BRANCHES, OR NEITHER. Guarding only the zone leaves the mirror — a
+   * zone-only photo, then a clock-only one — exactly as it was, and the order
+   * the owner picks two photos in is an accident. The same-name comparison is
+   * what keeps ONE photo supplying both halves legal: by the zone branch the
+   * clock's record already names the file being offered, and the wall branch
+   * sees an offset no photo has touched yet.
+   *
    * BOTH TAGS ARE OPTIONAL AND NEITHER GUARD IS DECORATION. `readMetadata`
    * returns `{}` for a file it cannot read at all — a scan, a screenshot, a
    * camera whose clock was never set, which it rejects by sentinel — and that is
@@ -1798,7 +1934,13 @@ export default function EntryEditor({
     let filled = false;
 
     const wall = metadata.dateTimeOriginal;
-    if (wall !== undefined && occurredTo.kind === "nobody") {
+    if (
+      wall !== undefined &&
+      occurredTo.kind === "nobody" &&
+      /* …and not beside ANOTHER photo's zone (T4-E). `offsetTo` is untouched by
+         this photo at this line, so a `photo` here is always an earlier one. */
+      (offsetTo.kind !== "photo" || offsetTo.name === name)
+    ) {
       setOccurred(wallClockOf(wall));
       occurredTo = { kind: "photo", name };
       filled = true;
@@ -1813,7 +1955,15 @@ export default function EntryEditor({
        an offset the list does not carry renders instead of the select silently
        showing its first option. */
     const zone = metadata.offsetTimeOriginal;
-    if (zone !== undefined && offsetTo.kind === "nobody") {
+    if (
+      zone !== undefined &&
+      offsetTo.kind === "nobody" &&
+      /* …and not beside ANOTHER photo's clock (T4-E). The wall branch has
+         already run, so for a photo carrying both tags `occurredTo` names THIS
+         file and the comparison lets it through — which is what keeps 12b's
+         one-photo case, and this guard, from being in each other's way. */
+      (occurredTo.kind !== "photo" || occurredTo.name === name)
+    ) {
       setOffset(zone);
       offsetTo = { kind: "photo", name };
       filled = true;
@@ -2362,9 +2512,20 @@ export default function EntryEditor({
      * and the cost is recorded rather than hidden: a draft whose offset was an
      * unconfirmed guess comes back WITHOUT the mark. The other way round is
      * worse in the direction §11.3 cares about, a photo silently replacing an
-     * offset the owner chose, corrected, and accepted back off the banner. A
-     * mark that survives a restore needs a field in lib/studio/drafts.ts and a
-     * test that asks for it.
+     * offset the owner chose, corrected, and accepted back off the banner.
+     *
+     * AND WITHIN A SESSION THAT CLEARING IS A NO-OP, which is the fact that
+     * settles it rather than merely excusing it (contributed by the review,
+     * 2026-09-07). The draft read is one-shot, so the banner exists only from
+     * mount; while it is up the whole form sits inside
+     * `<fieldset disabled={offered !== null}>`, which includes the photo
+     * picker — so no photo can have been attached yet, `offsetGuess` is
+     * ALWAYS `false` when this runs, and there is no mark here to lose. The
+     * loss is strictly cross-session, and cross-session no code change can
+     * recover it: after a reload the editor cannot know the restored clock came
+     * from a photo. A `Draft` provenance field is not one option among several,
+     * it is the only one, and lib/studio/drafts.ts treats every field addition
+     * as a deliberate versioning decision.
      */
     creditTime(
       draft.occurred.trim() === "" ? { kind: "nobody" } : { kind: "owner" },
@@ -2651,10 +2812,15 @@ export default function EntryEditor({
       headline: { value: headline.trim(), language },
       articleBody: body === "" ? undefined : { value: body, language },
       trip: trip.iri,
-      // The wall clock the owner typed and the offset they chose, concatenated
-      // and never converted — see `toOffsetDateTime`. `offset` is the control's,
-      // which starts as the entry's own on an edit, so an edit that never opened
-      // it writes the timestamp back exactly as it was stored.
+      // WHAT THE TWO CONTROLS HOLD, concatenated and never converted — see
+      // `toOffsetDateTime`. Either half may have been typed or chosen by the
+      // owner, filled by a photo's EXIF (`offerTimestamp`), or left exactly as
+      // the entry arrived: `offset` starts as the entry's own on an edit, so an
+      // edit that never opened either control writes the timestamp back as it
+      // was stored. What this line must not become is a THIRD source — §9 step
+      // 3's rule for the precision, spelled for the timestamp: what the owner
+      // can see is what gets published, which is also why a photo's EXIF is
+      // never read here.
       occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, offset),
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
@@ -2976,24 +3142,52 @@ export default function EntryEditor({
               type="datetime-local"
               className={CONTROL}
               value={occurred}
-              aria-describedby="entry-when-hint"
+              aria-describedby={occurredHelp()}
               /* THE KEYSTROKE IS WHAT MAKES THE CLOCK THE OWNER'S, recorded
                  here rather than in the form's own `onChange` for the reason the
                  coordinate boxes give: that handler catches every control on the
                  form, and this record is about this one. §11.3 in one line —
                  from now on a photo may offer no wall clock.
                  AND THE OFFSET'S RECORD PASSES THROUGH UNTOUCHED (T4-C): the
-                 owner correcting WHEN says nothing about the zone. What does
-                 change is the mark, because it follows the auto-DATE: a clock
-                 the owner has typed over is not a photo's clock any more, and
-                 the offset beside it is back to being the default every create
-                 opens with, which the control's permanent hint already covers. */
+                 owner correcting WHEN says nothing about the zone.
+                 WHICH IS ALSO WHY THIS KEYSTROKE TAKES THE CREDIT AND LEAVES
+                 THE WARNING — ruling T4-G, and the comment that used to be here
+                 was the argument against it: it claimed a typed-over clock
+                 leaves "the default every create opens with, which the
+                 permanent hint already covers". THAT EQUIVALENCE DOES NOT HOLD.
+                 On a create the owner types a clock from memory beside a guess
+                 they were never misled about; here `07:05` nudged to `07:06`
+                 leaves the clock substantially the photo's, and clearing the
+                 mark would leave §11.5's composition intact with the warning
+                 gone. "The time came from a.jpg" is what a keystroke makes
+                 uncheckable; "the offset is this machine's guess" is untouched
+                 by it and still true. `creditTime` keeps them apart. */
               onChange={(event) => {
                 creditTime({ kind: "owner" }, offsetAuthor.current);
                 setOccurred(event.target.value);
               }}
             />
           </Field>
+
+          {/*
+            WHERE THE TIME ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER.
+
+            §11.3: "the owner is told a photo supplied a value, so a wrong pin
+            is attributable to the photo instead of to the editor" — and for
+            this control the wrong value is `dy:occurredAt` itself, which a
+            camera reset to factory time supplies with every confidence. The
+            guess mark cannot carry this: it is `null` exactly when the photo
+            supplied BOTH halves, which is the case with nothing else on the
+            form to explain the date.
+
+            RENDERED EXACTLY WHEN `occurredHelp()` NAMES IT, and the pair of
+            them is decided by one value for `COORDINATE_SOURCE_ID`'s reason.
+          */}
+          {occurredSource !== null && (
+            <p id={OCCURRED_SOURCE_ID} className="text-sm text-muted-foreground">
+              {occurredSourceNote(occurredSource)}
+            </p>
+          )}
 
           {/*
             THE OTHER HALF OF THE TIMESTAMP, IMMEDIATELY BELOW THE CLOCK IT
@@ -3043,7 +3237,7 @@ export default function EntryEditor({
                  on permanently reads as correct markup and answers a question
                  nobody asked. See `creditTime` for the rule and
                  `OFFSET_GUESS_ID` for why wording cannot carry this alone. */
-              data-offset-unconfirmed={offsetGuess === null ? undefined : "true"}
+              data-offset-unconfirmed={offsetGuess ? "true" : undefined}
               aria-describedby={offsetHelp()}
               /* THE CHOICE IS WHAT ENDS THE GUESS (scenario 4), and it is one
                  assignment rather than a second piece of state: the mark and the
@@ -3086,9 +3280,24 @@ export default function EntryEditor({
             there computes to the empty string, and the owner is back to a date
             and a zone that appeared from nowhere.
           */}
-          {offsetGuess !== null && (
+          {offsetGuess && (
             <p id={OFFSET_GUESS_ID} className="text-sm text-muted-foreground">
-              {offsetGuessNote(offsetGuess)}
+              {/* The name comes from the CLOCK's record, which is what makes
+                  the sentence lose it at the first keystroke there while the
+                  warning stays — ruling T4-G, argued in `creditTime`. */}
+              {offsetGuessNote(occurredSource)}
+            </p>
+          )}
+
+          {/* AND WHEN THE PHOTO DID CARRY THE ZONE, WHO IT WAS (§11.3). Not a
+              guess and not marked — the value is as trustworthy as the clock
+              beside it — but still a value that appeared without being typed,
+              which is the whole of `COORDINATE_SOURCE_ID`'s argument. Mutually
+              exclusive with the note above by construction: that one requires
+              the offset to be nobody's. */}
+          {offsetSource !== null && (
+            <p id={OFFSET_SOURCE_ID} className="text-sm text-muted-foreground">
+              {offsetSourceNote(offsetSource)}
             </p>
           )}
 
