@@ -106,9 +106,16 @@
  *   a typed coordinate does: `fuzzed()` at save time, §9 steps 1–4, snapped or
  *   dropped. There is no second path, and §9's guarantee is that there is not.
  *
- *   FIRST WRITER WINS, IN BOTH DIRECTIONS (§11.3). Auto-fill only ever writes
- *   into a coordinate nobody has supplied: not one the owner typed, and not one
- *   an earlier photo offered. See `coordinateAuthor`.
+ *   FIRST WRITER WINS, IN EVERY DIRECTION (§11.3, and ruling T3-B for the last
+ *   of them). Auto-fill only ever writes into a coordinate nobody has supplied:
+ *   not one the owner typed, not one an earlier photo offered, and not one the
+ *   entry being edited already has — an edit's boxes are empty by design, and
+ *   what they mean when empty is "the pair on the Pod stands". See
+ *   `coordinateAuthor`.
+ *
+ *   AND IT ASKS THE SAME GATE EVERY OTHER COORDINATE WRITER ASKS. Settings that
+ *   cannot be read leave the three controls dead (§9's fail-closed posture), and
+ *   a photo does not get past that either — `offerCoordinate`.
  *
  *   AND IT SAYS SO ON SCREEN. A value that appeared without being typed has to
  *   name where it came from, or the owner cannot tell it from something they
@@ -534,23 +541,49 @@ const coordinateSourceNote = (name: string) =>
  * flag's meaning. This one decides whether auto-fill MAY WRITE HERE, and the
  * three answers are not reducible to two:
  *
- *   nobody — the boxes are empty and no photo has offered anything. Fill.
+ *   nobody — nothing has supplied a coordinate: the boxes are empty, no photo
+ *            has offered one, and the entry being edited, if there is one, has
+ *            none either. Fill.
  *   owner  — the owner typed, or accepted a restored draft that holds a
- *            coordinate. Never overwrite: a photo picked afterwards would
- *            silently replace a place they CHOSE with the place a camera
- *            happened to be, and §9 would then fuzz and publish it, so the only
- *            surface showing the substitution would be a public triple.
+ *            coordinate, OR THE ENTRY ARRIVED WITH ONE. Never overwrite: a
+ *            photo picked afterwards would silently replace a place they CHOSE
+ *            with the place a camera happened to be, and §9 would then fuzz and
+ *            publish it, so the only surface showing the substitution would be
+ *            a public triple.
  *   photo  — an earlier photo filled it. Never overwrite either, which is the
  *            direction §11.3 names explicitly: filling on every `ready` moves
  *            the entry to wherever the LAST picture was taken, a different
  *            place every time one is added on a day's walk, with the note
  *            updating politely as it goes.
  *
- * IT IS EXPLICIT RATHER THAN INFERRED FROM EMPTINESS, and that is the whole
- * reason it exists. A box can be non-empty because the owner typed, because a
- * photo filled it, or because a draft was restored into it — and only the first
- * two forbid a fill. "Is it empty?" cannot tell them apart, and answers "may I
- * fill?" wrongly for the case that matters.
+ * IT IS EXPLICIT RATHER THAN INFERRED FROM EMPTINESS, IN BOTH DIRECTIONS — and
+ * the second direction was a live defect for a day (ruling T3-B) before it was
+ * written down here.
+ *
+ * A box can be NON-EMPTY because the owner typed, because a photo filled it, or
+ * because a draft was restored into it; the first two forbid a fill, and the
+ * value alone tells none of them apart. AND A BOX CAN BE EMPTY AND STILL FORBID
+ * ONE: on an EDIT both boxes start empty by design — see the `lat` state, which
+ * explains that prefilling the stored pair would walk the pin — and `save()`
+ * reads empty as "leave the stored coordinate alone". So on an edit emptiness
+ * does not mean "there is no value"; it means "the value on the Pod stands",
+ * and filling it IS an overwrite of something the owner has not touched, merely
+ * spelled as an offer. The latitude's own hint promises exactly that: "Leave
+ * both boxes empty to keep the coordinate this entry already has."
+ *
+ * WHAT GETTING THAT WRONG COSTS IS PUBLISHED DATA, not a convenience. The fill
+ * flips `touchedCoordinate` to true, `fuzzed()` runs, and `placeFor` reads a
+ * `drop` as a REMOVAL — so a photo taken inside the home region, which is the
+ * ordinary case of attaching a picture from home to an entry you are
+ * correcting, takes the entry's `#geo` off a world-readable resource and off
+ * the §7.4 index row the public trip page renders its pin from. No message, no
+ * failed save, both boxes exactly as they were. A photo taken elsewhere is the
+ * same shape one step less destructive: the pin MOVES to wherever the picture
+ * was taken.
+ *
+ * "Is it empty?" therefore cannot answer this question in either direction,
+ * which is why the record is a value in its own right and is SEEDED FROM THE
+ * ENTRY rather than from the form.
  */
 type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
 
@@ -1173,8 +1206,26 @@ export default function EntryEditor({
    * length: `react-hooks/immutability` refuses a `.current` write inside a
    * function that closes over a `useRef` declared below it, and it reports the
    * pre-existing writes rather than the new declaration when you get it wrong.
+   *
+   * SEEDED FROM THE ENTRY, AND THAT CONDITION IS THE WHOLE OF RULING T3-B.
+   * `nobody` unconditionally is the spelling this shipped with for a day, and
+   * it let a photo move — or, from inside the home region, DELETE — a pin an
+   * edit was loaded with. See `CoordinateAuthor` for the mechanism; the short
+   * version is that on an edit an empty box means "the stored pair stands", so
+   * there is a value to protect even though the form holds none.
+   *
+   * IT IS `existing?.place?.geo`, NOT `lat`/`long`, AND NOT UNCONDITIONAL.
+   * Both boxes are `""` on an edit by design, so seeding from them is the same
+   * defect spelled differently. And an unconditional `{ kind: "owner" }` would
+   * switch auto-fill off for EVERY edit, silently — including an entry that has
+   * no pin to protect, which is the case with nothing to lose and the one place
+   * the fill is still wanted on an edit. Every refusal a test can make of this
+   * record passes under that lazy spelling; what catches it is the allow-case,
+   * an edit of an entry with no geometry where the photo must still fill.
    */
-  const coordinateAuthor = useRef<CoordinateAuthor>({ kind: "nobody" });
+  const coordinateAuthor = useRef<CoordinateAuthor>(
+    existing?.place?.geo === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
   /**
    * The same fact again, as state, because the note is RENDERED and a ref
    * changing re-renders nothing.
@@ -1489,6 +1540,33 @@ export default function EntryEditor({
    * silently cleared by attaching a scan.
    */
   function offerCoordinate(name: string, metadata: PipelineResult["metadata"]) {
+    /**
+     * §9 FAILS CLOSED, AND A PHOTO IS NOT AN EXCEPTION TO IT. This is the same
+     * gate the two boxes wear as `disabled={!coordinatesLive}`, asked by the
+     * one writer that does not arrive as a keystroke.
+     *
+     * WITHOUT IT THE EDITOR CONTRADICTS ITSELF IN ONE ACCESSIBLE DESCRIPTION.
+     * The controls are dead and already say "This entry will be saved without a
+     * map pin: your privacy settings could not be read", and the note would
+     * compose a second sentence into that same description telling the owner to
+     * type in a box the browser will not let them type in.
+     *
+     * AND IT IS A MECHANISM, NOT ONLY A CONTRADICTION. `fuzzed()` returns
+     * `undefined` for any gate that is not `ready`, and `placeFor` reads
+     * `undefined` as a REMOVAL — so on an EDIT this fill would delete the
+     * entry's stored `#geo` by the fail-closed branch, which was harmless
+     * before the picker existed only because these boxes could not become
+     * non-empty. That is the sort of safety that stops being safety without
+     * anything changing where it was written.
+     *
+     * THE GATE IS READ FROM THE RENDER THAT STARTED THE PICK, and unlike
+     * `coordinateAuthor` that needs no ref: `gate` goes `checking` → `ready` or
+     * `closed` exactly once, on mount, and never back. So a stale read can only
+     * be `checking` where the truth is now `ready` — a refusal where a fill was
+     * permissible, which is the direction §9 says to err in.
+     */
+    if (!coordinatesLive) return;
+
     const gps = metadata.gps;
     if (gps === undefined) return;
     /* FIRST WRITER WINS. `nobody` is the only answer that admits a fill — see
