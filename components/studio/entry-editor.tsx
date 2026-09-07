@@ -376,6 +376,29 @@ function nowWithOffset(): string {
  * also why this is a `<select>` over a fixed list rather than a stepper: a
  * numeric control that admits `+05:45` admits `+05:61` with it.
  *
+ * BOTH HALVES OF A ZONE'S YEAR, AND THIS LIST WAS WRONG ON THAT TWICE OVER
+ * UNTIL 2026-09-07 (F2). `-02:30` is Newfoundland DAYLIGHT Time, May to
+ * November, and `-03:30` — the same island in the other half of its year — was
+ * already here. `+13:45` is Chatham DAYLIGHT Time, September to April, beside
+ * the `+12:45` the paragraph above names as one of the odd ones the list exists
+ * for. So two of the places argued for were writable for half a year each, and
+ * the cost is not a wall clock — §7.3's guarantee survives: the owner writing
+ * up the Chathams in January picks the nearest offered value and the INSTANT is
+ * an hour out, which is what any cross-trip ordering uses. Nothing on screen
+ * says so, and `offsetOptions`' union cannot rescue it either, because on a
+ * create there is no stored value and no photo to supply one.
+ *
+ * "ACTUALLY IN USE" IS A MEASURED CLAIM AS OF THAT DATE, AND THE WAY IT WAS
+ * WRONG IS WORTH MORE THAN THE TWO STRINGS. Task 2's review verified this list
+ * programmatically *against the brief text*, so the brief was the oracle rather
+ * than the world — and neither could name a value neither of them knew about.
+ * The oracle is the set of offsets in real civil use, daylight ones included;
+ * the durable form of the claim is `ODD_OFFSETS` in test/entry-editor.test.tsx,
+ * which lists the non-whole-hour zones and goes red if one stops being offered.
+ * A COUNT IS NOT THE CLAIM, so there is none here: the length moved the moment
+ * these two were added and it moves again the next time a legislature moves a
+ * zone.
+ *
  * `+00:00`, NEVER `Z`. Both are valid `xsd:dateTime` offsets and mean the same
  * instant, but §6 and lib/pod/rdf.ts want the explicit spelling and `offsetOf`
  * normalises a stored `Z` onto it — so a list offering `Z` would be a second
@@ -390,11 +413,11 @@ function nowWithOffset(): string {
  */
 const OFFSETS = [
   "-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00",
-  "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:00", "-01:00",
-  "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00", "+04:30",
-  "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00", "+08:00",
-  "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00", "+12:00",
-  "+12:45", "+13:00", "+14:00",
+  "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:30", "-02:00",
+  "-01:00", "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00",
+  "+04:30", "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00",
+  "+08:00", "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00",
+  "+12:00", "+12:45", "+13:00", "+13:45", "+14:00",
 ] as const;
 
 /** What an offset has to LOOK like to be one, which is a wider fence than
@@ -624,10 +647,12 @@ const offsetGuessNote = (name: string | null) =>
  * different question from `touchedCoordinate`.
  *
  * `touchedCoordinate` (in `save()`) is `lat.trim() !== "" || long.trim() !== ""`
- * and decides whether a coordinate is WRITTEN AT ALL. An auto-filled coordinate
- * should be written, so it stays exactly as it is and must not be given this
- * flag's meaning. This one decides whether auto-fill MAY WRITE HERE, and the
- * three answers are not reducible to two:
+ * and is HALF of what decides whether a coordinate is WRITTEN AT ALL: the other
+ * half is pair-completeness — ruling F-A — which sits at the composition beside
+ * it rather than inside it, because half a pair is not a point and `Number("")`
+ * is `0`. An auto-filled coordinate should be written, so neither of those must
+ * be given this record's meaning. This one decides whether auto-fill MAY WRITE
+ * HERE, and the three answers are not reducible to two:
  *
  *   nobody — nothing has supplied a coordinate: the boxes are empty, no photo
  *            has offered one, and the entry being edited, if there is one, has
@@ -712,13 +737,24 @@ type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"
  * `offsetHere(wallClockNow())`, THIS MACHINE'S GUESS, which is the state §11.5
  * says the owner must be able to see.
  *
- * AND `photo` CARRIES THE FILE NAME FOR A SECOND REASON AS OF 2026-09-07
- * (ruling T4-E): a fill has to ask not only WHETHER the other half is a
- * photo's but WHOSE. Photo A's clock beside photo B's zone is the one
- * composition in this task with no authority anywhere in it — see
- * `offerTimestamp`.
+ * AND `photo` CARRIES TWO THINGS AS OF 2026-09-07 — ruling T4-E, and the
+ * correction it needed the same day. A fill has to ask not only WHETHER the
+ * other half is a photo's but WHOSE: photo A's clock beside photo B's zone is
+ * the one composition in this task with no authority anywhere in it (see
+ * `offerTimestamp`). T4-E asked that question with the FILE NAME — and
+ * `PhotoSlot`'s docblock, further down this file, says a file name is not an
+ * identity: the picker is `multiple`, it deduplicates nothing, and two cameras
+ * both calling their first photo `IMG_0001.jpg` walked back through the guard
+ * as one file. So the COMPARISON is on `key`, the per-editor slot identity
+ * `attach` mints and React reconciles on, unique by construction; `name` stays
+ * for the NOTES, which are §11.3's sentences and want the file the owner
+ * recognises. `CoordinateAuthor` needs no `key` — it uses the name for display
+ * only and never compares it.
  */
-type TimeAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
+type TimeAuthor =
+  | { kind: "nobody" }
+  | { kind: "owner" }
+  | { kind: "photo"; key: string; name: string };
 
 /** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
  *  type for it, and this file imports no Zod. */
@@ -745,9 +781,17 @@ type PlaceText = Pick<EntryPlace, "name" | "locality" | "country">;
  * name must not take the coordinate with it, and §9's drop must not take the
  * name: "it is the geometry that is absent, not the entry." The original
  * comment here said the same thing about growth — "a `Place` that grows one
- * must not lose it every time a coordinate is dropped" — and the copy-and-
- * delete shape below is still what keeps that true for a fifth field this form
+ * must not lose it every time a coordinate is dropped" — and the spread of
+ * `existing` below is still what keeps that true for a fifth field this form
  * does not hold.
+ *
+ * THAT SENTENCE NAMED A "copy-and-delete shape" UNTIL 2026-09-07 (F7), AND
+ * THERE IS NO DELETE. The behaviour it claims is real, but the mechanism was
+ * removed as a no-op — see the comment inside the body, which says so in as
+ * many words and therefore contradicted this one. Correct behaviour defended by a
+ * false reason is the shape both halves of this pair were an instance of: the
+ * loop that stood here had a comment claiming it did something, and its removal
+ * left a docblock claiming it was still there.
  *
  * A place with nothing left in it is no place at all rather than an empty
  * `<#place>` node, which would be a `schema:Place` asserting nothing.
@@ -1907,13 +1951,25 @@ export default function EntryEditor({
    * authority anywhere in it: it is T3-A's "value that is nowhere", and neither
    * the value nor any warning about it survives. So each branch asks WHOSE the
    * other half is, not merely whether it is spoken for, and `{ kind: "photo" }`
-   * carrying the file name is what makes that askable.
+   * carrying the slot's `key` is what makes that askable.
+   *
+   * `key`, AND NOT THE FILE NAME, WHICH IS HOW T4-E's OWN GUARD DEGENERATED FOR
+   * A DAY (F1). It compared `file.name`, and `PhotoSlot`'s docblock — up where
+   * the slot type is declared — says a name is not an identity: the picker is
+   * `multiple` and deduplicates nothing. Two cameras both calling their first photo
+   * `IMG_0001.jpg` is the ordinary case, not a contrived one, and it walked the
+   * sequence above straight back through the guard: A's clock in, B's clock
+   * refused, B's ZONE accepted because `"IMG_0001.jpg" === "IMG_0001.jpg"`, and
+   * the mark cleared in the same motion. The guard passed both of its tests and
+   * failed on the pair of names any two cameras produce. `key` is minted per
+   * slot in `attach` and cannot collide, which makes the comparison ask the
+   * question the ruling meant.
    *
    * BOTH BRANCHES, OR NEITHER. Guarding only the zone leaves the mirror — a
    * zone-only photo, then a clock-only one — exactly as it was, and the order
-   * the owner picks two photos in is an accident. The same-name comparison is
+   * the owner picks two photos in is an accident. The same-`key` comparison is
    * what keeps ONE photo supplying both halves legal: by the zone branch the
-   * clock's record already names the file being offered, and the wall branch
+   * clock's record already names the slot being offered, and the wall branch
    * sees an offset no photo has touched yet.
    *
    * BOTH TAGS ARE OPTIONAL AND NEITHER GUARD IS DECORATION. `readMetadata`
@@ -1925,7 +1981,7 @@ export default function EntryEditor({
    * the box CANNOT show the defect and the autosaved draft is the only surface
    * that can.
    */
-  function offerTimestamp(name: string, metadata: PipelineResult["metadata"]) {
+  function offerTimestamp(key: string, name: string, metadata: PipelineResult["metadata"]) {
     /* FIRST WRITER WINS, PER HALF — `nobody` is the only answer that admits a
        fill, and `TimeAuthor` is where the other two are argued out, including
        why an edit's NON-empty box is not the question being asked here. */
@@ -1938,11 +1994,13 @@ export default function EntryEditor({
       wall !== undefined &&
       occurredTo.kind === "nobody" &&
       /* …and not beside ANOTHER photo's zone (T4-E). `offsetTo` is untouched by
-         this photo at this line, so a `photo` here is always an earlier one. */
-      (offsetTo.kind !== "photo" || offsetTo.name === name)
+         this photo at this line, so a `photo` here is always an earlier one.
+         On the slot's `key` and never on `name`, which two cameras share — F1,
+         argued in the docblock. */
+      (offsetTo.kind !== "photo" || offsetTo.key === key)
     ) {
       setOccurred(wallClockOf(wall));
-      occurredTo = { kind: "photo", name };
+      occurredTo = { kind: "photo", key, name };
       filled = true;
     }
 
@@ -1953,19 +2011,38 @@ export default function EntryEditor({
        `offsetHere` or a `Date`, either of which answers with this machine's zone
        — and `offsetOptions` unions whatever the control holds into the list, so
        an offset the list does not carry renders instead of the select silently
-       showing its first option. */
+       showing its first option.
+
+       SHAPE-VALID IS NOT IN RANGE, AND `+99:99` IS WHAT THAT COSTS (F4). That
+       regex is the WHOLE of exif.ts's validation, so a camera — or this
+       project's own fixture builder — can put 6 039 minutes east of Greenwich
+       into the control, `offsetOptions` unions it into the select beside thirty
+       real zones, and `toOffsetDateTime` concatenates it onto the wall clock the
+       same photo supplied. It then fails CLOSED, which is the good half:
+       `serialiseEntry`'s `Entry.safeParse` refuses the timestamp and nothing
+       reaches the Pod. The defect is the advice the owner is then given —
+       `announce`'s "The entry did not reach your Pod … try again", which is
+       false on the first retry and on every one after it, with nothing on the
+       form pointing at a select quietly showing `+99:99`. So the range is
+       checked HERE, on the way in, and NOT in `OFFSET_SHAPE`: that fence is
+       deliberately wider, because an entry some other tool wrote may carry
+       `+05:15` and this editor's job is to show such a value and put it back
+       unchanged (§1c). What may not happen is ACCEPTING one from a photo. 840
+       minutes is `+14:00`, the eastern end of `OFFSETS` and of the world. */
     const zone = metadata.offsetTimeOriginal;
     if (
       zone !== undefined &&
+      Math.abs(offsetMinutes(zone)) <= 840 &&
       offsetTo.kind === "nobody" &&
-      /* …and not beside ANOTHER photo's clock (T4-E). The wall branch has
-         already run, so for a photo carrying both tags `occurredTo` names THIS
-         file and the comparison lets it through — which is what keeps 12b's
-         one-photo case, and this guard, from being in each other's way. */
-      (occurredTo.kind !== "photo" || occurredTo.name === name)
+      /* …and not beside ANOTHER photo's clock (T4-E, on `key` — F1). The wall
+         branch has already run, so for a photo carrying both tags `occurredTo`
+         names THIS slot and the comparison lets it through — which is what
+         keeps 12b's one-photo case, and this guard, from being in each other's
+         way. */
+      (occurredTo.kind !== "photo" || occurredTo.key === key)
     ) {
       setOffset(zone);
-      offsetTo = { kind: "photo", name };
+      offsetTo = { kind: "photo", key, name };
       filled = true;
     }
 
@@ -2072,8 +2149,12 @@ export default function EntryEditor({
       /* THE TWO OFFERS ARE INDEPENDENT AND BOTH ARE MADE, in either order: a
          photo may carry GPS and no clock, a clock and no GPS, both or neither
          (lib/media/exif.ts reads them from different IFDs and guards each
-         separately), and neither half may stand in for the other or clear it. */
-      offerTimestamp(name, derived.metadata);
+         separately), and neither half may stand in for the other or clear it.
+
+         THE `key` GOES IN BESIDE THE NAME because that is photo identity here
+         and the name is not — see `TimeAuthor`. `offerCoordinate` takes the
+         name alone on purpose: it displays it and never compares it. */
+      offerTimestamp(key, name, derived.metadata);
     } catch (cause) {
       move({
         key,
@@ -2746,7 +2827,8 @@ export default function EntryEditor({
      *                    all. They were snapped when they were stored and are
      *                    not necessarily on today's grid, so re-snapping them
      *                    would walk the pin on every save (see the note on the
-     *                    `lat` state).
+     *                    `lat` state). ONE BOX OF THE PAIR counts as this, and
+     *                    the paragraph at the end of this block is why.
      *   snap           → the published pair replaces whatever was there.
      *   drop           → the geometry is REMOVED. §9 step 2: not coarsened, and
      *                    the place keeps its name — "it is the geometry that is
@@ -2778,6 +2860,28 @@ export default function EntryEditor({
      * whether AUTO-FILL may write into the form, and collapsing them would
      * either publish nothing for every photo-filled entry or re-fuzz a stored
      * pair on every save.
+     *
+     * AND HALF A PAIR IS "NOTHING TYPED" — RULING F-A, WITH THE GULF OF GUINEA
+     * AS THE COST OF THE OTHER READING. `Number("")` is `0`, so one typed
+     * latitude composes `{ lat: 45.5155, long: 0 }`, which is finite and in
+     * range and which `fuzzForPublication` therefore snaps and publishes.
+     * Measured through the real function against §7.6's own settings:
+     * `{45.5155, 0} → 45.51486 / 0.00000` and `{0, 9.2103} → 0.00000 /
+     * 9.20909`. Both publish; neither drops. So the owner types one number, the
+     * save SUCCEEDS, and a world-readable resource points 700 km off the African
+     * coast with `dy:precisionMeters 500` beside it describing that pin as
+     * accurate to within half a kilometre. Ruling T3-A's stated cost was that
+     * such an owner "must type the second, rather than getting a silently wrong
+     * location" — which assumed they are forced to notice, and nothing forces
+     * them: the outcome region says saved and nothing on the form is red.
+     *
+     * F-A makes a half pair behave as the absence it already is, which is what
+     * §9 does everywhere else — an unreadable gate, an unusable grid and
+     * `insideHome` all drop rather than approximate. It may NOT be spelled as
+     * the `drop` the table above defines: on an edit that deletes the pin the
+     * entry already has, which is a removal the owner did not ask for either.
+     * TELLING them, rather than silently dropping, is the better long-term
+     * answer; it belongs in TODO.md as an open item and is not this line.
      */
     const touchedCoordinate = lat.trim() !== "" || long.trim() !== "";
     const place = placeFor(
@@ -2786,8 +2890,25 @@ export default function EntryEditor({
          `placeFor` carries through unchanged. It is deliberately not spelled as
          `undefined`: that is the DROP, and collapsing the two would delete a
          coordinate from the Pod every time an entry was edited without
-         retyping one. */
-      touchedCoordinate ? fuzzed({ lat: Number(lat), long: Number(long) }) : existing?.place?.geo,
+         retyping one.
+
+         THE PAIR-COMPLETENESS CONJUNCTS ARE RULING F-A, argued at the end of
+         the docblock above: both boxes, or this is the untouched case.
+
+         `touchedCoordinate` IS SUBSUMED BY THEM RATHER THAN LOAD-BEARING, and
+         that is said out loud because this file has already carried one no-op
+         defended by a comment claiming otherwise (see `placeFor`). A whole pair
+         is necessarily a touched one, so the flag narrows nothing on this line.
+         It stays because it names the question the docblock above argues —
+         "is there a coordinate to publish at all" — and because folding the
+         AND into its definition would give one name to two different rules:
+         "the owner has been in these boxes", which is what that argument is
+         about, and "what is in them is a point", which is this line. Ruling
+         F-A fences the flag for the first reason; the second is why it would
+         still be worth two names. */
+      touchedCoordinate && lat.trim() !== "" && long.trim() !== ""
+        ? fuzzed({ lat: Number(lat), long: Number(long) })
+        : existing?.place?.geo,
       /* AND THE TEXT NEEDS NO SUCH FLAG, which is the asymmetry the `placeName`
          state's note explains rather than an omission here: these three
          controls ARE seeded from the entry, so a box nobody opened already
