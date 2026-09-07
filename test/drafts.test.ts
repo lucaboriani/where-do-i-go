@@ -969,3 +969,74 @@ describe("the offset in a draft", () => {
     expect(back!.occurred).toBe(DRAFT.occurred);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 9. TASK 2.5 — `savedAt` BECOMES `.optional()`, AT THE MAINTAINER'S EXPLICIT
+ *    INSTRUCTION, AFTER BEING SHOWN THE DOCBLOCK ABOVE ARGUES AGAINST IT.
+ *
+ * `.optional()`, not `.default(...)`: this module holds no clock, so an
+ * absent `savedAt` must stay absent rather than being given one it never had.
+ *
+ * THE CONSEQUENCE IS NOT HERE — IT IS IN test/entry-editor.test.tsx. Today the
+ * schema is what keeps a payload with no `savedAt` off the render path: it is
+ * refused outright and `readDraft` answers `null`. Making the field optional
+ * moves such a payload ONTO the render path, where the banner's
+ * `savedAtText = (savedAt: string) => savedAt.slice(...)` on `undefined` is a
+ * TypeError thrown from the mount effect. This file only pins the store's
+ * half: a payload with no `savedAt` comes back USABLE, key genuinely absent,
+ * rather than refused. The render half — that the editor survives it, and
+ * still offers Restore — is `entry editor — a draft with no savedAt at all
+ * (task 2.5)` in test/entry-editor.test.tsx.
+ *
+ * STRUCTURED ON §8's "restores a draft written before the offset control":
+ * same shape, a different field, and the same three-part pin — the fixture
+ * really is missing the key, the payload comes back rather than being
+ * refused, and the prose the owner would otherwise lose is really in there.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("savedAt becoming optional (task 2.5)", () => {
+  /**
+   * THE ONE THAT MATTERS. Today `savedAt` is `z.iso.datetime({ offset: true })`
+   * with no default and no `.optional()`, so `Draft.safeParse` refuses the
+   * whole payload the moment the key is missing and `readDraft` answers
+   * `null` — the CORRECT red state for this test, and the reason it is
+   * red for: not a missing export, not a thrown exception, but the payload
+   * being turned away. Once `savedAt` is `.optional()`, the same bytes parse
+   * and the prose comes back with the key genuinely absent rather than
+   * defaulted to some invented timestamp.
+   */
+  it("readDraft returns a usable draft from a payload with no savedAt at all", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.savedAt;
+    // The fixture really is missing the field, or the rest of this test is
+    // about a payload that has one.
+    expect(Object.keys(before)).not.toContain("savedAt");
+    expect(JSON.stringify(before)).not.toContain("savedAt");
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(
+      back,
+      "a payload with no savedAt was refused outright — savedAt is still required",
+    ).not.toBeNull();
+    // The mutation half: the prose the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+    expect(back!.occurred).toBe(DRAFT.occurred);
+    // And the field stays ABSENT rather than being invented: `.optional()`,
+    // never `.default(...)`, because this module holds no clock. A schema
+    // that manufactured a timestamp would pass the two lines above and fail
+    // only here.
+    expect(
+      Object.keys(back!),
+      "an absent savedAt came back with the key present anyway",
+    ).not.toContain("savedAt");
+    expect(back).not.toHaveProperty("savedAt");
+    // Sixteen of the seventeen: everything FIELDS names except the one this
+    // payload has nothing to say about. Not FIELDS itself — that would assert
+    // the opposite of what this task changes.
+    expect(Object.keys(back!).sort()).toEqual(FIELDS.filter((field) => field !== "savedAt"));
+  });
+});

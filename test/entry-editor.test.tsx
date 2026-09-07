@@ -7292,6 +7292,89 @@ describe("entry editor — the offset in a local draft", () => {
   });
 });
 
+/* ──────────────────────────────────────────── 8k. task 2.5's crash test ── */
+
+/**
+ * TASK 2.5. `lib/studio/drafts.ts`'s `savedAt` becomes `.optional()`, at the
+ * maintainer's explicit instruction, after being shown the module's own
+ * docblock argues against it. THE CONSEQUENCE THAT MATTERS IS HERE, NOT IN
+ * test/drafts.test.ts: today the schema is the only thing keeping a payload
+ * with no `savedAt` off the render path — `Draft.safeParse` refuses it and
+ * `readDraft` answers `null`, so the "Unsaved draft" banner never mounts and
+ * `savedAtText(offered.savedAt)` — `(savedAt: string) => savedAt.slice(...)`
+ * — never runs on `undefined`. Making the field optional moves such a payload
+ * ONTO the render path, where that call is a TypeError thrown from the mount
+ * effect: the exact failure lib/studio/drafts.ts's "NOTHING HERE THROWS,
+ * EVER" headline invariant exists to prevent, reachable for the first time
+ * through the one field that used to hold the door shut.
+ *
+ * RULING 2.5-A: the banner still appears; only the `<time>` goes away. The
+ * banner's job is to offer the draft back, and suppressing the whole thing
+ * over a missing label would discard recoverable prose — the inverse of what
+ * this feature is for. So this test pins both halves: the crash does not
+ * happen, AND the banner that survives still has its buttons. A test that
+ * only checked "did not throw" would pass over a banner that had silently
+ * lost Restore and Discard along with the timestamp.
+ *
+ * WHERE AN ABSENT `savedAt` ACTUALLY COMES FROM: never this build, which
+ * stamps `nowWithOffset()` at every write site. Only a payload from another
+ * build, or one hand-edited in devtools — exactly the class `readDraft`'s
+ * "every unusable thing a real browser produces" contract is about.
+ */
+describe("entry editor — a draft with no savedAt at all (task 2.5)", () => {
+  const KEY = draftKeyFor(OWNER, NEW_SCOPE);
+
+  it("mounts and still offers the draft, with no <time> and a live Restore", async () => {
+    const withoutSavedAt = {
+      ...seededDraft({
+        headline: "written by a build with no timestamp control",
+        story: "kept anyway, or this feature has failed at the one thing it is for",
+      }),
+    } as Partial<StoredDraft>;
+    delete withoutSavedAt.savedAt;
+    // The mutation really happened: the fixture is missing the key, or the
+    // rest of this test is about a payload that has one.
+    expect(Object.keys(withoutSavedAt), "savedAt").not.toContain("savedAt");
+    expect(JSON.stringify(withoutSavedAt)).not.toContain("savedAt");
+
+    const store = fakeStorage({ [KEY]: JSON.stringify(withoutSavedAt) });
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, { storage: store.storage });
+
+    // THE CRASH TEST. A schema-only change — `.optional()` with
+    // `savedAtText`/`<time>` left untouched — throws a TypeError out of the
+    // mount effect's render before this line is reached at all. TODAY, before
+    // any implementation, `savedAt` is still required, so the payload above
+    // is refused outright and this query finds nothing: the same red state as
+    // the crash, reached by the other route the brief names as acceptable.
+    const region = screen.getByRole("region", { name: /draft/i });
+
+    // RULING 2.5-A, first half: no invented, no empty, no <time> at all.
+    expect(
+      region.querySelector("time"),
+      "a <time> element appeared with no savedAt to build a datetime from",
+    ).toBeNull();
+
+    // RULING 2.5-A, second half — THE ONE A "DID NOT THROW" TEST WOULD MISS:
+    // the banner that survives still has both of its ways out.
+    within(region).getByRole("button", { name: "Discard" });
+    fireEvent.click(within(region).getByRole("button", { name: "Restore" }));
+
+    // Restore really did something: the prose the owner would otherwise lose
+    // is back in the form, not merely "a click landed and nothing threw".
+    expect(
+      shownValue(LABEL.headline),
+      "Restore did not put the headline back",
+    ).toBe("written by a build with no timestamp control");
+    expect(shownValue(LABEL.articleBody)).toBe(
+      "kept anyway, or this feature has failed at the one thing it is for",
+    );
+    // Restored once — leaving the banner up invites a second click that would
+    // overwrite whatever the owner types next.
+    expect(screen.queryAllByRole("region", { name: /draft/i })).toEqual([]);
+  });
+});
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 9. What only the source can show.
  *
