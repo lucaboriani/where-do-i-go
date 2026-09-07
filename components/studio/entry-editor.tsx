@@ -1717,7 +1717,7 @@ export default function EntryEditor({
   }, [gate, precision]);
 
   /**
-   * What the offset control offers: the thirty-eight, plus whatever it is
+   * What the offset control offers: `OFFSETS`, plus whatever it is
    * currently holding.
    *
    * `precisionOptions`' SHAPE EXACTLY, including why it is a `Set`. It does not
@@ -2028,11 +2028,35 @@ export default function EntryEditor({
        deliberately wider, because an entry some other tool wrote may carry
        `+05:15` and this editor's job is to show such a value and put it back
        unchanged (§1c). What may not happen is ACCEPTING one from a photo. 840
-       minutes is `+14:00`, the eastern end of `OFFSETS` and of the world. */
+       minutes is `+14:00`, the eastern end of `OFFSETS` and of the world.
+
+       THE TOTAL-MINUTES FENCE ABOVE MISSES A SECOND WAY TO BE SHAPE-VALID AND
+       IMPOSSIBLE, AND `+05:61` IS WHAT THAT COSTS (closing item 4, still F4).
+       exif.ts's regex accepts any two digits in the minutes pair, so `61` is
+       shape-valid, and `offsetMinutes` composes it as `5 * 60 + 61 = 361` —
+       comfortably inside ±840, the same fence that stops `+99:99`. Nothing
+       between here and the Pod catches it except `Entry.safeParse`'s
+       `z.iso.datetime({ offset: true })`, at the very end of the chain, after
+       Save — so `+05:61` fills the control, gets unioned into the select, and
+       reproduces the exact "did not reach your Pod … try again" on every
+       retry that the paragraph above exists to prevent. So the minutes digits
+       are range-checked separately, right here, rather than by widening the
+       total-minutes fence to catch them incidentally — `Number(zone.slice(4,
+       6)) < 60` reads the same two characters `offsetMinutes` does, checked
+       on their own before they are composed into it.
+
+       THIS IS THE SAME LOOSE/STRICT SPLIT AS `+99:99`'S, ONE FIELD OVER, AND
+       `OFFSET_SHAPE` STAYS AS WIDE AS IT WAS: loose for what this editor
+       DISPLAYS — a stored `+05:15`, or for that matter a stored `+05:61` some
+       other tool once wrote, must still render and round-trip unchanged
+       (§1c) — strict for what it ACCEPTS FROM A PHOTO, which is this
+       conjunct and only this conjunct. Tightening `OFFSET_SHAPE` instead
+       would refuse to RENDER a value this editor is only obliged to show. */
     const zone = metadata.offsetTimeOriginal;
     if (
       zone !== undefined &&
       Math.abs(offsetMinutes(zone)) <= 840 &&
+      Number(zone.slice(4, 6)) < 60 &&
       offsetTo.kind === "nobody" &&
       /* …and not beside ANOTHER photo's clock (T4-E, on `key` — F1). The wall
          branch has already run, so for a photo carrying both tags `occurredTo`
@@ -2561,8 +2585,8 @@ export default function EntryEditor({
      * `fuzzForPublication` is given (§9 step 3) — whereas this is a value that
      * is ABSENT, which is the place fields' case.
      *
-     * THE SHAPE, NOT THE LIST, IS THE TEST. `+05:15` is not one of the
-     * thirty-eight and must still be restored; `banana` from a hand-edited
+     * THE SHAPE, NOT THE LIST, IS THE TEST. `+05:15` is not one of the offsets
+     * `OFFSETS` offers and must still be restored; `banana` from a hand-edited
      * payload must not — not because it would reach `dy:occurredAt` (it would
      * reach the composer and fail the save: `serialiseEntry` re-validates with
      * `Entry.safeParse`, lib/pod/entry-model.ts, so a shape-invalid offset is
@@ -2861,19 +2885,24 @@ export default function EntryEditor({
      * either publish nothing for every photo-filled entry or re-fuzz a stored
      * pair on every save.
      *
-     * AND HALF A PAIR IS "NOTHING TYPED" — RULING F-A, WITH THE GULF OF GUINEA
-     * AS THE COST OF THE OTHER READING. `Number("")` is `0`, so one typed
+     * AND HALF A PAIR IS "NOTHING TYPED" — RULING F-A, AND THE TWO DIRECTIONS
+     * DO NOT EVEN LAND IN THE SAME OCEAN. `Number("")` is `0`, so one typed
      * latitude composes `{ lat: 45.5155, long: 0 }`, which is finite and in
      * range and which `fuzzForPublication` therefore snaps and publishes.
      * Measured through the real function against §7.6's own settings:
      * `{45.5155, 0} → 45.51486 / 0.00000` and `{0, 9.2103} → 0.00000 /
-     * 9.20909`. Both publish; neither drops. So the owner types one number, the
-     * save SUCCEEDS, and a world-readable resource points 700 km off the African
-     * coast with `dy:precisionMeters 500` beside it describing that pin as
-     * accurate to within half a kilometre. Ruling T3-A's stated cost was that
-     * such an owner "must type the second, rather than getting a silently wrong
-     * location" — which assumed they are forced to notice, and nothing forces
-     * them: the outcome region says saved and nothing on the form is red.
+     * 9.20909`. Both publish; neither drops. LATITUDE ONLY lands at 0° east of
+     * the owner's own latitude — inland south-west France, a plausible-looking
+     * pin on land, not open water. LONGITUDE ONLY lands in the Gulf of Guinea,
+     * a few tens of km off Gabon — not the 700-odd km that belongs to `{0, 0}`
+     * elsewhere in this codebase. The land pin is the worse of the two: nothing
+     * distinguishes it on the map or in the data from a coordinate the owner
+     * actually chose. Either way `dy:precisionMeters 500` stands beside it,
+     * describing a pin the owner never typed as accurate to within half a
+     * kilometre. Ruling T3-A's stated cost was that such an owner "must type
+     * the second, rather than getting a silently wrong location" — which
+     * assumed they are forced to notice, and nothing forces them: the outcome
+     * region says saved and nothing on the form is red.
      *
      * F-A makes a half pair behave as the absence it already is, which is what
      * §9 does everywhere else — an unreadable gate, an unusable grid and
@@ -2905,7 +2934,16 @@ export default function EntryEditor({
          "the owner has been in these boxes", which is what that argument is
          about, and "what is in them is a point", which is this line. Ruling
          F-A fences the flag for the first reason; the second is why it would
-         still be worth two names. */
+         still be worth two names.
+
+         THE REDUNDANCY IS CONDITIONAL ON `touchedCoordinate`'S CURRENT
+         DEFINITION, NOT A PERMANENT PROPERTY OF THIS LINE: it holds only
+         because a whole pair (both trims non-empty) always implies it under
+         today's OR of the two trims. Any future redefinition of
+         `touchedCoordinate` that is not implied by a whole pair — a third box
+         added to the OR, a debounce, anything that can be false while both
+         boxes hold text — changes what this conjunct does, and it would stop
+         being a no-op the moment that happens. */
       touchedCoordinate && lat.trim() !== "" && long.trim() !== ""
         ? fuzzed({ lat: Number(lat), long: Number(long) })
         : existing?.place?.geo,
