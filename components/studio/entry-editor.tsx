@@ -894,6 +894,12 @@ function browserStorage(): StorageLike | null {
  * is in now — the same rule `wallClockOf` follows and for the same reason. The
  * machine-readable instant is on the `<time dateTime>` beside it, offset and
  * all, which is what the offset requirement on `savedAt` exists for.
+ *
+ * TAKES A `string`, NOT `string | undefined`, AND STAYS THAT WAY (task 2.5):
+ * `lib/studio/drafts.ts`'s `Draft.savedAt` became `.optional()`, but this
+ * function's one caller only reaches it inside an `offered.savedAt !==
+ * undefined` check (ruling 2.5-A, below), so the absent case never arrives
+ * here at all rather than arriving and being handled.
  */
 const savedAtText = (savedAt: string) => `${savedAt.slice(0, 10)} at ${savedAt.slice(11, 16)}`;
 
@@ -2175,9 +2181,32 @@ export default function EntryEditor({
           title="Unsaved draft"
           className="mt-4 border border-hairline bg-surface p-4"
         >
+          {/*
+            RULING 2.5-A (task 2.5): the banner still appears when `savedAt`
+            is absent; only the `<time>` goes away. `lib/studio/drafts.ts`
+            made the field `.optional()` for a payload written by another
+            build or hand-edited in devtools — never one this editor wrote,
+            since `nowWithOffset()` stamps every write site here — and such a
+            payload must not crash the mount effect that offers it back.
+
+            THE SPELLING CHOSEN: the whole ", from <time>…</time>" clause is
+            conditional on `offered.savedAt !== undefined`, not just the
+            `<time>` tag, so the sentence reads as a complete claim either
+            way — "kept what you were writing here" rather than a comma
+            trailing into nothing. An empty `<time>` was rejected: a `<time>`
+            with no `dateTime` to point at is markup with nothing to say.
+            An invented timestamp was rejected too: it would tell the owner a
+            moment that never happened, which is worse than omitting the
+            nicety this field is.
+          */}
           <p>
-            {"This browser kept what you were writing here, from "}
-            <time dateTime={offered.savedAt}>{savedAtText(offered.savedAt)}</time>
+            {"This browser kept what you were writing here"}
+            {offered.savedAt !== undefined && (
+              <>
+                {", from "}
+                <time dateTime={offered.savedAt}>{savedAtText(offered.savedAt)}</time>
+              </>
+            )}
             {". Nothing on this form has been changed."}
           </p>
           {/*

@@ -323,15 +323,35 @@ const Draft = z.object({
    */
   photos: z.array(Photo).default([]),
   /**
-   * THE ONE FIELD THAT MUST CARRY AN OFFSET (§6), refused without one on read
-   * AND on write. It is what the banner's `<time dateTime>` is built from, and
-   * a bare local datetime is not an instant: the banner would tell the owner
-   * the wrong hour, which is the single fact it exists to carry.
+   * WHEN THIS DRAFT WAS WRITTEN — and, since 2026-09-07, OPTIONAL, at the
+   * maintainer's explicit instruction, given after being shown that this
+   * docblock argued against it and choosing the change anyway. That is
+   * recorded rather than tidied away so the next reader knows it was a
+   * decision, not an oversight this module failed to notice.
    *
-   * The caller stamps it. This module holds no clock, so the editor's
-   * `nowWithOffset()` stays the one place that spelling is decided.
+   * §6 STILL APPLIES TO A VALUE THAT IS PRESENT. This change makes the FIELD
+   * optional, not the offset it carries: `z.iso.datetime({ offset: true })`
+   * is unchanged, so a `savedAt` that exists is refused exactly as before if
+   * it lacks one. What is new is that the field may be absent altogether.
+   *
+   * WHY ABSENT IS NOW TOLERATED: the caller stamps this, this module holds no
+   * clock, and `.optional()` (not `.default(...)`, for the reason `offset`
+   * above gives for the same choice) is the only honest spelling of "no
+   * caller stamped one" — inventing a value here would be a lie about when
+   * the owner's text was kept. Such a payload comes from a build other than
+   * this one, or a hand edit; nothing this editor writes omits it, since
+   * `nowWithOffset()` stamps it at every write site.
+   *
+   * WHAT THE BANNER DOES ABOUT IT: `readDraft` still hands the payload back
+   * rather than refusing it — that is this task's whole point, a draft is
+   * not discarded for lacking a label on it — and
+   * `components/studio/entry-editor.tsx` omits the `<time dateTime>` element
+   * entirely when this is absent, rather than rendering one with no instant
+   * to point at or inventing one to fill it. The offer to restore, and the
+   * Restore and Discard buttons, are unaffected: the timestamp is a nicety on
+   * the banner, not a condition of it.
    */
-  savedAt: z.iso.datetime({ offset: true }),
+  savedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 export type Draft = z.infer<typeof Draft>;
