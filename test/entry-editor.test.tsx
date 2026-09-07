@@ -11109,6 +11109,17 @@ describe("controls for section 12", () => {
       "12j's two files are byte-identical: the media path is content-addressed, so they would collapse into ONE photo, the second `attach` would never run, and the collision the test is about would be out of reach",
     ).not.toEqual(new Uint8Array(exifBytes(TIMED)));
 
+    /* 12j-bis PICKS THE SAME TWO CAMERAS IN THE OTHER ORDER, so its pair is the
+       zone-only fixture beside the date-only one and it needs the same premise
+       for the same reason. `fakePipeline` returns FIXED derivative bytes for
+       every file, so the container hash can only be derived from the SOURCE:
+       two identical sources are one photo, and the second `attach` never
+       runs. */
+    expect(
+      new Uint8Array(exifBytes(OFFSET_ONLY)),
+      "12j-bis's two files are byte-identical: the media path is content-addressed, so they would collapse into ONE photo, the second `attach` would never run, and the collision that test is about would be out of reach",
+    ).not.toEqual(new Uint8Array(exifBytes(TIMED)));
+
     /* ── and the wording fence is not satisfied by the fixture names ────── */
     expect(
       GUESS_WORDING.test(""),
@@ -12813,6 +12824,206 @@ describe("entry editor — two photos whose file names collide", () => {
       pod.wire(),
       "the second photo's wall clock is on the wire",
     ).not.toContain(SECOND_WALL.slice(0, 16));
+  });
+});
+
+/* ── 12j-bis. the same two cameras, picked the other way round ──────────── */
+
+describe("entry editor — two photos whose file names collide, in the other order", () => {
+  /**
+   * 12j's MIRROR, AND THE ONLY THING STANDING IN FRONT OF THE WALL BRANCH'S
+   * IDENTITY CHECK.
+   *
+   * Ruling T4-E closed its defect with a comparison on the SLOT KEY in both
+   * branches of `offerTimestamp` — `offsetTo.key === key` on the wall clock and
+   * `occurredTo.key === key` on the zone — after the first spelling used
+   * `file.name`, which `PhotoSlot`'s own docblock says is not an identity:
+   * *"two files picked from two directories can share one."* Only ONE of the
+   * two comparisons was pinned. 12j drives a clock-only photo and then a
+   * both-tags photo, so the branch that has to refuse there is the ZONE one;
+   * revert the WALL branch to `.name === name` and the whole suite stays green.
+   *
+   * BECAUSE THE WALL BRANCH ONLY BITES IN THE MIRROR ORDER, AND 12i IS THAT
+   * ORDER WITH TWO NAMES THAT DIFFER. `chathams.jpg` then `tokyo.jpg`: a name
+   * comparison is already correct there, since the names are not equal and the
+   * refusal happens either way. Nothing in this file paired the mirror order
+   * with a name collision, so the wall branch's `key` was load-bearing and
+   * unmeasured. This is that pair — `OFFSET_ONLY` then `TIMED`, both called
+   * `IMG_0001.jpg`.
+   *
+   * WHAT THE NAME COMPARISON PRODUCES, AND WHY NOTHING WOULD WARN THE OWNER:
+   *
+   *   1. A carries a zone and no clock. The offset fills — that is the
+   *      allow-case, asserted in this same render — and nothing is marked,
+   *      because the offset is a photo's rather than this machine's.
+   *   2. B carries a clock and no zone. Its clock is offered, `offsetTo` is a
+   *      `photo`, and the guard asks whether that photo has THIS name: both
+   *      files are `IMG_0001.jpg`, so `"IMG_0001.jpg" === "IMG_0001.jpg"` and
+   *      the clock is accepted.
+   *   3. Which composes B's `07:05` with A's `+12:45`, an instant that happened
+   *      at neither place — and UNMARKED. `creditTime` derives the mark from
+   *      "nobody offset it and a photo dated it", and step 1 already made the
+   *      offset a photo's, so ruling T4-A's condition can never hold in this
+   *      render. There is no surface on the form that warns about it, which is
+   *      12i's argument for refusing rather than admitting and explaining.
+   *
+   * SO THE HARM IS ON THE WIRE, AND THAT IS WHERE IT IS ASSERTED. With the
+   * clock refused there is no `dy:occurredAt` at all, and the entry is
+   * published without one — `occurredAt` is optional in the schema and the
+   * serialiser omits the triple. Under the name comparison the PUT carries
+   * `2026-04-11T07:05:00+12:45`, which is the whole of §11.5's failure with the
+   * warning removed by the act of composing it. The slug is read back off the
+   * same body first: "no `dy:occurredAt`" is satisfied by an empty or
+   * unparseable document, and asserting a status without its payload is how
+   * this project shipped a zero-byte 404.
+   *
+   * THE NOTE CAN STILL DISCRIMINATE, THOUGH NOT ABOUT WHICH PHOTO. Both files
+   * answer to the same `alt`, so 12j's paragraph applies: the sentence naming
+   * the right file and the sentence naming the wrong one are the same string.
+   * What can be told apart here is whether a "the time came from …" sentence
+   * EXISTS — `creditTime` sets `occurredSource` from the clock's record, so
+   * under the name comparison the wall clock announces a photo as its author
+   * and under a `key` comparison it names nobody, because nobody filled it. The
+   * hint is asserted not to name the file first, in the same render and before
+   * any pick, so a match is that note and nothing else.
+   *
+   * `pickAndSettle` IS NOT USED FOR THE SECOND PICK, and could not be: it waits
+   * on `findByRole("img", { name: alt(file) })`, which throws "found multiple
+   * elements" on precisely the collision this test is about. 12j's spelled-out
+   * wait is used instead — two rows answering to one name, four derivatives,
+   * two containers.
+   *
+   * WHAT WOULD BREAK IT: reverting the wall branch to `offsetTo.name === name`;
+   * comparing the name lower-cased, trimmed or without its extension, which is
+   * the same defect with more steps; refusing the FIRST photo's zone as well,
+   * which the allow-case catches, because "the clock stayed empty" must be a
+   * refusal and not an absence.
+   *
+   * WHAT IT MUST NOT COST: 12b, where one photo carries both tags — the wall
+   * branch runs first, so `offsetTo` is untouched by that photo at that line
+   * and the comparison is not reached at all — and 12i, where the same two
+   * halves arrive on two DIFFERENTLY named files and must behave exactly as
+   * they do today.
+   */
+  it("refuses a second photo's clock when its file name is the first photo's", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const first = jpegWithExif(COLLIDING_NAME, OFFSET_ONLY);
+    const second = jpegWithExif(COLLIDING_NAME, TIMED);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    /* THE COLLISION IS THE WHOLE TEST. Two distinct names here and this is 12i,
+       which passes today — the mutation would prove nothing. (The tags differ
+       and the SOURCE bytes differ: `fakePipeline` returns fixed derivative
+       bytes for every file, so the content-addressed container can only come
+       from the source, and the control above is what pins that.) */
+    expect(
+      second.name,
+      "the two fixtures do not share a file name: this is 12i with a fresh docblock, and the guard it exercises already holds",
+    ).toBe(first.name);
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so a controlled <select> could not show it even if the first pick's fill were correct`,
+    ).toContain(SECOND_OFFSET);
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the wall clock's permanent hint already names the file, so 'no photo is credited with the clock' below would hold in every state",
+    ).not.toMatch(alt(second));
+
+    /* ── THE ALLOW-CASE: a photo that carries only a zone supplies it ───── */
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.offset),
+        "the zone-only photo's OffsetTimeOriginal never reached the control, so this render holds no photo's offset and every refusal below is about nothing",
+      ).toBe(SECOND_OFFSET);
+    });
+    expect(
+      shownValue(LABEL.occurredAt),
+      "a photo that carries no DateTimeOriginal filled the wall clock",
+    ).toBe("");
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset came from the photo and is marked as this machine's guess anyway",
+    ).toBe(false);
+
+    /* ── THE SECOND PHOTO REALLY LANDED — 11c's guard, spelled out because
+       `pickAndSettle` cannot see two rows with one name. ────────────────── */
+    pickPhoto(second);
+    await waitFor(() =>
+      expect(screen.getAllByRole("img", { name: alt(second) })).toHaveLength(2),
+    );
+    expect(rig.processed, "the second file never reached the pipeline").toHaveLength(2);
+    await waitFor(() => expect(media.puts).toHaveLength(4));
+    expect(
+      media.containers(),
+      "the two files went to ONE content-addressed container: the media path deduplicated them, so the second `attach` never ran and every refusal below is about nothing",
+    ).toHaveLength(2);
+
+    /* ── THE REFUSALS ───────────────────────────────────────────────────── */
+    expect(
+      shownValue(LABEL.occurredAt),
+      "the second photo's clock was accepted beside the FIRST photo's zone, because the wall branch compares FILE NAMES and both files are called IMG_0001.jpg: the two halves now describe an instant that happened at neither place",
+    ).toBe("");
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo moved the offset the first one supplied",
+    ).toBe(SECOND_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the offset is a photo's, not this machine's, and the form says it is a guess",
+    ).toBe(false);
+    expect(
+      describedTextOf(LABEL.occurredAt),
+      "the wall clock credits a photo as the author of the time it is holding: nothing may fill it in this render, and under a name comparison this sentence is how the composed clock announces itself",
+    ).not.toMatch(alt(second));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the guess note is up for an offset a photo supplied — and its absence is the point: T4-A's condition cannot hold here, so nothing on this form would warn about the composition a name comparison admits",
+    ).not.toMatch(GUESS_WORDING);
+
+    /* ── AND WHAT A STRANGER CAN FETCH IS NO TIME AT ALL, NOT A WRONG ONE ─ */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-two-cameras-reversed");
+    setText(LABEL.headline, "Two cameras, the other way round");
+    /* THE PROSE MAY NOT QUOTE EITHER HALF — 12k's measurement: `pod.wire()` is
+       every byte that left the browser, so a fixture that plants the needle in
+       the haystack is a test that can never pass. */
+    setText(LABEL.articleBody, "The one that knew where it was came out of the bag first.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "nothing reached the Pod at all").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+    expect(
+      oneObject(quads, `${put!.url}#it`, DY.slug)?.value,
+      "the PUT body is not the entry this test filled in, so 'no dy:occurredAt' below is satisfied by an empty or unparseable document",
+    ).toBe("2026-04-11-two-cameras-reversed");
+    expect(
+      oneObject(quads, `${put!.url}#it`, DY.occurredAt),
+      "a dy:occurredAt reached the Pod: the SECOND photo's wall clock on the FIRST photo's offset, an instant that happened at neither place — and unmarked, because the offset was already a photo's and T4-A cannot fire",
+    ).toBeUndefined();
+    expect(
+      pod.wire(),
+      "the second photo's wall clock is on the wire for an entry no photo dated",
+    ).not.toContain(PHOTO_WALL.slice(0, 16));
+    expect(
+      pod.wire(),
+      "the first photo's zone is on the wire: nothing in this model publishes an offset on its own, so it can only have arrived concatenated onto a wall clock — and the only wall clock in this render is the other photo's",
+    ).not.toContain(SECOND_OFFSET);
+    expect(outcomeText(), "the save announced nothing at all").toMatch(/saved/i);
   });
 });
 

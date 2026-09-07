@@ -516,6 +516,138 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     for (const tag of objectsOf(quads, it, DY.tag)) expect(languageOf(tag)).toBe("");
   });
 
+  /**
+   * THE ENTRY'S LANGUAGE, NOT THE DEPLOYMENT'S — and the two are the same thing
+   * only for a diary kept in the deployment's language.
+   *
+   * `entry-model.ts` serialises the locality as `text({ value: e.place.locality })`
+   * with no language at all, so `text()` falls back to `config.defaultLanguage`.
+   * That fallback is right as a fallback (§6: an untagged literal is a DIFFERENT
+   * RDF term from a tagged one, so no tag is never the answer) and wrong as the
+   * answer here, for a reason that has nothing to do with configuration:
+   * `defaultLanguage` is `SITE_LANGUAGE ?? "en"`, `SITE_LANGUAGE` is not
+   * `NEXT_PUBLIC_`, and every write in this app happens in the BROWSER
+   * (invariant 4). So it is `"en"` at write time no matter what the deployment
+   * sets, and an entry the owner wrote in Japanese publishes
+   * `schema:name "…"@ja` beside `schema:addressLocality "…"@en` on the same
+   * `<#place>` — two claims about one place in two languages, one of which
+   * nobody chose.
+   *
+   * THE FIX IS TO PASS THE ENTRY'S OWN LANGUAGE, matching what `schema:name`
+   * already gets: `e.headline` is a `LangText`, so it is available on the line
+   * above. No schema change — `Place.locality` stays a plain `string`, which is
+   * what `placeTextOf` in the studio relies on ("the locality is tagged by
+   * `text()` at serialisation").
+   *
+   * WHY THE TEST ABOVE STAYS AS IT IS, CHECKED RATHER THAN ASSUMED. §7.3's
+   * entry is written in English — its headline is `"First night in Shinjuku"@en`
+   * — so `schema:addressLocality "Tokyo"@en` is what BOTH the current code and
+   * the fix produce for it, and that `@en` was agreeing with the fix rather than
+   * pinning the defect. The premise is asserted below, because if the fixture's
+   * headline were ever tagged anything else that test would silently become a
+   * pin on the wrong behaviour.
+   *
+   * THE THIRD LEG IS THE FALLBACK, AND IT IS NOT DECORATION. `LangText.language`
+   * is optional, so an entry can arrive with no language of its own — and the
+   * shortest spelling of this fix, `literal(e.place.locality, e.headline.language)`,
+   * writes a PLAIN literal for that entry: §6's rule broken in the other
+   * direction, by the change meant to honour it. Going through `text()` keeps
+   * the deployment default. It is also what proves the leg above is not vacuous:
+   * this environment sets no `SITE_LANGUAGE`, so the default really is `"en"`
+   * and `"ja"` really is a different answer.
+   *
+   * WHAT MUST NOT MOVE: `schema:addressCountry`. It is a CODE, asserted here as
+   * a plain literal in both halves — `"JP"@ja` would be as wrong as `"JP"@en`,
+   * and both are different RDF terms from `"JP"`, so every consumer filtering
+   * on the plain literal would stop matching entries this app wrote.
+   */
+  it("tags the locality with the entry's own language, never the deployment's", async () => {
+    const serialiseEntry = await loadSerialise();
+    const spec = await specEntry();
+
+    /* ── THE PREMISES, ON THE FIXTURE ───────────────────────────────────── */
+    expect(
+      spec.headline.language,
+      "the §7.3 fixture's headline is not @en, so the `@en` the test above asserts on schema:addressLocality was pinning this defect rather than agreeing with the fix — say so rather than changing it quietly",
+    ).toBe("en");
+    expect(
+      spec.place?.locality,
+      "the §7.3 fixture carries no locality, so there is no <#address> node for this test to be about",
+    ).toBe("Tokyo");
+
+    const JA = "ja";
+    const inJapanese: Entry = {
+      ...spec,
+      headline: { value: "新宿の最初の夜", language: JA },
+      articleBody: { value: "成田エクスプレスに乗ったのは失敗だった。", language: JA },
+      /* The place the STUDIO would build for this entry: `placeTextOf` gives
+         the name the entry's language and gives the locality none, because the
+         locality is tagged at serialisation. That asymmetry is the defect's
+         whole surface. */
+      place: { ...spec.place, name: { value: "東京、新宿", language: JA }, locality: "東京", country: "JP" },
+    };
+
+    const ttl = await serialiseEntry(inJapanese);
+    expect(ttl.ok).toBe(true);
+    if (!ttl.ok) throw new Error(`serialiseEntry refused the @ja entry: ${ttl.error.kind}`);
+
+    const quads = quadsOf(ttl.value, ENTRY_URL);
+    const place = `${ENTRY_URL}#place`;
+    const address = `${ENTRY_URL}#address`;
+    const locality = oneObject(quads, address, SCHEMA.addressLocality);
+    const country = oneObject(quads, address, SCHEMA.addressCountry);
+
+    /* ── THE PREMISES, ON THE OUTPUT: the terms exist, so a wrong tag below
+       cannot be told from a missing triple — `languageOf(undefined)` is
+       `undefined` and would fail with the same shape. ───────────────────── */
+    expect(locality?.value, "no schema:addressLocality was written at all").toBe("東京");
+    expect(
+      languageOf(oneObject(quads, `${ENTRY_URL}#it`, SCHEMA.headline)),
+      "the entry's own language did not reach schema:headline, so `the entry's language` is not something this document can be about",
+    ).toBe(JA);
+
+    /* ── THE DEFECT ─────────────────────────────────────────────────────── */
+    expect(
+      languageOf(locality),
+      "the locality is tagged with the deployment's default rather than the entry's own language: this entry says `schema:name`@ja and `schema:addressLocality`@en about the same place, and because SITE_LANGUAGE is not NEXT_PUBLIC_ the browser that wrote it could only ever have said @en",
+    ).toBe(JA);
+
+    /* ── AND WHAT MUST NOT CHANGE WITH IT ───────────────────────────────── */
+    expect(
+      languageOf(oneObject(quads, place, SCHEMA.name)),
+      "schema:name stopped taking the entry's own language, which is the tag the locality is being brought into line WITH",
+    ).toBe(JA);
+    expect(country?.value, "no schema:addressCountry was written at all").toBe("JP");
+    expect(
+      languageOf(country),
+      "the country CODE was language-tagged: `JP`@ja is a different RDF term from `JP`, so every consumer filtering on the plain literal stops matching",
+    ).toBe("");
+    expect(datatypeOf(country), "the country code is not a plain literal").toBe(XSD.string);
+
+    /* ── THE FALLBACK: an entry with no language of its own is still tagged,
+       with the deployment's default and never with nothing (§6). ────────── */
+    const untagged = await serialiseEntry({
+      ...inJapanese,
+      headline: { value: inJapanese.headline.value },
+      articleBody: undefined,
+      place: { ...inJapanese.place, name: { value: "東京、新宿" } },
+    });
+    expect(untagged.ok).toBe(true);
+    if (!untagged.ok) throw new Error(`serialiseEntry refused the untagged entry: ${untagged.error.kind}`);
+
+    const fallback = quadsOf(untagged.value, ENTRY_URL);
+    const fallbackLocality = oneObject(fallback, address, SCHEMA.addressLocality);
+    expect(fallbackLocality?.value, "no schema:addressLocality was written at all").toBe("東京");
+    expect(
+      languageOf(fallbackLocality),
+      "an entry that carries no language of its own left the locality UNTAGGED — §6's rule broken in the other direction by the change meant to honour it, and `literal(value, e.headline.language)` is the spelling that does it",
+    ).toBe("en");
+    expect(
+      languageOf(oneObject(fallback, address, SCHEMA.addressCountry)),
+      "the country code picked up the fallback language",
+    ).toBe("");
+  });
+
   it("types both <#it> classes and every sub-thing", async () => {
     const { quads } = await load();
     const types = (subject: string) =>
