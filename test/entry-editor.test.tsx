@@ -7080,6 +7080,104 @@ describe("entry editor — the offset in a local draft", () => {
     expect(occurred?.value).toBe("2026-04-02T16:20:00+09:00");
     expect(datatypeOf(occurred)).toBe(XSD.dateTime);
   });
+
+  /**
+   * THE EDIT-PATH COMPLEMENT TO THE TEST ABOVE, and the one that actually
+   * exercises `offsetOf(existing?.occurredAt)` rather than `offsetHere(wall)`
+   * alone.
+   *
+   * THE TEST ABOVE IS A CREATE: `renderEditor` there is given no `initial`, so
+   * `existing` is `undefined` and `offsetOf(existing?.occurredAt)` is
+   * `undefined` no matter what the restore path does with it — the fallback
+   * chain collapses to `offsetHere(wall)` alone, which in this file's fixed
+   * Asia/Tokyo zone is exactly the `+09:00` the test above asserts. AN
+   * IMPLEMENTATION WHOSE RESTORE FALL-THROUGH NEVER CONSULTS THE ENTRY AT ALL
+   * — always `offsetHere(wall)`, never `offsetOf(existing?.occurredAt)` —
+   * PASSES THE TEST ABOVE AND EVERY OTHER TEST IN THIS FILE. That is the shape
+   * this project's review-lessons record as a recurring trap: when a mutant
+   * survives, ask which OTHER mechanism is covering for it, then find the path
+   * where it does not. This is that path.
+   *
+   * So this test edits an entry whose stored offset is `+05:45` — Nepal,
+   * chosen for the same reason section 1c's own test uses it: the fixed test
+   * zone cannot produce it by coincidence, so "the entry's own offset" and
+   * "this machine's offset" are distinguishable outcomes rather than
+   * accidentally equal ones. `+09:00` here would make the test vacuous. The
+   * draft seeded onto it is the same pre-control fixture as the test above —
+   * the `offset` key deleted — because ruling T2-A collapses that with a
+   * hand-emptied `offset: ""` before `restore()` ever sees it.
+   *
+   * MUTATIONS THIS MUST DIE UNDER, both of them:
+   *
+   *   1. `setOffset(draft.offset)` unconditionally → the control shows `""`
+   *      (the blank a controlled `<select>` renders for a value matching no
+   *      option), so `shownValue(LABEL.offset)` reads `""` rather than
+   *      `+05:45`.
+   *   2. The restore fall-through consulting only `offsetHere(wall)` and never
+   *      `offsetOf(existing?.occurredAt)` → the control shows `+09:00`, this
+   *      machine's zone, instead of the entry's own. THIS is the mutation the
+   *      test above cannot catch, and the entire reason this test exists.
+   *
+   * AND THE WIRE CONSEQUENCE, because a control that merely looks right while
+   * the save publishes something else is the failure that actually costs the
+   * owner: the timestamp reaching the Pod must carry `+05:45`, with the wall
+   * clock the DRAFT held (`16:20`), not the entry's own (`21:40`).
+   */
+  it("restores a draft written before the offset control onto an edit, showing the entry's own offset rather than this machine's", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    const nepal: Entry = { ...entry, occurredAt: "2026-03-29T21:40:00+05:45" };
+    // The mutation really happened, or this is the §7.3 fixture's own +09:00
+    // again and the two mechanisms below are indistinguishable.
+    expect(nepal.occurredAt).not.toBe(entry.occurredAt);
+
+    const before = { ...seededDraft() } as Partial<StoredDraft>;
+    delete before.offset;
+    // The fixture really is missing the field, or this test is about a payload
+    // that has one.
+    expect(Object.keys(before)).not.toContain("offset");
+
+    const store = fakeStorage({
+      [draftKeyFor(OWNER, ARRIVAL_URL)]: JSON.stringify(before),
+    });
+    await renderEditor(fake.session, {
+      initial: { entry: nepal, etag: '"entry-7"' },
+      storage: store.storage,
+    });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "a draft written before the offset control is no longer offered on an edit: the key moved, or the field is required",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    // THE RESTORE REALLY HAPPENED — without this, the offset assertion below
+    // would hold just as well for an editor that offered a draft and restored
+    // nothing from it.
+    expect(
+      shownValue(LABEL.headline),
+      "the draft was offered but nothing was restored from it",
+    ).toBe(before.headline);
+
+    requireOffsetControl();
+    expect(
+      shownValue(LABEL.offset),
+      "an empty offset restored onto an edit fell back to this machine's zone instead of the entry's own +05:45 — the mechanism the create-path test above cannot see",
+    ).toBe("+05:45");
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(
+      occurred?.value,
+      "the control showed the entry's own offset but a different one reached the Pod",
+    ).toBe("2026-04-02T16:20:00+05:45");
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+  });
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
