@@ -784,6 +784,8 @@ In progress on branch `phase-2-studio`.
         claims `+02:00` for something that happened at `+09:00` — §7.3 says that is most of the
         meaning. Pre-existing (a create has always used `offsetHere()` because there is no place
         input until phase 3), but drafts widen the window from minutes to weeks. Revisit with §9.
+        **Closed by phase 3 stage 2**: the offset is a control, `Draft` carries it, and a restored
+        draft shows the offset the owner chose rather than this machine's.
 - [x] **`npm run test:e2e` — fixed 2026-09-04.** `playwright.config.ts`, `e2e/environment.ts`,
       `e2e/global-setup.ts` and `e2e/solid-login.spec.ts`. Two tests, 11 seconds, both green:
       the authorization redirect carries the `client_id` and `redirect_uri` that
@@ -861,12 +863,159 @@ In progress on branch `phase-2-studio`.
 
 ## Phase 3 — media
 
-- [ ] EXIF read then strip; auto-place and auto-date from photo GPS. **Stage 2, and it has its
-      own plan** — deliberately not ticked by the stage-1 work below. The read half already
-      exists (`lib/media/exif.ts`, 15 tests) and the editor computes `derived.metadata` on every
-      photo and then throws it away, which is correct staging rather than waste: `DateTimeOriginal`
-      is a wall clock with no UTC offset and §6 requires one, and the GPS is a coordinate that has
-      to go through §9's fuzzing before anything may publish it.
+- [x] **EXIF read then strip; auto-place and auto-date from photo GPS.** Landed 2026-09-07 as
+      stage 2, on its own plan (`docs/superpowers/plans/2026-09-06-media-pipeline-stage-2.md`).
+      Production changes are confined to `components/studio/entry-editor.tsx` and
+      `lib/studio/drafts.ts` — the RDF contract needed nothing, because `lib/pod/entry-model.ts`
+      already serialised `schema:name`, `addressLocality` and `addressCountry` and
+      `lib/pod/read.ts` already parsed them. Definition of done at `64f1788`, all eight with the
+      Pod up: `npm test` **1014 passed, 2 todo, 0 skipped, 29 files**, then `lint`, `typecheck`,
+      `validate:fixtures`, `check:vocab`, `check:commands`, `build` and `size:public`; plus the
+      gated `npm run test:e2e` — **6 passed** — since the diff touches `components/studio/**`.
+      **This clears nothing in the blocker above:** every measurement was taken against local
+      Community Solid Server data, the `dy:` namespace is still `example.org`, and nothing may
+      be written to a live Pod.
+
+      **The editor could not name a place at all, and §9 was leaning on a control that did not
+      exist.** `Place.name`, `.locality` and `.country` were read, serialised and carried through
+      an edit with nothing in the studio able to set one — so §9's "inside the home radius the
+      coordinate is dropped and the place keeps its name" had no name to keep, and every entry
+      near home was placeless. Three text controls now, on the untouched / replaced / removed
+      logic `placeFor` already drew for geometry: `""` means remove, absent means untouched.
+
+      **The offset was silently the editing machine's**, on every entry ever saved. It is a
+      `<select>` of thirty-eight offsets now, initialised from the entry's own stored offset on an
+      edit and from this machine only on a create, and `Draft` carries it — which closes the
+      phase-2 item about a draft restored in another time zone. A stored offset the list does not
+      contain renders rather than blanking. **The trap the tests had to be built around:** the
+      suite pins the test zone to `Asia/Tokyo`, so "shows the stored offset" and "shows the
+      machine's offset" are indistinguishable for any `+09:00` fixture — every offset fixture here
+      is one Tokyo cannot produce. And the create-path restore test was satisfied by an
+      implementation that never consults the entry's offset at all, because on a create the
+      fallback chain collapses to the machine's; the pin is an edit-path test with a `+05:45` entry.
+
+      **Auto-fill is first-writer-wins in both directions.** A photo never overwrites a value the
+      owner set, and never a value an earlier photo set. Authorship is recorded explicitly, never
+      inferred from an empty box, and each auto-filled field names the file it came from in its own
+      control's accessible description. The coordinate is **one unit**: `lib/media/exif.ts` sets
+      `gps` only when both tags are present, so a photo can never supply half a coordinate and only
+      the owner can, and a latitude from one source beside a longitude from another is a point that
+      is nowhere. The wall clock and the offset were deliberately left **independent** of each
+      other, because owner-typed time beside a photo's zone is the owner correcting *when* while
+      the photo supplies *where* — which held for owner-vs-photo and not for photo-vs-photo, below.
+
+      **Two defects found in review, each publishing something false, each reachable by an ordinary
+      action, and each invisible to the entire suite.**
+      - **On an edit, attaching a photo taken at home DELETED the entry's published map pin.** Both
+        coordinate boxes start empty on an edit by design — the stored pair is already snapped and
+        prefilling it would re-snap and walk the pin — so nothing recorded that the entry had a
+        coordinate: a GPS photo filled the boxes, `touchedCoordinate` flipped true,
+        `fuzzForPublication` returned `undefined` for a point inside the home region, and
+        `placeFor` reads `undefined` as a removal. `#geo` came off a world-readable resource. The
+        fix is one conditional, seeding the authorship record from the entry.
+        **No existing fixture could have caught it**, which is sharper than "it was unpinned": the
+        two tests that look as though they should have — the geometry-survival test and the only
+        edit-with-photo test — each see one half and neither can reach the other, the first picking
+        no photo and the second asserting photos, sort order and the index thumbnail and nothing
+        about geometry. **And exactly one assertion in the suite separates the fix from its lazy
+        spelling** (`initial === undefined ? nobody : owner`, which switches auto-fill off for
+        every edit while every refusal still passes): an allow-case editing an entry with *no*
+        stored geometry, where the photo must still fill. The test author added it unasked, before
+        anyone knew it would be the only thing standing there.
+      - **Two photos could compose a timestamp that happened nowhere.** Photo A (Tokyo, a date with
+        no offset tag) fills the clock and leaves the offset marked as this machine's guess; photo
+        B (Kathmandu, date and `+05:45`) has its clock correctly refused and its offset accepted —
+        which cleared the mark and removed the note. The save published Tokyo's wall clock on
+        Kathmandu's offset as a real instant, with §11.5's warning actively suppressed by the one
+        composition that needed it. Both branches carry a same-photo guard now. One offset-carrying
+        fixture existed in the whole suite and no test attached two photos, so nothing could see it.
+
+      **Twice a ruling made by reading was corrected by measurement, and the corrections are worth
+      more than the rulings were.** The evidence offered for the pin-deletion fix — that swapping a
+      GPS fixture into the existing edit-with-photo test would go red — is false; it does not, and
+      chasing that is what produced the un-pinnable finding above. And the "one unit" reasoning
+      that fused latitude and longitude was declined for the clock and the offset because a mixed
+      time/zone is coherent: true when one side is the owner, who can see and correct both halves,
+      false for photo-vs-photo, which is how the second defect got through. Three times this stage
+      an implementer corrected a reviewer's stated reason by measuring it instead of complying —
+      including the one-line fix for that defect, which guarded one direction and left the mirror
+      case (photo A offset-only, photo B date-only) composing the same value.
+
+      **A restored draft may not speak for a field it has no opinion about.** `.default("")` on the
+      three place fields would turn "this payload predates these controls" into "the owner emptied
+      the box", which is a removal — so restoring a pre-stage-2 draft on an edit would have deleted
+      the entry's published place name and its whole `<#address>`. `.optional()` is what keeps `""`
+      (remove) distinct from absent (no opinion), and `drafts.ts`'s docblock had that backwards.
+      The offset is deliberately the other shape, `.default("")`: there is no "remove the offset"
+      instruction — §3 and §6 require one — so absent and `""` are the same instruction there.
+      `Draft` is seventeen fields; no `v2` → `v3` bump, on the reasoning `photos` used in stage 1.
+
+      **`Draft.savedAt` is optional at the maintainer's explicit instruction, over the objection
+      written in `lib/studio/drafts.ts`'s own docblock.** It was the only required timestamp in the
+      repository — every timestamp in `lib/pod/schema.ts` was already optional. **A schema-only
+      change there would have crashed the editor on mount:** the banner renders
+      `savedAtText(offered.savedAt)`, reached from the mount effect's `readDraft`, so an absent
+      value is a `TypeError` thrown during render — the crash-on-mount that file's "nothing here
+      throws, ever" invariant exists to prevent, unreachable before only because the required field
+      refused such a payload outright. So the render guard moved with the schema: the banner still
+      appears and keeps Restore and Discard, and the whole ", from <time>…" clause is dropped
+      rather than an empty `<time>` (meaningless markup) or a placeholder date (a lie about when
+      the text was kept). Mutation-proved — `.optional()` with the render untouched throws
+      "Cannot read properties of undefined (reading 'slice')" from inside render.
+
+      **Left open, deliberately:**
+      - [ ] **Seed `/travel/settings/privacy.ttl` in `pod:seed`, and then DELETE the `page.route`
+            standing in for it.** The seeded e2e Pod has no privacy settings document at all —
+            measured: the resource and its container both 404, and `.pod-data/e2e/travel/` has no
+            `settings` directory — so §9 fails closed and the coordinate controls render disabled.
+            The browser leg therefore serves §7.6's own normative block out of `docs/data-model.md`
+            through `page.route`, GET only: the single non-real part of that spec. Seeding it is the
+            better fix, deferred only because it changes what every Community Solid Server
+            integration test sees, at the close of a stage, for a cleanliness gain rather than a
+            correctness one. It is **not** a container-layout change needing an ask — §7.6 defines
+            the path and `readPrivacySettings` already looks there; the seeder simply never wrote
+            it. **When it lands, delete the route rather than leave it shadowing a real resource.**
+      - [ ] **Two unreproduced flakes, and the pattern is the finding, not the incidents.** Both are
+            "wait for one thing, then assert on something another mechanism produces" — the test
+            waits on a commit-phase DOM node and then reads a fetch issued from a child's passive
+            effect, a gap load widens. `test/studio-shell.test.tsx` was fixed that way (one
+            `waitFor`, committed separately as `f89c152`). The second —
+            `test/studio-trip-loading.test.tsx > stops offering the trips … once the session
+            expires` — failed once in a full run, then passed 22/22 alone and three times under
+            `-t`, and **its message was never captured**, which is the part to do differently. It
+            is unfixed and unattributed, and a plausible instance of the same shape.
+      - [ ] **Replace the line-number citations in `test/entry-editor.test.tsx`'s docblocks with
+            symbol references.** They went stale twice in one stage — once by ~76 lines, once by 57
+            — and the second time happened *within a single fix round*, after being corrected,
+            because the production commit landed after the test commit. A citation that decays
+            every time the file it points into grows is a maintenance tax that reads as fact.
+      - [ ] **The auto-fill is silent to a screen reader.** The note is discoverable at the control
+            through `aria-describedby`, but nothing announces that a value arrived. The cheap fix
+            is what makes this deferred rather than done: `role="status"` on the note would make
+            `getByRole("status")` ambiguous with the save-outcome region six tests in that file
+            depend on, and the save outcome is the one this project has already shipped a
+            data-visibility bug behind. The underpinning measurement — section 10a pinning the live
+            roles for a photo that works — was re-derived independently while building auto-date
+            and holds, now with a correct citation.
+      - [ ] **The unconfirmed-offset mark does not survive a draft restore.** Within a session the
+            clearing is a no-op and provably so: the draft is read once, so the banner appears only
+            at mount, and while it is up the disabled fieldset makes the picker unreachable — the
+            mark is always `null` when `restore()` runs. The loss is strictly cross-session, and no
+            code change recovers it, because after a reload the editor cannot know the restored
+            clock came from a photo. A provenance field on `Draft` is the only route, and
+            `lib/studio/drafts.ts` treats every field addition as a versioning decision.
+      - [ ] **Three documentation debts, all in tests, none behavioural.** A hedged assertion
+            message in `test/entry-editor.test.tsx` ("the control blanked on an offset it does
+            not offer, or replaced it with one it does") whose correct mechanism is stated
+            immediately above it — cited by its text, not its line, per the item above; the docblock above
+            `test/drafts.test.ts`'s `DRAFT` constant, which still reads as though `savedAt` were
+            guaranteed present; and section 11i leg 1's raw-reading-absent assertion, which is true
+            of today's code rather than earned by the fix and, unlike leg 2's, is not labelled as
+            such — a future reader could mistake it for a pin the fix bought.
+      - [ ] **`prettier --check` flags files that `npm run lint` does not**, `lint` being eslint
+            only, and there is no `format` script in the definition of done. Not reformatting
+            inside a stage was right; whether the formatter is part of the contract is not a
+            stage-2 question.
 - [x] **Client-side resize in a Web Worker: thumb, web, blur placeholder.** Landed 2026-09-06.
       `lib/media/{targets,exif,pipeline,pipeline.worker,upload}.ts`, a photo control in the entry
       editor, `dy:blurDataUrl` as a new term, and `e2e/media-pipeline.spec.ts`. 931 tests,
