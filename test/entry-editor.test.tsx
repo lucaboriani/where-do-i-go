@@ -6176,7 +6176,8 @@ describe("entry editor — the draft key after a create succeeds", () => {
   });
 
   /**
-   * THE SAME LOSS, ON THE FIELD THE STORY TEST CANNOT SEE.
+   * THE SAME LOSS, ON THE THREE FIELDS THE STORY TEST CANNOT SEE — ONE CASE
+   * EACH, WHICH IS THE WHOLE REASON THIS IS PARAMETERISED.
    *
    * `settleDraft` clears the local copy the moment the Pod has the text, and
    * re-keeps it only when `sameText` says the form has moved on since the
@@ -6185,69 +6186,95 @@ describe("entry editor — the draft key after a create succeeds", () => {
    * the save reports success, the draft is cleared, and the sentence typed
    * while the spinner was up never existed.
    *
-   * The place name is the field where that is worst rather than merely
-   * annoying, and it is why this is pinned separately from the story above.
-   * §9 drops the coordinate inside the home radius, so near home the name is
-   * the ONLY thing the entry says about where it was — and a name is also the
-   * kind of thing an owner types while waiting, having just remembered it.
+   * The place text is where that is worst rather than merely annoying. §9 drops
+   * the coordinate inside the home radius, so near home these three are the
+   * ONLY thing the entry says about where it was — and a place name is exactly
+   * the kind of thing an owner types while waiting, having just remembered it.
+   * `sameText`'s own docblock leans on that: "So are the three place fields, and
+   * there the loss is the one §9 leans on."
    *
-   * WHAT WOULD BREAK IT: dropping `a.placeName === b.placeName` (or either of
-   * its two neighbours) from `sameText`, which is invisible to every other test
-   * in this file.
+   * ONE FIELD PER CASE, AND EACH CASE TOUCHES NOTHING ELSE, because that is
+   * what makes each comparison pinned SEPARATELY. A single test that typed all
+   * three would go green with two of the three comparisons deleted — the one
+   * survivor would report "different" and the draft would be re-kept for a
+   * field the assertion was not about. That is precisely how this pin was
+   * unpinned for `locality` and `country`: the re-reviewer deleted both
+   * comparisons from `sameText` and the suite stayed green, while the docblock
+   * went on claiming all three.
+   *
+   * WHAT WOULD BREAK IT: dropping any ONE of `a.placeName === b.placeName`,
+   * `a.locality === b.locality` or `a.country === b.country` from `sameText` —
+   * each takes exactly one case below with it, and nothing else in this file
+   * notices.
+   *
+   * THE WAIT ON `precision` IS LOAD-BEARING IN EVERY CASE. §7.6's settings
+   * arrive over the network and set `precision` from `""` to the owner's preset,
+   * so without it that happens DURING the flight and `sameText` differs on
+   * `precision` as well — the draft is then re-kept for a reason that has
+   * nothing to do with the field under test. Measured rather than reasoned
+   * about: with the three place comparisons deleted, the differing fields at
+   * settle time were `["precision", "placeName"]` and every assertion below
+   * still passed. It is one wait in one place here for the same reason the cases
+   * are parameterised: three copies of it are three chances to lose one.
    */
-  it("keeps a place name typed while the save was in flight", async () => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+  const IN_FLIGHT_PLACE = [
+    ["place name", LABEL.placeName, "placeName", "Gion, Kyoto"],
+    ["town or city", LABEL.locality, "locality", "Kyoto"],
+    ["country", LABEL.country, "country", "JP"],
+  ] as const;
 
-    const pod = podFake({ hold: held });
-    const store = fakeStorage();
-    await renderEditor(fakeStudioSession().session, { storage: store.storage });
+  it.each(IN_FLIGHT_PLACE)(
+    "keeps a %s typed while the save was in flight",
+    async (what, label, field, IN_FLIGHT) => {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
 
-    const IN_FLIGHT = "Gion, Kyoto";
+      const pod = podFake({ hold: held });
+      const store = fakeStorage();
+      await renderEditor(fakeStudioSession().session, { storage: store.storage });
 
-    /* THE SETTINGS MUST LAND BEFORE THE SNAPSHOT IS TAKEN, and this line is the
-       difference between a real pin and a vacuous one. §7.6 arrives over the
-       network and sets `precision` from `""` to the owner's preset, so without
-       this wait that happens DURING the flight and `sameText` differs on
-       `precision` as well — the draft is then re-kept for a reason that has
-       nothing to do with the field under test. Measured rather than reasoned
-       about: with the three place comparisons deleted from `sameText`, the
-       differing fields at settle time were `["precision", "placeName"]` and
-       every assertion below still passed. */
-    await waitFor(() => expect(screen.getByLabelText(LABEL.precision)).toBeEnabled());
+      /* THE SETTINGS MUST LAND BEFORE THE SNAPSHOT IS TAKEN — see the docblock
+         above; this line is the difference between a real pin and a vacuous
+         one, and it has already been the difference once. */
+      await waitFor(() => expect(screen.getByLabelText(LABEL.precision)).toBeEnabled());
 
-    fillNewEntry();
-    await act(async () => {
-      fireEvent.click(saveButton());
-    });
-    await waitFor(() => expect(pod.entryPut(), "the entry PUT never went out").toBeDefined());
+      fillNewEntry();
+      await act(async () => {
+        fireEvent.click(saveButton());
+      });
+      await waitFor(() => expect(pod.entryPut(), "the entry PUT never went out").toBeDefined());
 
-    expect(
-      typeAsUser(LABEL.placeName, IN_FLIGHT),
-      "the form was not writable during the save, so this test's premise no longer holds",
-    ).toBe(true);
+      expect(
+        typeAsUser(label, IN_FLIGHT),
+        "the form was not writable during the save, so this test's premise no longer holds",
+      ).toBe(true);
 
-    release();
-    await waitFor(() => expect(outcomeText()).not.toBe(""));
+      release();
+      await waitFor(() => expect(outcomeText()).not.toBe(""));
 
-    // It never reached the Pod: the save sent the snapshot taken before the
-    // await, and that snapshot named no place at all.
-    const put = pod.entryPut()!;
-    expect(
-      placeNodeOf(quadsOf(put.body, put.url), put.url),
-      "the in-flight name reached the Pod, so this test proves nothing",
-    ).toBeUndefined();
+      // It never reached the Pod: the save sent the snapshot taken before the
+      // await, and that snapshot said nothing about the place at all — no
+      // `<#place>`, so no name, no locality and no country either.
+      const put = pod.entryPut()!;
+      expect(
+        placeNodeOf(quadsOf(put.body, put.url), put.url),
+        `the in-flight ${what} reached the Pod, so this case proves nothing`,
+      ).toBeUndefined();
 
-    // So it has to be in storage, under the key this editor owns now.
-    await pastTheWindow();
-    expect(
-      draftKeys(store),
-      "the place name typed during the save is in neither the Pod nor storage",
-    ).toEqual([CREATED_KEY]);
-    expect(parseDraft(store.items.get(CREATED_KEY)!).placeName).toBe(IN_FLIGHT);
-  });
+      // So it has to be in storage, under the key this editor owns now.
+      await pastTheWindow();
+      expect(
+        draftKeys(store),
+        `the ${what} typed during the save is in neither the Pod nor storage`,
+      ).toEqual([CREATED_KEY]);
+      expect(
+        parseDraft(store.items.get(CREATED_KEY)!)[field],
+        `the draft was re-kept but the ${what} is not in it`,
+      ).toBe(IN_FLIGHT);
+    },
+  );
 });
 
 /* ─────────────────────────────── 8h. the coordinate in a local draft ──────
@@ -6704,6 +6731,160 @@ describe("entry editor — the place fields in a local draft", () => {
     expect(address, "the whole <#address> went with it").toBeDefined();
     expect(oneObject(quads, address!, SCHEMA.addressLocality)?.value).toBe(SPEC_LOCALITY);
     expect(oneObject(quads, address!, SCHEMA.addressCountry)?.value).toBe(SPEC_COUNTRY);
+  });
+
+  /**
+   * THE OTHER SIDE OF THE SAME OPERATOR, AND THE ONE A RETRACTION DEPENDS ON.
+   *
+   * The test above pins ABSENT: a `v2` payload that predates these controls has
+   * no opinion about the place, so `restore()` leaves the boxes showing the
+   * stored value. This one pins `""`, which is a DIFFERENT INSTRUCTION — a box
+   * the owner deliberately emptied, which `placeTextOf` reads as REMOVE and
+   * which is the only way a name already on a world-readable resource can be
+   * taken off it.
+   *
+   * BOTH SIDES ARE NEEDED BECAUSE THE OPERATOR HAS TWO OF THEM AND EACH SIDE
+   * FAILS ALONE. `draft.placeName ?? placeName` keeps them apart. `||` does not:
+   * it treats `""` as falsy and falls through to the current state, so an owner
+   * who emptied the three boxes, walked away before the save, and then clicked
+   * Restore gets the entry's STORED place handed back to them — the retraction
+   * silently reverted, on a resource anyone can fetch, with the banner having
+   * just said the draft came back. The absent test cannot see that: an absent
+   * key reaches the same branch under both operators. Measured by the
+   * re-reviewer, not reasoned about — `??` → `||` produced an identical failure
+   * set until this test existed.
+   *
+   * THE PREMISE IS GUARDED, because it is the whole difference between the two
+   * tests and it is one `delete` away from being the other one. `seededDraft`
+   * already defaults the three to `""`, so a test that merely relied on that
+   * default would still be testing the `""` side the day the default moved to
+   * absent — silently, and it would pass. So the three keys are asserted PRESENT
+   * and asserted EMPTY before anything is restored.
+   *
+   * TWO SURFACES, ASSERTED SEPARATELY, BECAUSE THEY FAIL INDEPENDENTLY: the
+   * control shows `""` after Restore, and the save that follows actually takes
+   * `schema:name` and the whole `<#address>` off the Pod. An editor that emptied
+   * the boxes and then wrote a hidden copy of `existing.place` back would pass
+   * the first and lose the owner's removal at the second.
+   *
+   * AND THE GEOMETRY IT NEVER TOUCHED SURVIVES — 1b's rule, seen through a
+   * restore this time. `placeFor` removes the four fields independently, so the
+   * `<#place>` node is still there for the coordinate to hang off; a `<#place>`
+   * that vanished with its name would take a coordinate the owner never asked to
+   * remove with it.
+   */
+  it("restores three boxes the owner emptied, and the save takes the place off the Pod", async () => {
+    const pod = podFake();
+    const fake = fakeStudioSession();
+    const entry = await specEntry();
+    expect(entry.place?.name?.value, "the §7.3 fixture no longer names a place").toBe(
+      SPEC_PLACE_NAME,
+    );
+    expect(entry.place?.locality, "the §7.3 fixture no longer carries a locality").toBe(
+      SPEC_LOCALITY,
+    );
+    expect(entry.place?.country, "the §7.3 fixture no longer carries a country").toBe(SPEC_COUNTRY);
+    const stored = entry.place?.geo;
+    expect(stored, "the §7.3 fixture carries no coordinate for this test to preserve").toBeDefined();
+
+    /* A draft the owner emptied the place out of: the three fields PRESENT and
+       EMPTY, which is what makes this the `""` side rather than the one above. */
+    const RESTORED_HEADLINE = "Rain on the Philosopher's Path";
+    const emptied = seededDraft({
+      headline: RESTORED_HEADLINE,
+      placeName: "",
+      locality: "",
+      country: "",
+    });
+    for (const field of ["placeName", "locality", "country"] as const) {
+      expect(
+        Object.keys(emptied),
+        `${field} is absent from this payload, so this test is the other test`,
+      ).toContain(field);
+      expect(emptied[field], `${field} is not the empty string, so nothing is being retracted`).toBe(
+        "",
+      );
+    }
+
+    const store = fakeStorage({
+      [draftKeyFor(OWNER, ARRIVAL_URL)]: JSON.stringify(emptied),
+    });
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: store.storage,
+    });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "the emptied draft was not offered at all: the key moved, or the payload is now refused",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    // THE RESTORE REALLY HAPPENED, on a field neither operator touches — so
+    // "the boxes are empty" below cannot be satisfied by a build that offered
+    // the draft and restored nothing from it.
+    expect(
+      shownValue(LABEL.headline),
+      "the draft was offered but nothing was restored from it",
+    ).toBe(RESTORED_HEADLINE);
+
+    /* SURFACE ONE: what the owner is looking at. Under `||` all three of these
+       show the stored value instead. */
+    requirePlaceControls();
+    expect(
+      shownValue(LABEL.placeName),
+      "the box the owner emptied came back holding the stored name: their removal was reverted",
+    ).toBe("");
+    expect(shownValue(LABEL.locality), "the emptied locality came back").toBe("");
+    expect(shownValue(LABEL.country), "the emptied country came back").toBe("");
+
+    await clickSaveAndWait();
+
+    /* SURFACE TWO: what the Pod is left holding, which is the consequence. */
+    const put = pod.entryPut();
+    expect(put, "the restored draft was never saved").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+
+    const place = placeNodeOf(quads, put!.url);
+    expect(
+      place,
+      "the retraction took the whole place with it, coordinate and all",
+    ).toBeDefined();
+    expect(
+      objectsOf(quads, place!, SCHEMA.name),
+      "the name the owner emptied is still on the Pod: an emptied box was restored as the stored value",
+    ).toEqual([]);
+    expect(
+      objectsOf(quads, place!, SCHEMA.address),
+      "the address the owner emptied is still on the Pod",
+    ).toEqual([]);
+    // Said again by predicate, so an `<#address>` reached by some other route
+    // fails here too rather than hiding behind the pointer being gone.
+    for (const predicate of [SCHEMA.addressLocality, SCHEMA.addressCountry]) {
+      expect(
+        quads.filter((q) => q.predicate.value === predicate),
+        `${predicate} survived a retraction`,
+      ).toEqual([]);
+    }
+    expect(
+      emptyLiteralsIn(quads),
+      "an empty literal was published in place of a removal",
+    ).toEqual([]);
+    // The distinctive one, across every byte that left the browser: the stored
+    // name must not have travelled out through the index row either.
+    expect(
+      pod.wire(),
+      "the retracted place name left the browser anyway",
+    ).not.toContain(SPEC_PLACE_NAME);
+
+    // And the coordinate this restore said nothing about is untouched.
+    const geo = geoNodeOf(quads, put!.url);
+    expect(geo, "the untouched coordinate went with the retracted name").toBeDefined();
+    const lat = oneObject(quads, geo!, SCHEMA.latitude);
+    expect(Number(lat?.value)).toBe(stored!.lat);
+    expect(datatypeOf(lat)).toBe(XSD.decimal);
+    expect(Number(oneObject(quads, geo!, SCHEMA.longitude)?.value)).toBe(stored!.long);
   });
 });
 
