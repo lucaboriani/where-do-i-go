@@ -131,7 +131,20 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
         quad(address, namedNode(RDF.type), namedNode(SCHEMA.PostalAddress)),
       );
       if (e.place.locality !== undefined) {
-        quads.push(quad(address, namedNode(SCHEMA.addressLocality), text({ value: e.place.locality })));
+        // The entry's own language, not the deployment's — every write happens
+        // in the browser (invariant 4), where `config.defaultLanguage` is
+        // always `SITE_LANGUAGE`'s fallback because `SITE_LANGUAGE` is not
+        // `NEXT_PUBLIC_`. Passed through `text()`, not spelled as a bare
+        // `literal()`, so an entry with no language of its own still falls
+        // back to the deployment default instead of publishing an untagged
+        // literal — the same fallback `schema:name` above relies on.
+        quads.push(
+          quad(
+            address,
+            namedNode(SCHEMA.addressLocality),
+            text({ value: e.place.locality, language: e.headline.language }),
+          ),
+        );
       }
       // A country CODE, not a country name — untagged for the same reason the
       // slug is. "JP"@en would be a different term from "JP".
