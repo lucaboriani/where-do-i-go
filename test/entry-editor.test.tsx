@@ -97,7 +97,10 @@ import { DCTERMS, DY, GEO, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE, XSD
 import { readEntry, readPrivacySettings } from "@/lib/pod/read";
 // Section 1's ORACLE, not its subject: the snapped values are hard-coded and
 // this is what ties them to the grid that produced them, in one control test.
-import { snapToPrecision } from "@/lib/pod/fuzz";
+// `fuzzForPublication` joins it for section 11's control, in the same role:
+// the oracle for "this GPS fixture really does reach the branch the test is
+// about", against the §7.6 document the harness serves rather than a guess.
+import { fuzzForPublication, snapToPrecision } from "@/lib/pod/fuzz";
 // Aliased — `describe` is vitest's here. Used to print a structured PodError
 // when a control fails, so the message names the read rather than "false".
 import { describe as describeError } from "@/lib/pod/result";
@@ -110,7 +113,10 @@ import type { Entry } from "@/lib/pod/schema";
 /* Section 10. The picked file is a real JPEG with real EXIF, built byte by byte
    by the same fixture test/media-exif.test.ts reads back — so the container
    hash and the metadata read are over bytes rather than over an empty File. */
-import { exifJpeg } from "./fixtures/exif-jpeg";
+/* `ExifOptions` for section 11, which needs the GPS half of the same builder:
+   a photo's coordinate has to arrive as EXIF and be read by the real
+   `readMetadata`, exactly as `fakePipeline` already does it. */
+import { exifJpeg, type ExifOptions } from "./fixtures/exif-jpeg";
 import { readMetadata } from "@/lib/media/exif";
 /* Section 10e's duplicate case needs the container a given file hashes to, and
    the real functions rather than a literal: a hardcoded hash would still pass
@@ -8356,5 +8362,1162 @@ describe("entry editor — a photo that settles after the save", () => {
       "what was kept does not round-trip into a Photo",
     ).toBe(true);
     expect(new URL(String(photo.contentUrl)).pathname).toMatch(MEDIA_PATH);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 11. AUTO-FILL FROM A PHOTO'S METADATA (task 3).
+ *
+ * THE RULE, §11.3, and every test below is a face of it:
+ *
+ *   "Auto-fill only ever writes into a control the owner has not touched. A
+ *    photo added after a manual edit never overwrites it, and adding a photo is
+ *    never the only way to reach a value."
+ *
+ * …and the direction §11.3 names explicitly beside it: a second photo must not
+ * quietly replace the first photo's coordinate. So the FIRST photo carrying a
+ * value wins, and neither the owner's typing nor an earlier photo is ever
+ * overwritten.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * RULING T3-A: THE COORDINATE IS ONE UNIT FOR OWNER-TOUCH PURPOSES.
+ *
+ * Per-field touch tracking — the obvious reading — makes longitude untouched
+ * when the owner typed only a latitude, so auto-fill fills it: a coordinate
+ * whose latitude came from the owner and whose longitude came from the photo,
+ * which is a point neither of them meant. §9 then fuzzes and publishes it as if
+ * it were a real location.
+ *
+ * IT IS ONE-SIDED, AND THAT IS MEASURED RATHER THAN ASSUMED. `readMetadata`
+ * assigns `candidate.gps` in exactly one place (`lib/media/exif.ts`, the
+ * `finite(lat) && finite(long)` guard — 87-90 today, and the symbol is the
+ * durable form of that), so `gps` exists only when BOTH `Latitude` and
+ * `Longitude` do and a photo can never supply half a coordinate. Only the
+ * owner can, by typing into one box. One source, one cure: if the owner has
+ * touched EITHER box, a photo fills NEITHER. 11b-bis is that case.
+ *
+ * This does NOT change `touchedCoordinate`, which is
+ * `lat.trim() !== "" || long.trim() !== ""` and decides whether a coordinate is
+ * WRITTEN at all — an auto-filled coordinate should be written, so it keeps its
+ * meaning. The owner-touch record is a separate thing answering a different
+ * question: may auto-fill write here.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * WHERE THE VALUES COME FROM, AND WHY NOT FROM A LITERAL.
+ *
+ * `fakePipeline` runs the REAL `readMetadata` over the REAL file bytes — its
+ * own docblock says why — so a photo's GPS is whatever exifreader makes of the
+ * EXIF this section writes. The expected numbers are therefore read back out of
+ * the same reader rather than typed in here: a hand-written expectation would
+ * be asserting this file's DMS arithmetic against exifreader's, and would
+ * "fail" on a fixture rather than on the editor. The one exception is the
+ * SNAPPED pair in 11e, which is hard-coded to the module constant
+ * `SNAP_OUTSIDE_500` for the reason section 1 gives at length: computing the
+ * oracle with the function under test passes for an editor that called it on
+ * the wrong input in the same way.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * HOW THE PROVENANCE NOTES ARE QUERIED, AND WHY IT CANNOT COLLIDE.
+ *
+ * FROM THE CONTROL, FOLLOWING ITS OWN `aria-describedby` —
+ * `toHaveAccessibleDescription` and `describedByIdsOf`. Never a screen-wide
+ * text query, and never a label.
+ *
+ *   - A SCREEN-WIDE TEXT QUERY FOR THE FILE NAME CANNOT WORK HERE. The photo
+ *     row itself says "beach.jpg is attached to this entry" (section 10a), so
+ *     `queryByText(/beach\.jpg/)` matches whether or not a provenance note
+ *     exists — a vacuous pass on the positive half and a false failure on the
+ *     "the note goes away" half. Starting at the control is the only query that
+ *     distinguishes them.
+ *   - IT CANNOT COLLIDE WITH THE FIFTEEN-PLUS ENTRIES IN `LABEL`, because it is
+ *     not a label query at all: `getByLabelText(LABEL.latitude)` already
+ *     resolves to exactly one control (section 1's "exactly three coordinate
+ *     controls" pins that), and the description is read off THAT element. No
+ *     new accessible name is introduced, so 8b's shadowing loop — one match per
+ *     `LABEL` entry — is unaffected.
+ *   - NO `aria-label` ON A WRAPPER. Step 5 of the brief says so, and this file
+ *     has the receipt: `PHOTOS_LABEL`'s docblock records six tests failing with
+ *     "found multiple elements" when a `<section aria-label="Photos">` shadowed
+ *     the file input.
+ *   - EVERY IDREF MUST RESOLVE. A dangling `aria-describedby` computes to the
+ *     empty string, silently — 8e-bis's control measured exactly that — so the
+ *     ids are resolved as well as the text, and a note nobody can hear fails
+ *     with "points at an id nothing has" rather than with "no note".
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * WHAT IS DELIBERATELY NOT PINNED HERE:
+ *
+ *   - WHETHER A PHOTO MAY FILL OVER A COORDINATE AN ENTRY WAS LOADED WITH. On
+ *     an EDIT both boxes start empty by design — the latitude hint says "Leave
+ *     both boxes empty to keep the coordinate this entry already has" — so
+ *     "loaded" is not a state these controls can be in, and the brief asks for
+ *     no scenario about it. Every test below drives a CREATE.
+ *   - THE DATE. `metadata.dateTimeOriginal` has no UTC offset and §6 requires
+ *     one; that is a separate decision with a separate control (1c) and is not
+ *     this task.
+ *   - THE WORDING of any note. `alt()` matches the file NAME, which is the one
+ *     thing the brief requires ("by file name"), and nothing here asserts a
+ *     sentence.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * EVERY RENDER HERE GETS ITS OWN DRAFT STORE, AND THAT IS A MEASUREMENT.
+ *
+ * Three tests below carry an allow-case in a second render — section 1's
+ * home-region shape, `cleanup()` and render again — and those legs do NOT save.
+ * `window.localStorage` is one object for the whole file, and the unmount that
+ * ends the first leg FLUSHES the pending autosave window into it (8f). So the
+ * second render is offered that draft back, and an outstanding offer holds the
+ * coordinate controls behind the banner (8e, pinned for these three
+ * specifically at the end of 8h).
+ *
+ * Measured rather than foreseen: the first run of those legs failed with "the
+ * latitude control never became live" over a `title="Unsaved draft"` region — a
+ * banner wearing a settings failure's error message, which is exactly the shape
+ * that gets a good test deleted as flaky. A fresh `fakeStorage()` per render
+ * keeps each leg's draft to itself and takes the banner out of the section
+ * entirely. The home-region test does not need it because its first leg SAVES,
+ * and a successful save settles the draft.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+type Gps = NonNullable<ExifOptions["gps"]>;
+
+/** Exactly the EXIF `jpegFile` writes, so the only difference between these
+ *  fixtures and stage 1's is the GPS block. */
+const EXIF_BASE = { orientation: 1, dateTimeOriginal: "2026:03:29 21:38:02" } as const;
+
+/** `jpegFile`'s own copy-out-of-the-view dance, and for its reason: `exifJpeg`
+ *  returns `Uint8Array<ArrayBufferLike>` and `BlobPart` demands `ArrayBuffer`. */
+const gpsBytes = (gps: Gps): ArrayBuffer => {
+  const bytes = exifJpeg({ ...EXIF_BASE, gps });
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+};
+
+const jpegWithGps = (name: string, gps: Gps): File =>
+  new File([gpsBytes(gps)], name, { type: "image/jpeg" });
+
+/**
+ * What the REAL reader returns for those bytes — the oracle for every "the
+ * values are the photo's" assertion below.
+ *
+ * THROWS RATHER THAN RETURNING `undefined`, at module load, for
+ * `mutateSettings`' reason: a fixture that stopped carrying a coordinate would
+ * otherwise serve `undefined` to a test about auto-fill and the test would
+ * report a green "nothing was filled".
+ */
+function gpsOf(gps: Gps): { lat: number; long: number } {
+  const read = readMetadata(gpsBytes(gps)).gps;
+  if (read === undefined) {
+    throw new Error("a section 11 GPS fixture carries no coordinate lib/media/exif.ts will accept");
+  }
+  return read;
+}
+
+/** Tokyo, 35°41'37.68"N 139°42'12.24"E — test/media-exif.test.ts's own
+ *  fixture, and the §7.3 entry's place. The FIRST photo nearly everywhere
+ *  below. */
+const GPS_TOKYO: Gps = {
+  latRef: "N",
+  lat: [[35, 1], [41, 1], [3768, 100]],
+  longRef: "E",
+  long: [[139, 1], [42, 1], [1224, 100]],
+};
+
+/** Ushuaia, both hemispheres negative — the SECOND photo in 11c. Chosen as far
+ *  from Tokyo as a coordinate gets: an overwrite is a sign flip, not a rounding
+ *  difference, so 11c cannot pass on a near-miss. */
+const GPS_USHUAIA: Gps = {
+  latRef: "S",
+  lat: [[54, 1], [48, 1], [687, 100]],
+  longRef: "W",
+  long: [[68, 1], [18, 1], [1080, 100]],
+};
+
+/**
+ * §7.6's own home region, from the two ends that matter, in EXIF.
+ *
+ * TWO FIXTURES, NOT ONE, AND THE DMS SPELLINGS ARE CHOSEN SO THEY LAND EXACTLY
+ * ON THE MODULE CONSTANTS `OUTSIDE_HOME` AND `INSIDE_HOME` — 45°30'55.80"N is
+ * 45.5155 to the last bit, verified by the control below and not by arithmetic
+ * done here. That is what lets 11e assert the hard-coded `SNAP_OUTSIDE_500`,
+ * and it is the delta's second trap answered: a mutation proves nothing unless
+ * the fixture can reach the mutated branch, so the control runs each of these
+ * through the real `fuzzForPublication` against the real §7.6 document and
+ * shows one snapping and the other dropping.
+ */
+const GPS_OUTSIDE_HOME: Gps = {
+  latRef: "N",
+  lat: [[45, 1], [30, 1], [5580, 100]],
+  longRef: "E",
+  long: [[9, 1], [12, 1], [3708, 100]],
+};
+const GPS_INSIDE_HOME: Gps = {
+  latRef: "N",
+  lat: [[45, 1], [27, 1], [579672, 10_000]],
+  longRef: "E",
+  long: [[9, 1], [11, 1], [245544, 10_000]],
+};
+
+const TOKYO = gpsOf(GPS_TOKYO);
+const USHUAIA = gpsOf(GPS_USHUAIA);
+const AT_HOME = gpsOf(GPS_INSIDE_HOME);
+const AWAY = gpsOf(GPS_OUTSIDE_HOME);
+
+/** How a picked file shows up on screen, with the dot escaped: `beach.jpg`
+ *  unescaped would also match `beachXjpg`, which is harmless, and would not
+ *  match at all if the name ever contained a `+`. */
+const alt = (file: File) => new RegExp(file.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
+/**
+ * THE SETTINGS HAVE LANDED — not "a render happened".
+ *
+ * `typeCoordinate`'s first half, factored out because most of this section does
+ * not type: the photo does the typing. It is the delta's FIRST trap, which has
+ * already made two pins in this file vacuous this stage — §7.6 arrives over MSW
+ * mid-flight, so a test that asserts on a save cycle can end up measuring the
+ * settings arriving rather than the behaviour under test.
+ *
+ * TWO CHECKS, AND THE SECOND IS THE ONE THAT CANNOT BE FAKED BY A PENDING
+ * STATE. `toBeEnabled()` alone would also hold for a build that never gated the
+ * controls; the precision showing §7.6's own 500 can only happen after
+ * `readPrivacySettings` resolved, because this app supplies no fallback for
+ * `dy:defaultPrecisionMeters` (§7.6: "required outright").
+ */
+async function awaitLiveCoordinateControls() {
+  requireCoordinateControls();
+  await waitFor(() => {
+    for (const [what, el] of coordinateControls()) {
+      expect(
+        el,
+        `the ${what} control never became live: either the settings read did not settle, or it took the fail-closed branch`,
+      ).toBeEnabled();
+    }
+  });
+  expect(
+    shownValue(LABEL.precision),
+    "the precision control is live but is not showing §7.6's own default: the settings had not landed when this test started",
+  ).toBe("500");
+}
+
+/** Pick a photo and wait until it has SETTLED, which is the state `attach`
+ *  reaches `ready` in and therefore the only state auto-fill can key on: both
+ *  derivatives on the Pod, and the row showing it from the Pod rather than from
+ *  a `blob:` URL (10a's assertion). */
+async function pickAndSettle(file: File, media: ReturnType<typeof mediaFake>) {
+  const before = media.puts.length;
+  pickPhoto(file);
+  await screen.findByRole("img", { name: alt(file) });
+  await waitFor(() => expect(media.puts).toHaveLength(before + 2));
+}
+
+/** What a control announces as its description, with every IDREF it names
+ *  proved to resolve first. Both halves, because a dangling id computes to ""
+ *  and the failure would otherwise read "no note" (8e-bis's measurement). */
+function describedTextOf(label: RegExp): string {
+  const el = screen.getByLabelText(label);
+  for (const id of describedByIdsOf(el)) {
+    expect(
+      document.getElementById(id),
+      `the ${String(label)} control points aria-describedby at "${id}", which nothing has`,
+    ).not.toBeNull();
+  }
+  return el.getAttribute("aria-describedby") === null
+    ? ""
+    : describedByIdsOf(el)
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+/* ─────────────────────────────────────────── 11.0 controls for section 11 ── */
+
+describe("controls for section 11", () => {
+  /**
+   * NOT A TEST OF THE EDITOR — section 0's kind, and it passes on its first run
+   * for the same reason.
+   *
+   * Every assertion in this section rests on four EXIF fixtures carrying the
+   * coordinates it thinks they carry, on those coordinates being far enough
+   * apart that an overwrite is visible, and — for 11e, the most important test
+   * in the task — on one of them landing OUTSIDE §7.6's home region and the
+   * other INSIDE it. That last pair is the delta's second trap in as many
+   * words: stage 1 lost a Playwright leg to a mutation whose guard the
+   * specified fixture could not reach, and both briefed tests stayed green.
+   */
+  it("the four GPS fixtures land where this section thinks they do", async () => {
+    /* THE SETTINGS THE HARNESS SERVES, through the real reader. */
+    servePod({ [SETTINGS_URL]: PRIVACY_TTL });
+    const settings = await readPrivacySettings(SETTINGS_URL);
+    expect(settings.ok, settings.ok ? "" : describeError(settings.error)).toBe(true);
+    if (!settings.ok) return;
+
+    /* EXACT, TO THE LAST BIT, on the two that 11e leans on: these are the module
+       constants section 1 already ties to the grid, so `SNAP_OUTSIDE_500` and
+       "inside a 3 km radius" carry over rather than being re-derived. */
+    expect(AWAY, "the outside-home fixture is not OUTSIDE_HOME to the bit").toEqual({
+      lat: Number(OUTSIDE_HOME.lat),
+      long: Number(OUTSIDE_HOME.long),
+    });
+    expect(AT_HOME, "the inside-home fixture is not INSIDE_HOME to the bit").toEqual({
+      lat: Number(INSIDE_HOME.lat),
+      long: Number(INSIDE_HOME.long),
+    });
+
+    /* AND EACH REALLY REACHES THE BRANCH IT IS FOR. Not asserted through the
+       editor: through the same `fuzzForPublication` the editor has to call,
+       against the same §7.6 document the harness serves it. */
+    const snapped = fuzzForPublication(AWAY, settings.value);
+    expect(
+      snapped.kind,
+      "the outside-home photo does not snap: 11e's snapped half is unreachable and its mutation cannot go red",
+    ).toBe("snap");
+    if (snapped.kind !== "snap") return;
+    // As numbers, never as bytes — §11 guardrail 6 — and against the SAME
+    // module constant 11e asserts, which is what carries section 1's grid
+    // control over instead of re-deriving it.
+    expect({
+      lat: Number(snapped.lat),
+      long: Number(snapped.long),
+      precisionMeters: snapped.precisionMeters,
+    }).toEqual({ ...SNAP_OUTSIDE_500, precisionMeters: 500 });
+
+    expect(
+      fuzzForPublication(AT_HOME, settings.value),
+      "the inside-home photo is not inside the home region: 11e's no-geometry half proves nothing",
+    ).toEqual({ kind: "drop", reason: "insideHome" });
+
+    /* THE TWO ORDINARY PHOTOS DIFFER FROM EACH OTHER AND FROM WHAT THE OWNER
+       TYPES. Without this, 11b and 11c could not fail: "the value did not
+       change" is not an assertion when the two candidate values are equal. */
+    expect(TOKYO.lat).not.toBe(USHUAIA.lat);
+    expect(TOKYO.long).not.toBe(USHUAIA.long);
+    for (const [what, point] of [["tokyo", TOKYO], ["ushuaia", USHUAIA]] as const) {
+      expect(point.lat, `${what} is what the owner types`).not.toBe(Number(TYPED.lat));
+      expect(point.long, `${what} is what the owner types`).not.toBe(Number(TYPED.long));
+    }
+    /* Sign-carrying, so 11c's "the second photo did not win" is a hemisphere
+       apart rather than a rounding difference. */
+    expect(USHUAIA.lat).toBeLessThan(0);
+    expect(USHUAIA.long).toBeLessThan(0);
+
+    /* THE SUBSTRING PROPERTY 11e's "reaches no request at all" needs. The raw
+       digits must not occur inside the snapped ones, or the leak assertion
+       could not fail. */
+    const published = `${SNAP_OUTSIDE_500.lat} ${SNAP_OUTSIDE_500.long}`;
+    expect(published).not.toContain(String(AWAY.lat));
+    expect(published).not.toContain(String(AWAY.long));
+
+    /* AND A PHOTO WITH NO GPS REALLY HAS NONE — 11d's premise. `jpegFile` is
+       stage 1's fixture and this is the one property 11d needs from it. */
+    const plain = jpegFile("scan.jpg");
+    const bytes = await plain.arrayBuffer();
+    expect(plain.size, "the no-GPS fixture is empty, so 11d asserts nothing").toBeGreaterThan(0);
+    expect(
+      readMetadata(bytes).gps,
+      "stage 1's jpegFile now carries GPS, so 11d's photo is not the no-GPS case",
+    ).toBeUndefined();
+    expect(
+      readMetadata(bytes).dateTimeOriginal,
+      "the no-GPS fixture carries no EXIF at all, so 11d cannot tell 'no GPS' from 'no metadata'",
+    ).toBe("2026-03-29T21:38:02");
+  });
+});
+
+/* ──────────────────────────────── 11a. a photo offers what nothing else can ── */
+
+describe("entry editor — a photo's GPS reaches the coordinate controls", () => {
+  /**
+   * SCENARIO 1. The whole point of stage 1's seam: `derived.metadata` is read
+   * and thrown away today (`entry-editor.tsx`, the "deliberately unused for
+   * now" comment inside `attach`).
+   *
+   * THE VALUE IS THE PHOTO'S, AT FULL PRECISION, and that is a decision rather
+   * than a convenience: the brief's words are "to the precision `exifreader`
+   * returned", and the form is what `fuzzForPublication` is fed at save time
+   * (step 4: "feed the form, not the write path"). A value rounded on the way
+   * IN is a snap the owner did not choose, applied before the grid they did,
+   * and invisible on the wire because both numbers look equally deliberate.
+   * Compared as NUMBERS, never as bytes — §11 guardrail 6 — so the lexical form
+   * stays the implementer's.
+   *
+   * WHAT WOULD BREAK IT: leaving `derived.metadata` unused, which is today's
+   * code; filling from `metadata.gps` at SAVE time instead of at `ready`, which
+   * leaves the boxes empty here and takes the provenance note with it; rounding
+   * or `toFixed`-ing on the way in.
+   */
+  it("prefills both boxes from a photo that carries GPS", async () => {
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+
+    /* THE PREMISE: there is nothing in either box, so "filled" below is a
+       change rather than a coincidence. */
+    expect(shownValue(LABEL.latitude), "the latitude box was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.longitude), "the longitude box was not empty to begin with").toBe("");
+
+    await pickAndSettle(source, media);
+
+    /* …and the file really went through the reader, rather than around it. */
+    expect(rig.processed, "the pipeline was not given the picked file").toEqual([source.size]);
+
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's latitude never reached the control: `derived.metadata` is still unused",
+      ).not.toBe("");
+    });
+
+    expect(Number(shownValue(LABEL.latitude)), "the latitude is not the photo's").toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude)), "the longitude is not the photo's").toBe(
+      TOKYO.long,
+    );
+
+    /* AND THE CONTROLS ARE STILL THE OWNER'S. An auto-fill that disabled what it
+       filled would make the photo the only way to reach the value, which is the
+       second half of §11.3's sentence. */
+    for (const [what, el] of coordinateControls()) {
+      expect(el, `auto-fill left the ${what} control disabled`).toBeEnabled();
+    }
+  });
+
+  /**
+   * SCENARIO 6. A value that appeared without being typed has to say where it
+   * came from, or the owner cannot tell an auto-fill from something they did
+   * yesterday — and the note has to stop being said once it stops being true.
+   *
+   * QUERIED FROM THE CONTROL, through its own `aria-describedby`. The section
+   * docblock says why no other query works: the photo row already contains the
+   * file name, so a screen-wide text query matches with or without a note.
+   *
+   * WHAT IS NOT ASSERTED: whether the OTHER box's note also goes away when one
+   * is edited. A single note for the pair and two per-field notes are both
+   * honest answers — T3-A is about who may WRITE, not about how many sentences
+   * there are — and both satisfy everything below.
+   *
+   * WHAT WOULD BREAK IT: no note at all, which is today's code; a note on a
+   * wrapper with an `aria-label` instead of an association (step 5 forbids it,
+   * and `PHOTOS_LABEL`'s docblock records the six-test failure it caused); an
+   * `aria-describedby` pointing at an id nothing renders, which computes to ""
+   * and is caught by `describedTextOf`; a note left in place after the owner
+   * edits the field.
+   */
+  it("says which photo a filled coordinate came from, and stops saying it once the owner edits", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+
+    /* THE ALLOW-CASE FIRST, AND IT IS WHAT STOPS "NEVER MENTION A FILE NAME"
+       FROM PASSING: with no photo picked, neither control names one. */
+    expect(describedTextOf(LABEL.latitude)).not.toMatch(alt(source));
+    expect(describedTextOf(LABEL.longitude)).not.toMatch(alt(source));
+
+    await pickAndSettle(source, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+      ).not.toBe("");
+    });
+
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText(label),
+          "the filled control does not say which photo the value came from",
+        ).toHaveAccessibleDescription(alt(source));
+      });
+      /* And it is an ASSOCIATION that resolves, not a `title` and not a
+         dangling IDREF — 8e-bis measured that both of those look like a
+         description and are heard as nothing (or as a tooltip nobody on a
+         keyboard sees). */
+      expect(describedTextOf(label), "the note is not reachable from the control").toMatch(
+        alt(source),
+      );
+    }
+
+    /* THE OWNER EDITS THE LATITUDE. The note about it has stopped being true. */
+    expect(typeAsUser(LABEL.latitude, TYPED.lat), "the latitude control refused the keystroke").toBe(
+      true,
+    );
+    expect(shownValue(LABEL.latitude), "the keystroke did not stick").toBe(TYPED.lat);
+
+    expect(
+      describedTextOf(LABEL.latitude),
+      "the note still credits the photo for a value the owner has since typed over",
+    ).not.toMatch(alt(source));
+    expect(
+      screen.getByLabelText(LABEL.latitude),
+      "the note still credits the photo, announced",
+    ).not.toHaveAccessibleDescription(alt(source));
+
+    /* THE LATITUDE'S HINT IS STILL THERE, so "the note went away" is not
+       "the whole description went away". */
+    expect(
+      describedTextOf(LABEL.latitude),
+      "editing the latitude removed its permanent hint along with the note",
+    ).toMatch(/snapped to the precision/i);
+  });
+});
+
+/* ─────────────────────────── 11b. what the owner typed is never overwritten ── */
+
+describe("entry editor — a photo added after the owner typed", () => {
+  /**
+   * SCENARIO 2, and the first half of §11.3's sentence. A photo picked after a
+   * coordinate was typed silently replaces a place the owner CHOSE with the
+   * place a camera happened to be — and §9 then fuzzes and publishes it, so the
+   * only surface that could show the substitution is a public triple.
+   *
+   * WHAT WOULD BREAK IT: filling whenever the target is empty-or-not without
+   * asking who put it there; inferring owner-touch from emptiness (step 3 says
+   * why not: a field can be non-empty because the owner typed, because a photo
+   * filled it, or because an entry was loaded, and only the first forbids
+   * auto-fill); running the fill on every `ready` rather than once.
+   */
+  it("never overwrites the coordinate the owner typed", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await typeCoordinate(TYPED);
+    await pickAndSettle(source, media);
+
+    /* Given a moment to get it wrong: the fill lands asynchronously, so a bare
+       synchronous assertion here would pass against an editor that overwrote
+       one tick later. */
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    expect(shownValue(LABEL.latitude), "the photo overwrote the typed latitude").toBe(TYPED.lat);
+    expect(shownValue(LABEL.longitude), "the photo overwrote the typed longitude").toBe(TYPED.long);
+
+    /* AND NOTHING CLAIMS THE PHOTO SUPPLIED IT. A note beside the owner's own
+       number is a lie the owner has no way to check. */
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a provenance note credits the photo for a value the owner typed",
+      ).not.toMatch(alt(source));
+    }
+
+    cleanup();
+
+    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH THE SAME FILE, and it is the
+       leg that makes this test red before the implementation lands. Nothing
+       typed this time, so the photo MAY fill — and must. Without it, every
+       refusal above is satisfied by an editor that never auto-fills anything,
+       which is today's code: "a rule that rejects everything is useless", and
+       section 1's home-region test carries its allow-case for the same reason. */
+    const openForm = mediaFake();
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(source, openForm);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the same photo fills nothing on a form nobody has typed into: the refusal above proves only that auto-fill does not exist",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(source),
+    );
+  });
+
+  /**
+   * RULING T3-A, and the case the brief's scenario 2 is silent about.
+   *
+   * The owner types ONE number. Per-field touch tracking leaves the other box
+   * untouched, so auto-fill fills it, and the result is a coordinate half
+   * chosen and half photographed: a point that is nowhere, published as if it
+   * were somewhere, with a note claiming only the longitude came from the
+   * photo. `lib/media/exif.ts:87-90` means a photo can never do this by
+   * itself — `gps` is set only when both tags are present — so the owner's one
+   * keystroke is the only way in, and refusing BOTH boxes is the only way out.
+   *
+   * WHAT WOULD BREAK IT: one owner-touch flag per input, which is the obvious
+   * reading of step 3 and the whole reason this ruling exists.
+   */
+  it("fills neither box when the owner has typed into one of them", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+
+    /* ONE box, and it really took the keystroke. */
+    expect(typeAsUser(LABEL.latitude, TYPED.lat), "the latitude control refused the keystroke").toBe(
+      true,
+    );
+    expect(shownValue(LABEL.latitude), "the keystroke did not stick").toBe(TYPED.lat);
+    expect(shownValue(LABEL.longitude), "the longitude box was not left empty").toBe("");
+
+    await pickAndSettle(source, media);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    expect(shownValue(LABEL.latitude), "the photo overwrote the typed latitude").toBe(TYPED.lat);
+    expect(
+      shownValue(LABEL.longitude),
+      "the photo completed the owner's half-typed coordinate: latitude from the owner, longitude from the camera, published as one point",
+    ).toBe("");
+
+    expect(
+      describedTextOf(LABEL.longitude),
+      "a note credits the photo for a longitude the form does not hold",
+    ).not.toMatch(alt(source));
+
+    cleanup();
+
+    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH THE SAME FILE, and it is the
+       leg that makes this test red before the implementation lands. Nothing
+       typed this time, so the photo MAY fill — and must. Without it, every
+       refusal above is satisfied by an editor that never auto-fills anything,
+       which is today's code: "a rule that rejects everything is useless", and
+       section 1's home-region test carries its allow-case for the same reason. */
+    const openPair = mediaFake();
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(source, openPair);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the same photo fills nothing on a form nobody has typed into: the refusal above proves only that auto-fill does not exist",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(source),
+    );
+  });
+});
+
+/* ──────────────────────────── 11c. the first photo wins, not the last one ── */
+
+describe("entry editor — a second photo with GPS of its own", () => {
+  /**
+   * SCENARIO 3, the direction §11.3 names explicitly and the one that is easy
+   * to get wrong: an owner-touch flag alone does not stop it, because neither
+   * photo is the owner. The natural implementation — fill on every `ready`
+   * where the box is not owner-typed — moves the entry to wherever the LAST
+   * photo was taken, which on a day's walk is a different place every time a
+   * picture is added, with the note updating politely as it goes.
+   *
+   * A HEMISPHERE APART on purpose (see the control): if the second photo won,
+   * the latitude changes sign.
+   *
+   * WHAT WOULD BREAK IT: recording only "did the owner type" and not "has a
+   * photo already supplied this"; re-running the fill on every `ready` slot;
+   * keying the guard on the slot rather than on the coordinate.
+   */
+  it("keeps the first photo's coordinate when a second one arrives", async () => {
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const first = jpegWithGps("beach.jpg", GPS_TOKYO);
+    const second = jpegWithGps("shrine.jpg", GPS_USHUAIA);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+      ).not.toBe("");
+    });
+
+    /* THE PREMISE: the first photo's value is in the box, so what follows is
+       "it was not replaced" rather than "nothing ever filled it". */
+    expect(Number(shownValue(LABEL.latitude)), "the first photo did not fill the box").toBe(
+      TOKYO.lat,
+    );
+
+    await pickAndSettle(second, media);
+
+    /* THE SECOND PHOTO REALLY LANDED — two files through the pipeline, two
+       containers, four PUTs. Without this the assertion below holds for an
+       editor that dropped the second pick on the floor. */
+    expect(rig.processed, "the second file never reached the pipeline").toHaveLength(2);
+    expect(media.puts, "the second photo's derivatives never went up").toHaveLength(4);
+    expect(media.containers(), "both photos went to one container").toHaveLength(2);
+    await screen.findByRole("img", { name: alt(second) });
+
+    expect(
+      Number(shownValue(LABEL.latitude)),
+      "the second photo replaced the first photo's latitude",
+    ).toBe(TOKYO.lat);
+    expect(
+      Number(shownValue(LABEL.longitude)),
+      "the second photo replaced the first photo's longitude",
+    ).toBe(TOKYO.long);
+
+    /* AND THE NOTE STILL NAMES THE PHOTO THE VALUE IS ACTUALLY FROM. A note
+       that followed the last pick would credit `shrine.jpg` for `beach.jpg`'s
+       coordinate — the value right, the provenance wrong, which is worse than
+       no note at all. */
+    expect(describedTextOf(LABEL.latitude)).toMatch(alt(first));
+    expect(
+      describedTextOf(LABEL.latitude),
+      "the note credits the second photo for the first photo's coordinate",
+    ).not.toMatch(alt(second));
+  });
+});
+
+/* ──────────────────────────────── 11d. a photo with nothing to offer ──────── */
+
+describe("entry editor — a photo that carries no GPS", () => {
+  /**
+   * SCENARIO 4, and the common case: screenshots, scans, location services off.
+   * `lib/media/exif.ts` returns `{}` for a file it cannot read at all, so
+   * "absent" is the shape the editor meets most often.
+   *
+   * BOTH HALVES, and the second is what stops the first being vacuous. An
+   * editor that never auto-fills passes "the boxes are still empty" perfectly;
+   * an editor that does `setLat(String(metadata.gps?.lat))` blanks a value the
+   * owner typed — or writes the four characters `unde` and the rest of
+   * `undefined` into a `type="number"` box — and passes nothing.
+   *
+   * WHAT WOULD BREAK IT: filling unconditionally from an optional field;
+   * clearing the boxes when a photo has no GPS "to keep them consistent";
+   * treating `{}` as a reason to reset the form.
+   */
+  it("changes nothing, and clears nothing, when the photo has no GPS", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const plain = jpegFile("scan.jpg");
+    const located = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+
+    /* ── half one: nothing typed, and a photo with no GPS ─────────────────── */
+    await pickAndSettle(plain, media);
+
+    expect(shownValue(LABEL.latitude), "a photo with no GPS filled the latitude").toBe("");
+    expect(shownValue(LABEL.longitude), "a photo with no GPS filled the longitude").toBe("");
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a photo with no coordinate is credited with one anyway",
+      ).not.toMatch(alt(plain));
+    }
+    /* And nothing that looks like a stringified absence reached the form. */
+    for (const [what, el] of coordinateControls()) {
+      expect((el as HTMLInputElement).value, `the ${what} control holds a stringified absence`).not.
+        toMatch(/undefined|null|NaN/i);
+    }
+
+    /* ── half two, the allow-case: the SAME form, a photo that does carry GPS ─
+       Without this, an editor with no auto-fill at all passes half one. */
+    await pickAndSettle(located, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "a photo WITH GPS did not fill the box either, so half one proves nothing",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+  });
+
+  /**
+   * The other direction of "must not clear anything": a value already in the
+   * box, and then a photo with no GPS. Kept separate from the pair above
+   * because the failure is a LOSS rather than a no-op — the owner watches their
+   * coordinate disappear when they attach a scan.
+   */
+  it("leaves a coordinate already in the boxes alone", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await typeCoordinate(TYPED);
+    await pickAndSettle(jpegFile("scan.jpg"), media);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    expect(shownValue(LABEL.latitude), "a photo with no GPS cleared the typed latitude").toBe(
+      TYPED.lat,
+    );
+    expect(shownValue(LABEL.longitude), "a photo with no GPS cleared the typed longitude").toBe(
+      TYPED.long,
+    );
+
+    cleanup();
+
+    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH THE SAME FILE, and it is the
+       leg that makes this test red before the implementation lands. Nothing
+       typed this time, so the photo MAY fill — and must. Without it, every
+       refusal above is satisfied by an editor that never auto-fills anything,
+       which is today's code: "a rule that rejects everything is useless", and
+       section 1's home-region test carries its allow-case for the same reason. */
+    const openScan = mediaFake();
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(source, openScan);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the same photo fills nothing on a form nobody has typed into: the refusal above proves only that auto-fill does not exist",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(source),
+    );
+  });
+});
+
+/* ────────── 11e. the auto-filled coordinate still goes through §9 ─────────── */
+
+describe("entry editor — what a stranger can fetch after an auto-fill", () => {
+  /**
+   * THE MOST IMPORTANT ASSERTION IN THIS STAGE, and the brief says so.
+   *
+   * A photo's GPS is a coordinate like any other, and §9 has no second path for
+   * it: "The studio applies fuzzing before the write and discards the precise
+   * original." The tempting shortcut is the one that makes the whole feature a
+   * privacy regression — a photo's GPS is *already* a real reading, so it
+   * arrives looking authoritative, and an implementation that puts it on the
+   * `Entry` directly publishes the exact spot a picture was taken. There is no
+   * render-time mitigation behind this and no second chance after the PUT.
+   *
+   * THE ORDER IS THE FEATURE, and step 4 fixes it: feed the FORM, not the write
+   * path. The inputs hold the precise coordinate exactly as manual entry does,
+   * and `fuzzForPublication` runs at save as it already does — one path to the
+   * Pod rather than two, and §9's guarantee comes from that path being the only
+   * route.
+   *
+   * TWO HALVES, TWO FIXTURES, and the delta's second trap is why: a mutation
+   * proves nothing unless the fixture can reach the mutated branch. The
+   * snapped half needs GPS OUTSIDE the home region; the no-geometry half needs
+   * GPS INSIDE it. Both are checked against the real `readPrivacySettings` and
+   * the real `fuzzForPublication` in this section's control, over the very
+   * `privacy.ttl` the harness serves — not asserted here for the first time.
+   *
+   * §9 STEP 2 IS DROPPED, NOT COARSENED: "Inside the home radius, drop the
+   * coordinate entirely. Do not coarsen it." A photo taken at home publishes no
+   * geometry at all, and the entry is still written.
+   *
+   * THE SETTINGS ARE WAITED FOR BEFORE EITHER SAVE — the delta's first trap,
+   * which has already made two pins in this file vacuous this stage. §7.6
+   * arrives over MSW mid-flight; this test asserts on a save AND depends on the
+   * settings being loaded, so it is the most exposed one in the section.
+   * `awaitLiveCoordinateControls` is that wait, and it checks the precision is
+   * showing §7.6's own 500 rather than merely that a control is enabled.
+   *
+   * WHAT WOULD BREAK IT: building `place.geo` from `metadata.gps` instead of
+   * from the form; calling `fuzzForPublication` for typed coordinates and not
+   * for auto-filled ones; skipping the home-region check for a photo's GPS
+   * because "the camera was there, so it is a fact"; coarsening instead of
+   * dropping.
+   */
+  it("publishes the snapped pair from a photo's GPS, and no geometry at all from one taken at home", async () => {
+    const fake = fakeStudioSession();
+
+    /* ── half one: outside the home region, snapped ───────────────────────── */
+    const pod = podFake();
+    const media = mediaFake();
+    const away = jpegWithGps("bridge.jpg", GPS_OUTSIDE_HOME);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    fillNewEntry();
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(away, media);
+
+    /* THE PREMISE: the FORM holds the precise pair, which is step 4's decision
+       and the thing that makes the snap below a snap of the photo's reading. */
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+      ).not.toBe("");
+    });
+    const rawLat = shownValue(LABEL.latitude);
+    const rawLong = shownValue(LABEL.longitude);
+    expect(Number(rawLat), "the form does not hold the photo's latitude").toBe(AWAY.lat);
+    expect(Number(rawLong), "the form does not hold the photo's longitude").toBe(AWAY.long);
+
+    /* Not `clickSaveAndWait`: the attached photo's own `role="status"` has
+       already made `outcomeText()` non-empty (10e's reasoning). */
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+    await waitFor(() => expect(pod.indexPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+
+    /* The premise that this is the save of the form that was filled in. */
+    expect(oneObject(quads, `${put.url}#it`, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    const geo = geoNodeOf(quads, put.url);
+    expect(
+      geo,
+      "a photo's GPS published no geometry outside the home region: the auto-fill never reached the save path",
+    ).toBeDefined();
+    for (const predicate of [SCHEMA.latitude, GEO.lat]) {
+      expect(
+        Number(oneObject(quads, geo!, predicate)?.value),
+        `${predicate} is not the snapped latitude`,
+      ).toBe(SNAP_OUTSIDE_500.lat);
+    }
+    for (const predicate of [SCHEMA.longitude, GEO.long]) {
+      expect(
+        Number(oneObject(quads, geo!, predicate)?.value),
+        `${predicate} is not the snapped longitude`,
+      ).toBe(SNAP_OUTSIDE_500.long);
+    }
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe("500");
+    expect(datatypeOf(oneObject(quads, geo!, SCHEMA.latitude))).toBe(XSD.decimal);
+
+    /* THE PHOTO'S RAW READING IS IN NOTHING THAT LEFT THE BROWSER. Not scoped
+       to the entry document: through the index row or a query string is still
+       out. Read off the CONTROLS rather than from a literal, so this is the
+       value that was actually in flight. */
+    const wire = pod.wire();
+    expect(wire, "the photo's raw latitude is on the wire").not.toContain(rawLat);
+    expect(wire, "the photo's raw longitude is on the wire").not.toContain(rawLong);
+    /* …and the snapped one IS, so "nowhere" cannot be satisfied by publishing
+       no coordinate. */
+    expect(wire).toContain(String(SNAP_OUTSIDE_500.lat));
+
+    /* The index row carries the same snapped pair — §7.4's flat dy: terms. */
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put.url);
+    expect(row, "no index row points at the entry that was just written").toBeDefined();
+    expect(Number(oneObject(rows, row!, DY.lat)?.value)).toBe(SNAP_OUTSIDE_500.lat);
+    expect(Number(oneObject(rows, row!, DY.long)?.value)).toBe(SNAP_OUTSIDE_500.long);
+
+    /* No blank nodes anywhere in it (§11 guardrail 4) — `triples` throws. */
+    expect(() => triples(put.body, put.url)).not.toThrow();
+
+    cleanup();
+
+    /* ── half two: taken at home, so §9 step 2 drops it entirely ──────────── */
+    const home = podFake();
+    const homeMedia = mediaFake();
+    const athome = jpegWithGps("kitchen.jpg", GPS_INSIDE_HOME);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    fillNewEntry();
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(athome, homeMedia);
+
+    /* THE PREMISE THAT MAKES THIS HALF NON-VACUOUS: the auto-fill DID happen.
+       Without it "no geometry was published" is satisfied by an editor that
+       never read `metadata.gps` at all — which is today's code, and which must
+       fail this test on the half above rather than pass it here. */
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the at-home photo filled nothing, so 'no geometry' says nothing about the home region",
+      ).not.toBe("");
+    });
+    const homeLat = shownValue(LABEL.latitude);
+    const homeLong = shownValue(LABEL.longitude);
+    expect(Number(homeLat)).toBe(AT_HOME.lat);
+    expect(Number(homeLong)).toBe(AT_HOME.long);
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(home.entryPut()).toBeDefined());
+    await waitFor(() => expect(home.indexPut()).toBeDefined());
+
+    const homePut = home.entryPut()!;
+    const homeQuads = quadsOf(homePut.body, homePut.url);
+
+    /* THE ENTRY IS STILL WRITTEN. §9: "it is the geometry that is absent, not
+       the entry." */
+    expect(oneObject(homeQuads, `${homePut.url}#it`, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    /* NOT ONE COORDINATE TRIPLE, anywhere in the document. */
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(
+        homeQuads.filter((q) => q.predicate.value === predicate),
+        `${predicate} survived a photo taken inside the home region`,
+      ).toEqual([]);
+    }
+
+    /* Nor the digits, anywhere on the wire — this is the pair that would
+       identify the owner's front door. */
+    expect(home.wire(), "the at-home photo's latitude is on the wire").not.toContain(homeLat);
+    expect(home.wire(), "the at-home photo's longitude is on the wire").not.toContain(homeLong);
+
+    /* …and the index row carries none of it either. */
+    const { quads: homeRows, row: homeRow } = indexRowOf(
+      home.indexPut()!.body,
+      home.indexPut()!.url,
+      homePut.url,
+    );
+    expect(homeRow, "the entry has no row in the index it was written to").toBeDefined();
+    for (const predicate of [DY.lat, DY.long, DY.precisionMeters]) {
+      expect(
+        objectsOf(homeRows, homeRow!, predicate),
+        `the index row kept ${predicate} for a photo taken inside the home region`,
+      ).toEqual([]);
+    }
+  });
+});
+
+/* ─────────────── 11f. the auto-filled coordinate survives a lost tab ──────── */
+
+describe("entry editor — an auto-filled coordinate in the local draft", () => {
+  /**
+   * NOT IN THE BRIEF, and asserted because "probably, via a neighbour" is the
+   * shape that hid a real defect in phase 2: a `clearTimeout` was deletable
+   * with 80 tests green, because every one of them drove the path where another
+   * mechanism covered for it.
+   *
+   * It probably IS already covered — attaching a photo mutates `slots`, which
+   * arms the autosave, so the coordinate should ride along — and that is
+   * exactly the reason to pin it rather than assume it. `docs/decisions.md`
+   * §10: losing a long entry in a hostel is what kills the habit.
+   *
+   * THE INVARIANT, NOT THE BYTES. `savedAt` is a field a live debounce is
+   * allowed to move, and section 8's fake clock cannot be used here — the
+   * settings arrive over the network and a faked timer stops everything that
+   * waits on one. So this uses 8h's mechanism instead: the UNMOUNT flushes the
+   * pending window, on real timers.
+   *
+   * WHAT WOULD BREAK IT: filling the boxes through a path that does not mark
+   * the form touched, so the autosave effect returns at `if (!touched.current)`
+   * and the window is never armed; holding the auto-filled value outside the
+   * `lat`/`long` state the draft is built from.
+   */
+  it("keeps a coordinate a photo filled, not the one that would be published", async () => {
+    const media = mediaFake();
+    const store = fakeStorage();
+    const fake = fakeStudioSession();
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: store.storage,
+    });
+
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(jpegWithGps("bridge.jpg", GPS_OUTSIDE_HOME), media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+      ).not.toBe("");
+    });
+
+    const rawLat = shownValue(LABEL.latitude);
+    const rawLong = shownValue(LABEL.longitude);
+    fillNewEntry();
+    cleanup();
+
+    expect(store.calls.set, "nothing was kept at all").not.toEqual([]);
+    const written = store.calls.set.at(-1)!;
+    expect(written.key).toBe(draftKeyFor(OWNER, NEW_SCOPE));
+
+    const payload = parseDraft(written.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+    expect(payload.lat, "the draft does not hold the coordinate the photo filled").toBe(rawLat);
+    expect(payload.long).toBe(rawLong);
+
+    /* …and it is the FORM's value rather than the published one, 8h's decision
+       carried over: `localStorage` is not a resource and never leaves the
+       browser. */
+    expect(written.value, "the draft holds the SNAPPED pair, not the one the form holds").not.
+      toContain(String(SNAP_OUTSIDE_500.lat));
+  });
+});
+
+/* ────────────── 11g. a photo is never the only way to reach a value ───────── */
+
+describe("entry editor — typing over what a photo filled", () => {
+  /**
+   * SCENARIO 7, and the second half of §11.3's sentence: "adding a photo is
+   * never the only way to reach a value." The direction with no photo in it at
+   * all is section 1's, which types a coordinate into a form that has never
+   * seen one; this is the harder direction — a control auto-fill has already
+   * written into, which an implementation may reasonably have marked as "filled
+   * by beach.jpg" and may be tempted to keep authoritative.
+   *
+   * THE SECOND CLAIM IS WHAT MAKES IT MORE THAN SCENARIO 6: once the owner has
+   * typed over an auto-filled value, that box is OWNER-TOUCHED, so a later
+   * photo may not take it back. Without this half, an editor that accepted the
+   * keystroke and then reverted on the next `ready` passes.
+   *
+   * WHAT WOULD BREAK IT: making the auto-filled control read-only or disabled;
+   * re-applying the photo's value on any later render or any later `ready`;
+   * setting the owner-touch flag only for a box that was empty when it was
+   * typed into.
+   */
+  it("lets the owner type over an auto-filled coordinate, and a later photo does not take it back", async () => {
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const first = jpegWithGps("beach.jpg", GPS_TOKYO);
+    const later = jpegWithGps("shrine.jpg", GPS_USHUAIA);
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude)), "the first photo did not fill the box").toBe(
+      TOKYO.lat,
+    );
+
+    /* THE OWNER TYPES OVER IT, in both boxes. */
+    expect(typeAsUser(LABEL.latitude, TYPED.lat), "the auto-filled latitude refused a keystroke").
+      toBe(true);
+    expect(typeAsUser(LABEL.longitude, TYPED.long), "the auto-filled longitude refused a keystroke").
+      toBe(true);
+    expect(shownValue(LABEL.latitude), "the typed latitude did not stick").toBe(TYPED.lat);
+    expect(shownValue(LABEL.longitude), "the typed longitude did not stick").toBe(TYPED.long);
+
+    /* AND A LATER PHOTO DOES NOT TAKE IT BACK. */
+    await pickAndSettle(later, media);
+    await waitFor(() => expect(media.puts).toHaveLength(4));
+
+    expect(
+      shownValue(LABEL.latitude),
+      "a photo picked after the owner typed over an auto-fill reverted the latitude",
+    ).toBe(TYPED.lat);
+    expect(
+      shownValue(LABEL.longitude),
+      "a photo picked after the owner typed over an auto-fill reverted the longitude",
+    ).toBe(TYPED.long);
+
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      for (const source of [first, later]) {
+        expect(
+          describedTextOf(label),
+          `a note credits ${source.name} for a value the owner typed`,
+        ).not.toMatch(alt(source));
+      }
+    }
   });
 });
