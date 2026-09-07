@@ -1448,7 +1448,9 @@ describe("entry editor — the home region", () => {
 
 describe("entry editor — one coordinate box filled and the other left empty", () => {
   /**
-   * `Number("")` IS `0`, AND THE GULF OF GUINEA IS WHERE THAT LANDS.
+   * `Number("")` IS `0`, AND A PLAUSIBLE-LOOKING PIN IS WHERE THAT LANDS —
+   * WORSE THAN AN IMPLAUSIBLE ONE, BECAUSE NOTHING ON SCREEN OR ON THE MAP
+   * FLAGS IT.
    *
    * `save()` decides whether a coordinate is written at all with
    * `lat.trim() !== "" || long.trim() !== ""` — an OR, so one box is enough —
@@ -1461,10 +1463,15 @@ describe("entry editor — one coordinate box filled and the other left empty", 
    *   { lat: 45.5155, long: 0      } → snap 45.51486 / 0.00000
    *   { lat: 0,       long: 9.2103 } → snap 0.00000  / 9.20909
    *
-   * Both publish. The owner typed one number, the save succeeded, and a
-   * world-readable resource now points 700-odd km off the African coast — with
-   * `dy:precisionMeters 500` beside it, describing that pin as accurate to
-   * within half a kilometre.
+   * Both publish, and the two errors do not even land in the same ocean.
+   * Leg 1's point is 0° east of the owner's own latitude — not "700 km off the
+   * African coast", which is the OTHER leg's story, but inland in south-west
+   * France, a plausible-looking pin on land. Leg 2's point IS the Gulf of
+   * Guinea, but only a few tens of km off Gabon — the 700-odd-km figure
+   * belongs to `{0, 0}` (Null Island, elsewhere in this file), not to either
+   * leg here. Either way `dy:precisionMeters 500` stands beside a coordinate
+   * the owner never chose, describing it as accurate to within half a
+   * kilometre.
    *
    * RULING F-A: A HALF-FILLED PAIR IS NO COORDINATE, and falls through to
    * `existing?.place?.geo` exactly as an empty pair does. §9's fail-closed rule
@@ -1552,7 +1559,7 @@ describe("entry editor — one coordinate box filled and the other left empty", 
 
     expect(
       geoNodeOf(quads, put!.url),
-      "a coordinate was published from one typed number: the empty box became 0 and the pin is in the Gulf of Guinea",
+      "a coordinate was published from one typed number: the empty box became 0 and the pin sits 0° east of the typed latitude, inland in south-west France",
     ).toBeUndefined();
     for (const predicate of [
       SCHEMA.geo,
@@ -2639,14 +2646,29 @@ const offsetPattern = (offset: string) => new RegExp(offset.replace("+", "\\+"))
  * `-03:30` AND `+12:45` STAY IN THIS LIST AS THE STANDARD-TIME TWINS, which is
  * what makes the two new entries a gap rather than a preference: each of them
  * is the other half of a year the form already half-covers.
+ *
+ * FIVE MORE JOINED THE SAME DAY (closing item 1). The component's own docblock
+ * claims this array "lists the non-whole-hour zones and goes red if one stops
+ * being offered" — and it named eight while `OFFSETS` carries thirteen.
+ * `+03:30`, `+04:30` (Kabul), `+06:30` (Yangon), `+09:30` and `+10:30` were on
+ * the offered list and in neither this file nor `e2e/` — verified by grep.
+ * That is F2's exact mechanism again, this time wearing a comment that says a
+ * test would catch it. The list is now the thirteen `OFFSETS` actually has, in
+ * the same west-to-east order, so a stepper or a dropped legislature shows up
+ * here rather than only in the component's own count.
  */
 const ODD_OFFSETS = [
   "-09:30",
   "-03:30",
   "-02:30",
+  "+03:30",
+  "+04:30",
   "+05:30",
   "+05:45",
+  "+06:30",
   "+08:45",
+  "+09:30",
+  "+10:30",
   "+12:45",
   "+13:45",
 ];
@@ -10877,6 +10899,41 @@ const OUT_OF_RANGE_OFFSET = fromFixture(
   "out-of-range OffsetTimeOriginal",
 );
 
+/**
+ * MINUTES ≥ 60 WITH SMALL HOURS — the conjunct F4's range check is missing
+ * (closing item 4), and `+99:99` above cannot reach it.
+ *
+ * `entry-editor.tsx`'s guard is `Math.abs(offsetMinutes(zone)) <= 840`, and
+ * `offsetMinutes` reads the two digit pairs separately and never checks either
+ * is in range — so `"+05:61"` composes as `5 * 60 + 61 = 361`, inside the
+ * fence that stops `+99:99`'s 6 039. `lib/media/exif.ts` only checks shape
+ * (`/^[+-]\d{2}:\d{2}$/` at exif.ts:38,105), which two digits of `61` also
+ * satisfies. So this value clears every check the chain has before the Pod,
+ * and only `Entry.safeParse`'s `z.iso.datetime({ offset: true })` refuses the
+ * timestamp it is concatenated onto — measured on this repo's zod 4.5.4,
+ * `+05:61` FAILS. That is F4's own defect, reachable again: the control
+ * fills, the select offers the value beside real zones, the save is refused,
+ * and `announce`'s "did not reach your Pod … try again" is false on every
+ * retry.
+ *
+ * BUILT ON `TIMED`, for the same reason `OFFSET_OUT_OF_RANGE` is: a wall
+ * clock has to reach the form for `toOffsetDateTime` to have anything to
+ * concatenate the bad offset onto.
+ */
+const OFFSET_MINUTES_OUT_OF_RANGE: ExifOptions = { ...TIMED, offsetTimeOriginal: "+05:61" };
+
+/**
+ * THE MINUTES-OUT-OF-RANGE TAG, THROUGH THE REAL READER — same reasoning as
+ * `OUT_OF_RANGE_OFFSET`: if `lib/media/exif.ts` ever range-checks
+ * `OffsetTimeOriginal` itself, this throws at module load rather than letting
+ * the test below report a green refusal of a value the reader had already
+ * dropped.
+ */
+const MINUTES_OUT_OF_RANGE_OFFSET = fromFixture(
+  metadataOf(OFFSET_MINUTES_OUT_OF_RANGE).offsetTimeOriginal,
+  "minutes-out-of-range OffsetTimeOriginal",
+);
+
 /** This machine's zone. Asia/Tokyo is fixed at the top of this file and checked
  *  by a control in section 0; written out rather than computed so that an
  *  editor which read the machine where it should have read the photo cannot
@@ -10943,7 +11000,7 @@ describe("controls for section 12", () => {
    * NOT A TEST OF THE EDITOR — section 0's kind and section 11.0's, and it
    * passes on its first run for the same reason.
    *
-   * Everything below rests on five EXIF fixtures carrying exactly one
+   * Everything below rests on six EXIF fixtures carrying exactly one
    * combination each, on the photo's offset differing from this machine's, on
    * the SECOND photo's two tags differing from the first's, and on knowing what
    * a `datetime-local` control does to a value in this environment. Stage 1
@@ -10952,7 +11009,7 @@ describe("controls for section 12", () => {
    * example in this very file, where the stored offset is byte-identical to the
    * photo tag it is being told apart from.
    */
-  it("the five EXIF fixtures carry what this section thinks, and the controls coerce what it measured", () => {
+  it("the six EXIF fixtures carry what this section thinks, and the controls coerce what it measured", () => {
     /* ── the fixtures, through the real reader ──────────────────────────── */
     const timed = metadataOf(TIMED);
     expect(timed.dateTimeOriginal, "the date-only fixture's wall clock has moved").toBe(PHOTO_WALL);
@@ -13169,6 +13226,124 @@ describe("entry editor — a photo whose OffsetTimeOriginal is out of range", ()
 
     /* AND WHAT THE OWNER IS TOLD IS TRUE — the payload beside the status, for
        the reason this project keeps re-learning. */
+    expect(
+      outcomeText(),
+      "the owner is told the entry did not reach their Pod and to try again, which is false advice that stays false on every retry",
+    ).not.toMatch(/did not reach|try again/i);
+    expect(outcomeText(), "the save announced nothing at all").toMatch(/saved/i);
+  });
+});
+
+/* ── 12l. an OffsetTimeOriginal whose MINUTES are out of range (F4, still
+   reachable — closing item 4) ────────────────────────────────────────── */
+
+describe("entry editor — a photo whose OffsetTimeOriginal has out-of-range minutes", () => {
+  /**
+   * F4 FENCED TOTAL MINUTES, NOT THE TWO DIGIT PAIRS SEPARATELY.
+   *
+   * `entry-editor.tsx`'s guard is `Math.abs(offsetMinutes(zone)) <= 840`.
+   * `"+05:61"` composes to 361 — inside that fence — while `lib/media/exif.ts`
+   * validates the tag by SHAPE ALONE, and two digits of `61` is shape-valid.
+   * So this value clears every check the chain has before the Pod, exactly as
+   * `+99:99` did before F4, and only `Entry.safeParse` refuses the timestamp
+   * it is concatenated onto, at the very end of the chain, after Save.
+   *
+   * MODELLED ON 12k, ONE SUBSTITUTION ONLY: the fixture, the allow-case (the
+   * photo's date still fills the clock) and the refusal shape (the control
+   * does not hold the bad value, the save reaches the Pod with this machine's
+   * offset, the owner is not told to retry) are all the same test 12k already
+   * makes. What 12k cannot do is exercise this branch: `+99:99` is 6 039
+   * minutes and is refused by the ±840 fence itself, so a fix that checked
+   * only total minutes already makes 12k green. `+05:61` is the value the
+   * guard's own docblock (entry-editor.tsx:~2035) names as the one to fear,
+   * and this is that value.
+   *
+   * WHAT WOULD BREAK IT: today's code, which lacks a minutes-in-range check
+   * on the zone conjunct; a fix that tightens `OFFSET_SHAPE` instead, which
+   * 12k's docblock rules out because a stored `+05:15` must still render.
+   */
+  it("refuses an offset whose minutes are out of range, keeps the photo's clock, and the save reaches the Pod", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const file = jpegWithExif("dashcam.jpg", OFFSET_MINUTES_OUT_OF_RANGE);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${MINUTES_OUT_OF_RANGE_OFFSET} is already one of the offsets this editor offers, so "it was not unioned into the list" cannot fail`,
+    ).not.toContain(MINUTES_OUT_OF_RANGE_OFFSET);
+
+    await pickAndSettle(file, media);
+
+    /* ── THE ALLOW-CASE: the DATE half is honoured ──────────────────────── */
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the photo's date never reached the wall clock, so the refusal below cannot be told from an editor that dropped the whole file",
+      ).not.toBe("");
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+
+    /* ── THE REFUSAL ────────────────────────────────────────────────────── */
+    expect(
+      shownValue(LABEL.offset),
+      "an OffsetTimeOriginal of +05:61 was accepted into the control: it is 361 minutes east of Greenwich, inside the ±840 fence that stopped +99:99, and it is what the timestamp will be built from",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetOptions(),
+      "the out-of-range offset was unioned into the select, which now offers it beside the real zones as though it were one",
+    ).not.toContain(MINUTES_OUT_OF_RANGE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the photo dated the form and supplied no usable zone, and the offset beside the clock is this machine's — unmarked",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the marked control does not carry the guess note",
+    ).toMatch(GUESS_WORDING);
+
+    /* ── AND THE SAVE LANDS, which is what the owner was told it would not ─ */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-dashcam-minutes");
+    setText(LABEL.headline, "The clock was right, the zone was not");
+    /* THE PROSE MAY NOT QUOTE THE OFFSET — 12k's measurement applies here too:
+       `pod.wire()` is every byte that left the browser. */
+    setText(LABEL.articleBody, "The camera wrote a zone with minutes that do not exist.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(
+      put,
+      "nothing reached the Pod: the entry was refused by its own schema for an offset a photo put in the control, and the owner is told to try again — advice that stays false on every retry",
+    ).toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod").toBeDefined();
+    expect(
+      occurred!.value.slice(-6),
+      "the published offset is not the one the control holds",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the published wall clock is not the photo's",
+    ).toBe(PHOTO_WALL.slice(0, 16));
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(
+      pod.wire(),
+      "the out-of-range offset is on the wire",
+    ).not.toContain(MINUTES_OUT_OF_RANGE_OFFSET);
+
+    /* AND WHAT THE OWNER IS TOLD IS TRUE — the payload beside the status. */
     expect(
       outcomeText(),
       "the owner is told the entry did not reach their Pod and to try again, which is false advice that stays false on every retry",
