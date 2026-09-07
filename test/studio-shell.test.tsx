@@ -862,6 +862,13 @@ describe("studio shell — the session lapsing mid-edit", () => {
     // and on a hosted Pod an anonymous read of an owner-only resource is a 401
     // that does not distinguish private from missing (invariant 4).
     expect(fetchSpy).not.toHaveBeenCalled();
+    // `signOutControl()` is a DOM node produced in the shell's own COMMIT
+    // phase; the read below belongs to a CHILD's passive effect
+    // (entry-editor.tsx's settings read), which React is free to run after
+    // that commit rather than synchronously with it. Waiting on the fetch
+    // itself, not just the shell's own paint, closes that scheduling gap
+    // rather than racing it under load.
+    await waitFor(() => expect(sessionFetch).toHaveBeenCalled());
     const asked = [...fetchSpy.mock.calls, ...sessionFetch.mock.calls].map(([input]) =>
       String(input),
     );
