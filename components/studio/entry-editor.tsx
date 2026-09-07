@@ -91,8 +91,28 @@
  * `OffsetTimeOriginal` is usually absent (§11.5). Inventing this machine's
  * offset for a photo taken elsewhere would stamp the wrong instant onto a
  * permanent record. An existing `dateCreated` is carried through untouched.
- * A photo's GPS is a coordinate like any other and goes through §9 steps 1–4;
- * neither wire is stage 1's.
+ *
+ * A PHOTO'S GPS *IS* WIRED, AS OF 2026-09-07, AND IT IS WIRED TO THE FORM.
+ * This paragraph used to end "neither wire is stage 1's", which was true of
+ * stage 1 and is now false of the coordinate half: `derived.metadata.gps`
+ * fills the two coordinate boxes when nothing else has (§11.3), and it fills
+ * NOTHING ELSE.
+ *
+ *   IT FEEDS THE FORM, NEVER THE WRITE PATH, and that is the whole of the
+ *   privacy argument. A photo's GPS arrives looking authoritative — it is a
+ *   real reading, from a real receiver — and the tempting spelling puts it on
+ *   `place.geo` directly, which publishes the exact spot a picture was taken.
+ *   Landing it in the inputs instead means it reaches the Pod by the ONE route
+ *   a typed coordinate does: `fuzzed()` at save time, §9 steps 1–4, snapped or
+ *   dropped. There is no second path, and §9's guarantee is that there is not.
+ *
+ *   FIRST WRITER WINS, IN BOTH DIRECTIONS (§11.3). Auto-fill only ever writes
+ *   into a coordinate nobody has supplied: not one the owner typed, and not one
+ *   an earlier photo offered. See `coordinateAuthor`.
+ *
+ *   AND IT SAYS SO ON SCREEN. A value that appeared without being typed has to
+ *   name where it came from, or the owner cannot tell it from something they
+ *   did yesterday — `COORDINATE_SOURCE_ID`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * PLAIN CONTROLS ON PURPOSE. TODO.md keeps layout deliberately unstyled until
@@ -112,7 +132,7 @@ import { saveEntry } from "@/lib/pod/save-entry";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import { SCHEMA_VERSION } from "@/lib/vocab";
-import type { Pipeline } from "@/lib/media/pipeline";
+import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { ReactNode } from "react";
 import type {
   Entry,
@@ -470,6 +490,69 @@ const NO_SETTINGS_NOTE =
  *  clean-save message: while the answer is still outstanding the owner must not
  *  be told what it is. */
 const CHECKING_NOTE = "Waiting for the rules that decide what may be published with an entry.";
+
+/**
+ * THE PROVENANCE NOTE'S END OF THE ASSOCIATION — one element for the PAIR, not
+ * one per box, and both boxes point at it.
+ *
+ * ONE, BECAUSE THE COORDINATE IS ONE VALUE. A latitude and a longitude are two
+ * halves of one point: `coordinateAuthor` records a single author for the pair
+ * (a photo can never supply half a coordinate — lib/media/exif.ts sets `gps`
+ * only when both tags are present — so mixing sources is something only the
+ * owner could cause, and refusing both boxes is the cure), and two sentences
+ * saying the same thing beside each other is noise for anyone hearing them read
+ * out one after the other.
+ *
+ * `aria-describedby`, THROUGH `coordinateHelp`, AND NOT AN `aria-label` ON A
+ * WRAPPER. This file has the receipt for the wrapper spelling: a
+ * `<section aria-label="Photos">` around the picker made six tests fail with
+ * "found multiple elements", because a wrapper with a name shadows the control
+ * inside it. A description adds no accessible name and cannot collide with any
+ * label on the form.
+ *
+ * NOT RENDERED WHEN THERE IS NOTHING TO SAY, for `COORDINATE_NOTE_ID`'s reason:
+ * an id naming an element that is not there computes to the empty string,
+ * silently, and an attribute left on permanently announces provenance for a
+ * number the owner has since typed themselves.
+ */
+const COORDINATE_SOURCE_ID = "entry-coordinate-source";
+
+/** Names the FILE, which is what the owner recognises — the photo has no other
+ *  name on screen, and its `contentUrl` is a content-addressed hash nobody can
+ *  read. The second sentence is there because the first one otherwise reads as
+ *  a hold: the boxes are live, and typing replaces this. */
+const coordinateSourceNote = (name: string) =>
+  `Latitude and longitude came from ${name}. Type in either box to replace them.`;
+
+/**
+ * WHO PUT THE COORDINATE IN THE BOXES — the record §11.3 turns on, and a
+ * different question from `touchedCoordinate`.
+ *
+ * `touchedCoordinate` (in `save()`) is `lat.trim() !== "" || long.trim() !== ""`
+ * and decides whether a coordinate is WRITTEN AT ALL. An auto-filled coordinate
+ * should be written, so it stays exactly as it is and must not be given this
+ * flag's meaning. This one decides whether auto-fill MAY WRITE HERE, and the
+ * three answers are not reducible to two:
+ *
+ *   nobody — the boxes are empty and no photo has offered anything. Fill.
+ *   owner  — the owner typed, or accepted a restored draft that holds a
+ *            coordinate. Never overwrite: a photo picked afterwards would
+ *            silently replace a place they CHOSE with the place a camera
+ *            happened to be, and §9 would then fuzz and publish it, so the only
+ *            surface showing the substitution would be a public triple.
+ *   photo  — an earlier photo filled it. Never overwrite either, which is the
+ *            direction §11.3 names explicitly: filling on every `ready` moves
+ *            the entry to wherever the LAST picture was taken, a different
+ *            place every time one is added on a day's walk, with the note
+ *            updating politely as it goes.
+ *
+ * IT IS EXPLICIT RATHER THAN INFERRED FROM EMPTINESS, and that is the whole
+ * reason it exists. A box can be non-empty because the owner typed, because a
+ * photo filled it, or because a draft was restored into it — and only the first
+ * two forbid a fill. "Is it empty?" cannot tell them apart, and answers "may I
+ * fill?" wrongly for the case that matters.
+ */
+type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
 
 /** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
  *  type for it, and this file imports no Zod. */
@@ -1071,6 +1154,53 @@ export default function EntryEditor({
    */
   const touched = useRef(false);
 
+  /**
+   * WHO SUPPLIED THE COORDINATE — see `CoordinateAuthor` for what the three
+   * answers mean and why "is the box empty?" is not one of them.
+   *
+   * A REF, AND READ AT THE MOMENT OF THE FILL RATHER THAN FROM A CLOSURE. This
+   * is `touched`'s reason plus one more that is specific to this record. A fill
+   * happens in `attach`'s continuation, after two awaits — the decode and two
+   * PUTs — and the handler that started it closed over the render BEFORE the
+   * pick. So a closure would answer "who supplied the coordinate?" as of a
+   * moment that can be several seconds old, and the two things that can happen
+   * inside that window are exactly the two this record exists to refuse: the
+   * owner typing while the photo uploads, and a second photo settling. Reading
+   * a ref written synchronously means the first writer wins even when the two
+   * writers overlap.
+   *
+   * DECLARED HERE, ABOVE `attach`, for the reason `touched`'s note gives at
+   * length: `react-hooks/immutability` refuses a `.current` write inside a
+   * function that closes over a `useRef` declared below it, and it reports the
+   * pre-existing writes rather than the new declaration when you get it wrong.
+   */
+  const coordinateAuthor = useRef<CoordinateAuthor>({ kind: "nobody" });
+  /**
+   * The same fact again, as state, because the note is RENDERED and a ref
+   * changing re-renders nothing.
+   *
+   * THEY CANNOT DRIFT, BECAUSE THERE IS ONE WRITER: `creditCoordinate` below is
+   * the only thing that assigns either, and it assigns both. This file argues
+   * against two things that have to agree and say nothing when they stop — the
+   * offset chain, the precision select — and the argument holds here: what makes
+   * this pair safe is not that it is small, it is that neither member has a
+   * setter of its own.
+   */
+  const [coordinateSource, setCoordinateSource] = useState<string | null>(null);
+  /**
+   * THE ONE WRITER. Everything that puts a coordinate in the boxes says so
+   * through this: the two `onChange` handlers, `restore()`, and the auto-fill.
+   *
+   * The note follows the record rather than being cleared separately, so
+   * "the owner has typed" and "the note has stopped being true" cannot come
+   * apart — a note left standing beside a number the owner typed over is a
+   * claim they have no way to check.
+   */
+  function creditCoordinate(to: CoordinateAuthor) {
+    coordinateAuthor.current = to;
+    setCoordinateSource(to.kind === "photo" ? to.name : null);
+  }
+
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
   );
@@ -1176,20 +1306,35 @@ export default function EntryEditor({
 
   /**
    * The ids one coordinate control describes itself by: its own hint, if it has
-   * one, and the note above while there is one.
+   * one, the note above while there is one, and — for the two BOXES — the
+   * provenance note while a photo is credited with what they hold.
    *
-   * Built rather than written out because BOTH HALVES ARE SILENT WHEN WRONG. An
+   * Built rather than written out because EVERY HALF IS SILENT WHEN WRONG. An
    * id that names nothing computes to the empty string, and an attribute left
    * on permanently reads as correct markup while announcing a reason that has
    * stopped being true. `undefined` rather than `""` for the same reason: no
    * attribute at all is the honest spelling of "nothing to say".
+   *
+   * THE SOURCE NOTE IS PASSED IN RATHER THAN READ HERE, because it belongs to
+   * two of the three controls and not to the third: the precision select is
+   * about the grid a point is published in, and a photo has no opinion about
+   * that. A helper that added it unconditionally would have the select announce
+   * where a coordinate came from, which is true of neither its value nor its
+   * effect.
    */
-  const coordinateHelp = (ownHintId?: string): string | undefined => {
-    const ids = [ownHintId, coordinateNote === null ? undefined : COORDINATE_NOTE_ID].filter(
-      (id): id is string => id !== undefined,
-    );
+  const coordinateHelp = (ownHintId?: string, sourceNoteId?: string): string | undefined => {
+    const ids = [
+      ownHintId,
+      coordinateNote === null ? undefined : COORDINATE_NOTE_ID,
+      sourceNoteId,
+    ].filter((id): id is string => id !== undefined);
     return ids.length === 0 ? undefined : ids.join(" ");
   };
+
+  /** The provenance note's id while there is a note, for the two boxes to name.
+   *  `undefined` is what keeps `coordinateHelp` from pointing at an element that
+   *  is not rendered — the two are decided by the same value on purpose. */
+  const coordinateSourceId = coordinateSource === null ? undefined : COORDINATE_SOURCE_ID;
 
   /**
    * What the precision control offers: the fixed grids, the owner's own default
@@ -1317,6 +1462,60 @@ export default function EntryEditor({
   );
 
   /**
+   * §11.3, AND IT IS AN OFFER RATHER THAN AN ASSIGNMENT: a photo may fill a
+   * coordinate nobody has supplied, and may never take one away.
+   *
+   * WHAT IT WRITES IS THE PHOTO'S OWN READING, AT FULL PRECISION, INTO THE
+   * FORM. Not a rounded one, and not `place.geo`:
+   *
+   *   - THE FORM, because that is the only route to the Pod that goes through
+   *     §9. `fuzzed()` runs at save time over whatever these two boxes hold, so
+   *     a photo's GPS is snapped or dropped exactly as a typed one is, and
+   *     nothing downstream needs to know which it was. Putting `metadata.gps`
+   *     on the `Entry` instead would publish the exact spot a picture was
+   *     taken — no render-time mitigation behind it, and no second chance after
+   *     the PUT.
+   *   - AT FULL PRECISION, because a value rounded on the way IN is a snap the
+   *     owner did not choose, applied before the grid they did choose, and
+   *     invisible afterwards: 45.5155 and 45.51 look equally deliberate in a
+   *     number box. `String` rather than `toFixed`, so the digits the reader
+   *     returned are the digits shown.
+   *
+   * `gps` IS OPTIONAL AND THE GUARD IS NOT DECORATION. `readMetadata` returns
+   * `{}` for a file it cannot read at all — screenshots, scans, location
+   * services off — which is the case this meets most often. The obvious
+   * `setLat(String(metadata.gps?.lat))` writes the string "undefined" into a
+   * `type="number"` box, which a browser then shows as empty: a coordinate
+   * silently cleared by attaching a scan.
+   */
+  function offerCoordinate(name: string, metadata: PipelineResult["metadata"]) {
+    const gps = metadata.gps;
+    if (gps === undefined) return;
+    /* FIRST WRITER WINS. `nobody` is the only answer that admits a fill — see
+       `CoordinateAuthor` for why the other two are both refusals, and why this
+       is one record for the pair rather than one per box. */
+    if (coordinateAuthor.current.kind !== "nobody") return;
+
+    creditCoordinate({ kind: "photo", name });
+    setLat(String(gps.lat));
+    setLong(String(gps.long));
+    /**
+     * A FILL IS A CHANGE TO THE FORM, and every change arms the autosave.
+     *
+     * IT IS ALREADY ARMED TWICE OVER BY THE TIME THIS RUNS, measured rather
+     * than assumed, and that is recorded here so that nobody reads a green
+     * draft test as proof of this line: the pick itself is a `change` event on
+     * a control inside the `<form>`, which the form's own handler turns into
+     * `touched.current = true`, and `move` did it again on the `ready` above
+     * for the reason its docblock gives. So removing this line changes no test
+     * — and it stays, because an idempotent write of `true` cannot disagree
+     * with the other two, and the alternative is a fill whose arming depends on
+     * where in `attach` it happens to be called from.
+     */
+    touched.current = true;
+  }
+
+  /**
    * PROCESS, UPLOAD, THEN HOLD A `Photo` — never the `File`.
    *
    * The order is the decision recorded at the top of this file: by the time
@@ -1382,15 +1581,25 @@ export default function EntryEditor({
         source,
         derivatives: { web: derived.web, thumb: derived.thumb },
         blurDataUrl: derived.blurDataUrl,
-        // `derived.metadata` is deliberately unused for now: its
-        // DateTimeOriginal has no UTC offset and §6 requires one, and its GPS
-        // is a coordinate that has to go through §9 before it can be published.
+        // `derived.metadata` is not uploaded, and that is what stripping means:
+        // the derivatives are re-encoded without it. Its GPS is READ below, into
+        // the form; its `DateTimeOriginal` is still deliberately unused, because
+        // it has no UTC offset and §6 requires one.
       });
-      move(
-        stored.ok
-          ? { key, name, state: "ready", photo: stored.value }
-          : { key, name, state: "failed", message: describe(stored.error) },
-      );
+      if (!stored.ok) {
+        move({ key, name, state: "failed", message: describe(stored.error) });
+        return;
+      }
+      move({ key, name, state: "ready", photo: stored.value });
+      /**
+       * ON `ready`, AND NOT A LINE EARLIER. The metadata has been in hand since
+       * the decode, so filling from it before the upload is spelled in one line
+       * fewer — and it offers the owner a coordinate for a photo that is about
+       * to fail its PUT and be announced as not attached. A coordinate from a
+       * photo that is not on the entry has nothing on screen to explain it,
+       * and its note names a file the form no longer holds.
+       */
+      offerCoordinate(name, derived.metadata);
     } catch (cause) {
       move({
         key,
@@ -1821,6 +2030,32 @@ export default function EntryEditor({
     setLat(draft.lat);
     setLong(draft.long);
     /**
+     * AND A RESTORED COORDINATE IS NOT A COORDINATE A PHOTO MAY REPLACE.
+     *
+     * `restore()` writes these boxes without a DOM event, so it comes through
+     * neither `onChange` — the form's own note says so about `touched` — and
+     * without this line the record would still read `nobody` over a form that
+     * visibly holds a pair. Attach a photo and it takes the boxes: the exact
+     * overwrite §11.3 forbids, reached by the one path that does not look like
+     * typing.
+     *
+     * CREDITED TO THE OWNER, ALTHOUGH THE DRAFT CANNOT SAY WHETHER THEY TYPED
+     * IT OR A PHOTO FILLED IT — because both answers are refusals and the third
+     * is not available. `Draft` keeps `lat`/`long` as text and nothing about
+     * where they came from, and adding a provenance field to the payload would
+     * be a schema change to store something no reader needs: what the record
+     * has to answer is "may auto-fill write here", and for a restored pair that
+     * is no either way.
+     *
+     * AN EMPTY DRAFT IS NOT A RESTORED COORDINATE. `""`/`""` is a draft with no
+     * coordinate in it — the common case, since most entries have none — and
+     * marking that as the owner's would make Restore silently switch auto-fill
+     * off for the rest of the session.
+     */
+    if (draft.lat.trim() !== "" || draft.long.trim() !== "") {
+      creditCoordinate({ kind: "owner" });
+    }
+    /**
      * WHAT THE CONTROL SHOWS HAS TO BE WHAT IS APPLIED (§9 step 3), so a
      * precision the select cannot show is refused rather than restored. Two
      * ways to get one: a draft kept while the settings were unreadable, which
@@ -2018,6 +2253,17 @@ export default function EntryEditor({
      * parse, and the two guards above it refuse a gate that never opened and a
      * precision that is not a positive integer of metres. Every one of those is
      * a drop, and a drop still saves the entry.
+     *
+     * "TYPED" HERE MEANS "IN THE BOXES", AND THAT INCLUDES A PAIR A PHOTO
+     * FILLED. This flag asks whether there is a coordinate to publish, and an
+     * auto-filled one is a coordinate to publish — it is on the form, the owner
+     * can see it, it is credited to the photo it came from, and it goes through
+     * `fuzzed()` on this line like any other. `coordinateAuthor` is the record
+     * that distinguishes the two, and it is deliberately not consulted here:
+     * this line decides WHETHER a coordinate is written, that record decides
+     * whether AUTO-FILL may write into the form, and collapsing them would
+     * either publish nothing for every photo-filled entry or re-fuzz a stored
+     * pair on every save.
      */
     const touchedCoordinate = lat.trim() !== "" || long.trim() !== "";
     const place = placeFor(
@@ -2552,8 +2798,16 @@ export default function EntryEditor({
               className={CONTROL}
               value={lat}
               disabled={!coordinatesLive}
-              aria-describedby={coordinateHelp("entry-latitude-hint")}
-              onChange={(event) => setLat(event.target.value)}
+              aria-describedby={coordinateHelp("entry-latitude-hint", coordinateSourceId)}
+              /* THE KEYSTROKE IS WHAT MAKES THE PAIR THE OWNER'S, and it is
+                 recorded HERE rather than in the form's `onChange` above: that
+                 handler catches every control on the form, and this record is
+                 about these two. §11.3 in one line — from now on a photo may
+                 offer nothing, in either box (`CoordinateAuthor`). */
+              onChange={(event) => {
+                creditCoordinate({ kind: "owner" });
+                setLat(event.target.value);
+              }}
             />
           </Field>
 
@@ -2567,10 +2821,36 @@ export default function EntryEditor({
               className={CONTROL}
               value={long}
               disabled={!coordinatesLive}
-              aria-describedby={coordinateHelp()}
-              onChange={(event) => setLong(event.target.value)}
+              aria-describedby={coordinateHelp(undefined, coordinateSourceId)}
+              /* Either box, and the same record: a latitude from the owner
+                 beside a longitude from a photo is a point that is nowhere, and
+                 §9 would fuzz and publish it as though it were real. */
+              onChange={(event) => {
+                creditCoordinate({ kind: "owner" });
+                setLong(event.target.value);
+              }}
             />
           </Field>
+
+          {/*
+            WHERE THE PAIR ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER.
+
+            UNDER THE TWO BOXES AND ABOVE THE PRECISION SELECT, because that is
+            what it is about — one sentence for the pair, named by both boxes'
+            `aria-describedby` (see `COORDINATE_SOURCE_ID` for why one and not
+            two, and why not an `aria-label` on a wrapper).
+
+            RENDERED EXACTLY WHEN SOMETHING POINTS AT IT, which is
+            `coordinateSourceId`'s only other use: a live `aria-describedby`
+            naming an element that is not there computes to the empty string,
+            silently, and the owner is back to a number that appeared from
+            nowhere.
+          */}
+          {coordinateSource !== null && (
+            <p id={COORDINATE_SOURCE_ID} className="text-sm text-muted-foreground">
+              {coordinateSourceNote(coordinateSource)}
+            </p>
+          )}
 
           {/* §9 step 3: whatever this says, `dy:precisionMeters` says the same
               and the pair beside it is that grid's. The owner's own
