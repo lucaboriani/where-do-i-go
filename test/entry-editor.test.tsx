@@ -8403,6 +8403,35 @@ describe("entry editor — a photo that settles after the save", () => {
  * question: may auto-fill write here.
  *
  * ───────────────────────────────────────────────────────────────────────────
+ * RULING T3-B: ON AN EDIT, AUTO-FILL MUST NOT TOUCH THE BOXES AT ALL.
+ *
+ * This paragraph replaces one that read "WHETHER A PHOTO MAY FILL OVER A
+ * COORDINATE AN ENTRY WAS LOADED WITH … is not a state these controls can be
+ * in, and the brief asks for no scenario about it. Every test below drives a
+ * CREATE." The first clause was the mistake. On an edit both boxes DO start
+ * empty by design (see the `lat` state's own note: the stored pair is already
+ * snapped, so prefilling would re-snap it on every save and walk the pin) — and
+ * emptiness is precisely what the save reads as "leave the stored coordinate
+ * alone". So there is no "loaded" state to overwrite, and that is exactly why a
+ * fill is destructive there: it turns the owner's inaction into "replace it".
+ *
+ * §11.3's letter permits the fill, because the control was not touched. The
+ * design spec glosses its own rule as "the same distinction `touchedCoordinate`
+ * already draws, applied to a second source of values", and
+ * `touchedCoordinate`'s distinction is that EMPTY MEANS LEAVE IT ALONE. Read
+ * against the sentence the spec offers as its own key, filling on an edit IS
+ * the overwrite §11.3 forbids — and §11.3 names this failure shape itself: "the
+ * kind of silent data loss that only surfaces a day later".
+ *
+ * 11i is that case, in three outcomes, two of which destroy published data. The
+ * cost the ruling accepts: an owner who genuinely wants the photo's location on
+ * an edit has to type the pair. Same trade as T3-A, and the safe direction is
+ * the one that cannot delete a pin a stranger can already fetch.
+ *
+ * 11a through 11g all drive a CREATE, which is where the fill belongs; 11h and
+ * 11i are the two states it must keep its hands out of.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * WHERE THE VALUES COME FROM, AND WHY NOT FROM A LITERAL.
  *
  * `fakePipeline` runs the REAL `readMetadata` over the REAL file bytes — its
@@ -8447,11 +8476,6 @@ describe("entry editor — a photo that settles after the save", () => {
  * ───────────────────────────────────────────────────────────────────────────
  * WHAT IS DELIBERATELY NOT PINNED HERE:
  *
- *   - WHETHER A PHOTO MAY FILL OVER A COORDINATE AN ENTRY WAS LOADED WITH. On
- *     an EDIT both boxes start empty by design — the latitude hint says "Leave
- *     both boxes empty to keep the coordinate this entry already has" — so
- *     "loaded" is not a state these controls can be in, and the brief asks for
- *     no scenario about it. Every test below drives a CREATE.
  *   - THE DATE. `metadata.dateTimeOriginal` has no UTC offset and §6 requires
  *     one; that is a separate decision with a separate control (1c) and is not
  *     this task.
@@ -8727,9 +8751,12 @@ describe("controls for section 11", () => {
 
 describe("entry editor — a photo's GPS reaches the coordinate controls", () => {
   /**
-   * SCENARIO 1. The whole point of stage 1's seam: `derived.metadata` is read
-   * and thrown away today (`entry-editor.tsx`, the "deliberately unused for
-   * now" comment inside `attach`).
+   * SCENARIO 1. The whole point of stage 1's seam: `derived.metadata` was read
+   * and thrown away when this test was written (`entry-editor.tsx` carried a
+   * "deliberately unused for now" comment inside `attach`). `offerCoordinate`
+   * is what reads it now, and it is the mechanism every failure message in this
+   * section names — the seam is gone and a message about it would send the next
+   * reader looking for code that is not there.
    *
    * THE VALUE IS THE PHOTO'S, AT FULL PRECISION, and that is a decision rather
    * than a convenience: the brief's words are "to the precision `exifreader`
@@ -8767,7 +8794,7 @@ describe("entry editor — a photo's GPS reaches the coordinate controls", () =>
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's latitude never reached the control: `derived.metadata` is still unused",
+        "the photo's latitude never reached the control: `offerCoordinate` did not fill it",
       ).not.toBe("");
     });
 
@@ -8798,7 +8825,8 @@ describe("entry editor — a photo's GPS reaches the coordinate controls", () =>
    * honest answers — T3-A is about who may WRITE, not about how many sentences
    * there are — and both satisfy everything below.
    *
-   * WHAT WOULD BREAK IT: no note at all, which is today's code; a note on a
+   * WHAT WOULD BREAK IT: no note at all, which is what this test was red
+   * against before `offerCoordinate` landed; a note on a
    * wrapper with an `aria-label` instead of an association (step 5 forbids it,
    * and `PHOTOS_LABEL`'s docblock records the six-test failure it caused); an
    * `aria-describedby` pointing at an id nothing renders, which computes to ""
@@ -8822,7 +8850,7 @@ describe("entry editor — a photo's GPS reaches the coordinate controls", () =>
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+        "the photo's coordinate never reached the control: `offerCoordinate` did not fill it, and everything after this line is about a form the photo did not touch",
       ).not.toBe("");
     });
 
@@ -8913,7 +8941,8 @@ describe("entry editor — a photo added after the owner typed", () => {
        leg that makes this test red before the implementation lands. Nothing
        typed this time, so the photo MAY fill — and must. Without it, every
        refusal above is satisfied by an editor that never auto-fills anything,
-       which is today's code: "a rule that rejects everything is useless", and
+       which is what these legs were red against before `offerCoordinate`
+       landed: "a rule that rejects everything is useless", and
        section 1's home-region test carries its allow-case for the same reason. */
     const openForm = mediaFake();
     await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
@@ -8981,7 +9010,8 @@ describe("entry editor — a photo added after the owner typed", () => {
        leg that makes this test red before the implementation lands. Nothing
        typed this time, so the photo MAY fill — and must. Without it, every
        refusal above is satisfied by an editor that never auto-fills anything,
-       which is today's code: "a rule that rejects everything is useless", and
+       which is what these legs were red against before `offerCoordinate`
+       landed: "a rule that rejects everything is useless", and
        section 1's home-region test carries its allow-case for the same reason. */
     const openPair = mediaFake();
     await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
@@ -9032,7 +9062,7 @@ describe("entry editor — a second photo with GPS of its own", () => {
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+        "the photo's coordinate never reached the control: `offerCoordinate` did not fill it, and everything after this line is about a form the photo did not touch",
       ).not.toBe("");
     });
 
@@ -9084,8 +9114,37 @@ describe("entry editor — a photo that carries no GPS", () => {
    * BOTH HALVES, and the second is what stops the first being vacuous. An
    * editor that never auto-fills passes "the boxes are still empty" perfectly;
    * an editor that does `setLat(String(metadata.gps?.lat))` blanks a value the
-   * owner typed — or writes the four characters `unde` and the rest of
-   * `undefined` into a `type="number"` box — and passes nothing.
+   * owner typed — or writes the string `"undefined"` into the `lat` state —
+   * and passes nothing.
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * THE BOXES CANNOT SEE THAT SECOND FAILURE IN JSDOM, AND THE DRAFT CAN.
+   * Measured against the installed jsdom 30.0.1 rather than reasoned about:
+   * setting `.value = "undefined"` on an `<input type="number">` reads back
+   * `""`, and so do `"NaN"` and `"null"`; a `type="text"` input keeps all
+   * three. (` "1e5"` survives and `" 35.5 "` does not, which is the same
+   * sanitiser at work.) So the `/undefined|null|NaN/i` loop below can only ever
+   * fire on the precision `<select>`, whose value comes from its option list —
+   * close to unfalsifiable — and the loop's original reason was a false reason
+   * for a correct behaviour.
+   *
+   * That matters because of the mutation it hid: an `offerCoordinate` that
+   * filled unconditionally and credited nothing goes GREEN across the whole of
+   * section 11. Half one passes (the box shows `""`), no note appears so every
+   * "no note" assertion passes, the allow-cases still fill, and 11b-bis is
+   * caught by the author guard rather than by this. Its real consequence is the
+   * `lat` STATE holding `"undefined"` — which on an edit is exactly 11i's third
+   * outcome, a `touchedCoordinate` that is true over a form the owner can see
+   * nothing in, and a stored pin dropped for it.
+   *
+   * The flushed draft is built from that state by `writeDraft` and is NOT put
+   * through a number input, so it is the one surface in this environment that
+   * can see a stringified absence. Hence `cleanup()` in the middle of this
+   * test, and hence half two moving to a second render: the flush has to happen
+   * while the form still holds the no-GPS state, because the GPS pick would
+   * otherwise overwrite the very value being inspected. Half two keeps its job
+   * unchanged — it is the allow-case, and a fresh `fakeStorage` keeps its
+   * render out of the banner (see the section docblock).
    *
    * WHAT WOULD BREAK IT: filling unconditionally from an optional field;
    * clearing the boxes when a photo has no GPS "to keep them consistent";
@@ -9093,10 +9152,11 @@ describe("entry editor — a photo that carries no GPS", () => {
    */
   it("changes nothing, and clears nothing, when the photo has no GPS", async () => {
     const media = mediaFake();
+    const store = fakeStorage();
     const fake = fakeStudioSession();
     const plain = jpegFile("scan.jpg");
     const located = jpegWithGps("beach.jpg", GPS_TOKYO);
-    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
+    await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: store.storage });
 
     await awaitLiveCoordinateControls();
 
@@ -9111,15 +9171,50 @@ describe("entry editor — a photo that carries no GPS", () => {
         "a photo with no coordinate is credited with one anyway",
       ).not.toMatch(alt(plain));
     }
-    /* And nothing that looks like a stringified absence reached the form. */
+    /* Nothing that looks like a stringified absence is being SHOWN. Kept, and
+       demoted to what it can actually claim: in jsdom this reaches only the
+       precision select (see the docblock's measurement), and in a real browser
+       it covers all three. The claim it used to make is the one below. */
     for (const [what, el] of coordinateControls()) {
       expect((el as HTMLInputElement).value, `the ${what} control holds a stringified absence`).not.
         toMatch(/undefined|null|NaN/i);
     }
 
-    /* ── half two, the allow-case: the SAME form, a photo that does carry GPS ─
-       Without this, an editor with no auto-fill at all passes half one. */
-    await pickAndSettle(located, media);
+    /* ── AND NOTHING LIKE ONE REACHED THE STATE EITHER, read off the flushed
+       draft because that is the only unsanitised copy of it here. The unmount
+       flush is 8f's mechanism and 11f's, on real timers. ──────────────────── */
+    cleanup();
+
+    expect(
+      store.calls.set,
+      "nothing was kept at all, so the draft cannot answer this: the pick armed no autosave window",
+    ).not.toEqual([]);
+    const flushed = store.calls.set.at(-1)!;
+    expect(flushed.key).toBe(draftKeyFor(OWNER, NEW_SCOPE));
+    const payload = parseDraft(flushed.value);
+    expect(Object.keys(payload).sort(), "the persisted shape is not the draft shape").toEqual(
+      DRAFT_FIELDS,
+    );
+    expect(
+      payload.lat,
+      "the `lat` state holds a stringified absence: the number input sanitises it out of sight, and on an edit it is what makes `touchedCoordinate` true over a form the owner can see nothing in",
+    ).toBe("");
+    expect(
+      payload.long,
+      "the `long` state holds a stringified absence, invisible in the box that shows it",
+    ).toBe("");
+
+    /* ── half two, the allow-case: a photo that DOES carry GPS ────────────────
+       A second render rather than the same form, because the flush above had to
+       happen before this pick could overwrite the state it reads. Without this
+       leg, an editor with no auto-fill at all passes half one. */
+    const openLocated = mediaFake();
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(located, openLocated);
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
@@ -9155,12 +9250,21 @@ describe("entry editor — a photo that carries no GPS", () => {
 
     cleanup();
 
-    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH THE SAME FILE, and it is the
-       leg that makes this test red before the implementation lands. Nothing
-       typed this time, so the photo MAY fill — and must. Without it, every
-       refusal above is satisfied by an editor that never auto-fills anything,
-       which is today's code: "a rule that rejects everything is useless", and
-       section 1's home-region test carries its allow-case for the same reason. */
+    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH A DIFFERENT FILE — and the
+       difference is not an oversight, it is what this leg can and cannot prove.
+       The refusal above picks `scan.jpg`, which carries no GPS at all, so
+       re-picking it here would offer nothing to fill with and the leg would
+       assert nothing. It therefore has to be `beach.jpg`, and that makes this
+       leg's claim "auto-fill exists and reaches these boxes" rather than "the
+       guard above refuses". 11b and 11b-bis are the two that really do use one
+       file for both halves, because there the refusal is about who TYPED
+       rather than about what the file carries.
+
+       It is still the leg that makes this test red before the implementation
+       lands: without it, every refusal above is satisfied by an editor that
+       never auto-fills anything — "a rule that rejects everything is useless",
+       and section 1's home-region test carries its allow-case for the same
+       reason. */
     const openScan = mediaFake();
     await renderEditor(fake.session, { pipeline: fakePipeline().pipeline, storage: fakeStorage().storage });
     await awaitLiveCoordinateControls();
@@ -9241,7 +9345,7 @@ describe("entry editor — what a stranger can fetch after an auto-fill", () => 
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+        "the photo's coordinate never reached the control: `offerCoordinate` did not fill it, and everything after this line is about a form the photo did not touch",
       ).not.toBe("");
     });
     const rawLat = shownValue(LABEL.latitude);
@@ -9319,8 +9423,9 @@ describe("entry editor — what a stranger can fetch after an auto-fill", () => 
 
     /* THE PREMISE THAT MAKES THIS HALF NON-VACUOUS: the auto-fill DID happen.
        Without it "no geometry was published" is satisfied by an editor that
-       never read `metadata.gps` at all — which is today's code, and which must
-       fail this test on the half above rather than pass it here. */
+       never read `metadata.gps` at all — which is what this test was red
+       against before `offerCoordinate` landed, and which must fail this test on
+       the half above rather than pass it here. */
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
@@ -9407,6 +9512,30 @@ describe("entry editor — an auto-filled coordinate in the local draft", () => 
    * the form touched, so the autosave effect returns at `if (!touched.current)`
    * and the window is never armed; holding the auto-filled value outside the
    * `lat`/`long` state the draft is built from.
+   *
+   * …AND THE FIRST OF THOSE TWO IS NOT REACHABLE FROM HERE, WHICH IS RECORDED
+   * RATHER THAN FIXED. `offerCoordinate` is called from exactly one place, on
+   * the line after `move({ state: "ready" })`, and `move` sets
+   * `touched.current = true` for `ready`. The fill's own `touched.current =
+   * true` is therefore an idempotent write unconditionally dominated in the
+   * same continuation — never the first writer — so deleting it turns nothing
+   * in this file red, and the production comment beside it says exactly that.
+   * What this test's failure can only be about is the second clause: the VALUE
+   * in the flushed draft.
+   *
+   * THE ARMING INVARIANT IS PINNED, BY 10f, FOR THE OTHER MECHANISM: a save
+   * landing between the pick and the settle, where `settleDraft` has already
+   * put `touched` back to `false` at the moment the photo becomes `ready`.
+   * Removing `if (next.state === "ready") touched.current = true` from `move`
+   * turns 10f red with `[]` for the draft keys, which is measured in 10f's own
+   * docblock.
+   *
+   * A TEST FOR THE ARMING HALF HERE IS DELIBERATELY NOT ADDED, so that the next
+   * reader does not "fix" its absence. Exposing it would require deleting
+   * mechanism 2 as well — a source mutation, not a test — and a test that can
+   * only fail when two mechanisms are removed at once is worse than no test:
+   * it passes for every single-line regression either one of them has, while
+   * reading like coverage of both.
    */
   it("keeps a coordinate a photo filled, not the one that would be published", async () => {
     const media = mediaFake();
@@ -9422,7 +9551,7 @@ describe("entry editor — an auto-filled coordinate in the local draft", () => 
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+        "the photo's coordinate never reached the control: `offerCoordinate` did not fill it, and everything after this line is about a form the photo did not touch",
       ).not.toBe("");
     });
 
@@ -9483,7 +9612,7 @@ describe("entry editor — typing over what a photo filled", () => {
     await waitFor(() => {
       expect(
         shownValue(LABEL.latitude),
-        "the photo's coordinate never reached the control: `derived.metadata` is still unused, and everything after this line is about a form the photo did not touch",
+        "the photo's coordinate never reached the control: `offerCoordinate` did not fill it, and everything after this line is about a form the photo did not touch",
       ).not.toBe("");
     });
     expect(Number(shownValue(LABEL.latitude)), "the first photo did not fill the box").toBe(
@@ -9519,5 +9648,615 @@ describe("entry editor — typing over what a photo filled", () => {
         ).not.toMatch(alt(source));
       }
     }
+  });
+});
+
+/* ──── 11h. the fill asks the same gate every other coordinate writer does ── */
+
+describe("entry editor — a photo's GPS against settings that cannot be read", () => {
+  /**
+   * §9 FAILS CLOSED, AND A PHOTO IS NOT AN EXCEPTION TO IT.
+   *
+   * With `privacy.ttl` unreadable — a 404, which is what a Pod that has never
+   * had one answers, and §9's own example — all three coordinate controls are
+   * DEAD and already carry `NO_SETTINGS_NOTE`: "This entry will be saved
+   * without a map pin". Section 1 pins that state. What this pins is the one
+   * writer that does not arrive as a keystroke: the fill has no gate check, so
+   * a GPS photo fills two disabled boxes and composes into the same accessible
+   * description a second sentence reading "Latitude and longitude came from
+   * beach.jpg. Type in either box to replace them." That is an instruction to
+   * type into a control the owner cannot type into, beside the sentence saying
+   * no pin will be saved — two claims in one description, and the one that is
+   * false is the one that looks actionable.
+   *
+   * IT IS A MECHANISM AND NOT ONLY A CONTRADICTION. `fuzzed()` returns
+   * `undefined` for any gate that is not `ready`, and `placeFor` reads
+   * `undefined` as a REMOVAL — so on an EDIT this same fill deletes the entry's
+   * stored `#geo`. That is 11i's third outcome, reached from here rather than
+   * from the home region. Before the picker existed the fail-closed branch was
+   * harmless in that direction only because the boxes could not become
+   * non-empty, which is the sort of safety that stops being safety without
+   * anything changing where it was written.
+   *
+   * THE STATE IS DRIVEN BY A REAL DOCUMENT, NOT BY A STUB, which is section 1's
+   * arrangement and this file's docblock's reason: "the settings could not be
+   * read" is the state the whole feature turns on, so it is produced by a real
+   * read of a real (missing) resource over MSW and put through the real reader.
+   *
+   * WHAT WOULD BREAK IT: no gate check in the fill, which is the defect;
+   * gating the fill on `presetPrecision` or on the precision select instead of
+   * on the gate itself — both are `""` while the read is still in flight, so
+   * that spelling refuses the CHECKING state for the wrong reason and says
+   * nothing about a read that FAILED; leaving the note in place while
+   * disabling the boxes.
+   */
+  it("fills nothing, and credits nothing, when the privacy settings cannot be read", async () => {
+    podFake({ settings: 404 });
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    /* THE STATE THIS TEST IS ABOUT, ASSERTED BEFORE THE PICK. Section 1's pin
+       is the premise here: without it every assertion below would hold on a
+       form whose settings had simply not arrived yet, which is the delta's
+       first trap and has already made two pins in this file vacuous. */
+    requireCoordinateControls();
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(LABEL.latitude),
+        "the latitude control never explained why it is dead, so this test never reached the fail-closed state it is about",
+      ).toHaveAccessibleDescription(NO_SETTINGS_REASON),
+    );
+    for (const [what, control] of coordinateControls()) {
+      expect(
+        control,
+        `the ${what} control takes input although the settings could not be read`,
+      ).toBeDisabled();
+    }
+    expect(shownValue(LABEL.latitude), "the latitude box was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.longitude), "the longitude box was not empty to begin with").toBe("");
+
+    await pickAndSettle(source, media);
+    /* Given a moment to get it wrong: the fill lands in `attach`'s
+       continuation, so a bare synchronous assertion would pass against an
+       editor that filled one tick later (11b's reasoning). */
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    expect(
+      shownValue(LABEL.latitude),
+      "a photo filled the latitude of a form whose settings could not be read: the fill does not ask the gate, and on an edit that same fill deletes the entry's stored #geo",
+    ).toBe("");
+    expect(
+      shownValue(LABEL.longitude),
+      "a photo filled the longitude of a form whose settings could not be read",
+    ).toBe("");
+
+    /* AND THE CONTROLS ARE STILL DEAD. A fill that also brought them alive
+       would be a second defect wearing the first one's clothes. */
+    for (const [what, control] of coordinateControls()) {
+      expect(
+        control,
+        `the ${what} control came alive because a photo filled it, on settings this app does not trust`,
+      ).toBeDisabled();
+    }
+
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a note credits a photo for a value in a control the owner cannot type into, and tells them to type in it",
+      ).not.toMatch(alt(source));
+      /* …and the reason it is dead is still being said. "The note went away"
+         must not be the way this passes. */
+      expect(
+        describedTextOf(label),
+        "the control stopped saying why it is dead",
+      ).toMatch(NO_SETTINGS_REASON);
+    }
+
+    /* THE PHOTO ITSELF IS UNAFFECTED: an unreadable privacy.ttl costs the owner
+       a map pin, not a picture. */
+    expect(media.puts, "the photo's derivatives never went up").toHaveLength(2);
+    await screen.findByRole("img", { name: alt(source) });
+
+    cleanup();
+
+    /* THE ALLOW-CASE, IN THE SAME TEST AND WITH THE SAME FILE, and it is what
+       stops the refusal above being satisfied by an editor that never
+       auto-fills anything — and by the one-liner written as an unconditional
+       `return`. Readable settings, so the gate is open and the photo MAY fill —
+       and must. `podFake()` re-registers §7.6's normative block and msw's
+       `use()` prepends, so it wins over the 404 above (section 1's arrangement
+       exactly). */
+    podFake();
+    const openMedia = mediaFake();
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(source, openMedia);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the same photo fills nothing on a form whose settings ARE readable: the refusal above proves only that auto-fill does not exist",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(source),
+    );
+  });
+});
+
+/* ──── 11i. a photo can never take away a pin an edit was loaded with ─────── */
+
+/**
+ * RULING T3-B, AT THE WIRE. See the section docblock for the ruling; these two
+ * tests are its consequences, and both of them destroy data a stranger can
+ * already fetch.
+ *
+ * WHY THE SUITE DID NOT ALREADY CATCH THIS, measured rather than supposed. The
+ * opposite invariant is asserted in section 3 — "they were stored fuzzed and
+ * must survive an edit exactly as they are" — and it stays green because that
+ * test picks no photo. The one existing test that edits AND picks
+ * ("keeps both, and numbers the new one after the one that was there") asserts
+ * nothing about geometry at all: swapping `jpegWithGps` into its fixture leaves
+ * it passing, verified before these tests were written. So the two halves of
+ * the defect each sat under a green test, and neither test could see the other
+ * half. That is why these are new tests rather than a fixture swap.
+ *
+ * BOTH LEGS ASSERT AT THE WIRE AND NOT ONLY ON THE CONTROLS, because a deletion
+ * has no other surface: the boxes are empty either way, no message is shown, and
+ * the entry saves successfully. The only place a dropped `#geo` is visible is
+ * the outgoing Turtle and the index row built from it — which is also where a
+ * VISITOR sees it, since §7.4's row is what the public trip page renders a pin
+ * from.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+describe("entry editor — a photo's GPS on an entry that already has a pin", () => {
+  /**
+   * OUTCOME 1: THE PIN MOVES. Settings ready, photo taken away from home, so
+   * `fuzzForPublication` snaps rather than drops and the snapped pair REPLACES
+   * the coordinate the entry was stored with. Attach a photo of a bridge in
+   * Milan to an entry about Shinjuku and the entry is published in Milan.
+   *
+   * `specEntry()` IS THE FIXTURE BECAUSE IT CARRIES GEOMETRY (§7.3, and the
+   * normative block is the contract — §11 guardrail 6). The stored pair is read
+   * out of it and never typed here, so this cannot pass against a fixture that
+   * stopped carrying a pin: that is what the two premise assertions are for.
+   *
+   * THE PHOTO IS `GPS_OUTSIDE_HOME`, which this section's control has already
+   * put through the real `readPrivacySettings` and the real
+   * `fuzzForPublication` against the very §7.6 document the harness serves, and
+   * shown to SNAP to `SNAP_OUTSIDE_500`. So the branch this test needs is
+   * reachable and the mutation can go red — the delta's second trap answered
+   * where it is answerable, in a control rather than here.
+   *
+   * WHAT WOULD BREAK IT: seeding the author record `nobody` on an edit, which
+   * is the defect; seeding it from `lat`/`long` (both are `""` on an edit by
+   * design, so that is the same bug spelled differently); consulting the record
+   * in `save()` instead, which would publish nothing for every photo-filled
+   * CREATE.
+   */
+  it("keeps the geometry an edit was loaded with, and credits the photo with nothing", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const away = jpegWithGps("bridge.jpg", GPS_OUTSIDE_HOME);
+    const entry = await specEntry();
+
+    /* NON-VACUOUS: §7.3 really does carry a pin to lose, and it is a fuzzed one
+       — which is why it is allowed to be on a world-readable resource at all. */
+    const stored = entry.place?.geo;
+    expect(stored, "the §7.3 fixture carries no coordinate to keep").toBeDefined();
+    expect(stored!.precisionMeters, "the fixture's pin is not a fuzzed one").toBe(500);
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    await awaitLiveCoordinateControls();
+
+    /* THE DESIGN, AND THE PREMISE OF THE WHOLE RULING: both boxes are empty on
+       an edit, and `save()` reads empty as "leave the stored coordinate
+       alone". */
+    expect(shownValue(LABEL.latitude), "the latitude box was prefilled on an edit").toBe("");
+    expect(shownValue(LABEL.longitude), "the longitude box was prefilled on an edit").toBe("");
+
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await pickAndSettle(away, media);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    /* Not `clickSaveAndWait`: the attached photo's own `role="status"` has
+       already made `outcomeText()` non-empty (10e's reasoning). */
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+    await waitFor(() => expect(pod.indexPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+
+    /* The mutation half: this is a save that changed something. */
+    expect(oneObject(quads, `${put.url}#it`, SCHEMA.headline)?.value).toBe(
+      "First night in Shinjuku, revisited",
+    );
+
+    /* THE PIN DID NOT MOVE. Compared as NUMBERS (§11 guardrail 6) against what
+       the fixture arrived with, and the datatype checked too: a value that
+       merely passed through is held to §6 like any other. */
+    const geo = geoNodeOf(quads, put.url);
+    expect(geo, "the edit dropped the #geo node the entry arrived with").toBeDefined();
+    for (const [predicate, expected] of [
+      [SCHEMA.latitude, stored!.lat],
+      [GEO.lat, stored!.lat],
+      [SCHEMA.longitude, stored!.long],
+      [GEO.long, stored!.long],
+    ] as const) {
+      const term = oneObject(quads, geo!, predicate);
+      expect(
+        Number(term?.value),
+        `${predicate} is not the coordinate this entry was stored with: attaching a photo moved the entry's published pin to wherever the picture was taken`,
+      ).toBe(expected);
+      expect(datatypeOf(term), predicate).toBe(XSD.decimal);
+    }
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe(
+      String(stored!.precisionMeters),
+    );
+
+    /* AND NEITHER THE PHOTO'S READING NOR WHAT §9 WOULD HAVE PUBLISHED FROM IT
+       IS ON ANYTHING THAT LEFT THE BROWSER. Against the module constants rather
+       than against the controls: the boxes are empty, and `not.toContain("")`
+       is true of every string — reading the expectation off the form here would
+       be the vacuous spelling. */
+    const wire = pod.wire();
+    expect(
+      wire,
+      "the photo's snapped coordinate was published over the entry's own",
+    ).not.toContain(String(SNAP_OUTSIDE_500.lat));
+    expect(wire).not.toContain(String(SNAP_OUTSIDE_500.long));
+    expect(wire, "the photo's raw reading is on the wire").not.toContain(String(AWAY.lat));
+    expect(wire).not.toContain(String(AWAY.long));
+
+    /* THE INDEX ROW CARRIES THE SAME PAIR. §7.4's row is what the public trip
+       page renders, so a pin that survived in the document and not in the row
+       is a pin the visitor has lost. */
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put.url);
+    expect(row, "the edited entry has no row in the index it was written to").toBeDefined();
+    expect(
+      Number(oneObject(rows, row!, DY.lat)?.value),
+      "the index row's pin moved to the photo's",
+    ).toBe(stored!.lat);
+    expect(Number(oneObject(rows, row!, DY.long)?.value)).toBe(stored!.long);
+
+    /* AND THE CONTROLS ARE WHERE THE EDIT LEFT THEM: empty, crediting nobody.
+       The latitude hint promises "Leave both boxes empty to keep the coordinate
+       this entry already has", and this is that promise in the presence of the
+       picker. */
+    expect(shownValue(LABEL.latitude), "the photo filled the latitude of an edit").toBe("");
+    expect(shownValue(LABEL.longitude), "the photo filled the longitude of an edit").toBe("");
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a note credits the photo for a coordinate the form does not hold and the entry did not get from it",
+      ).not.toMatch(alt(away));
+    }
+
+    cleanup();
+
+    /* THE ALLOW-CASE, WITH THE SAME FILE AND THE SAME FIXTURE MINUS ITS PIN.
+       An entry with no geometry has nothing to lose, so the photo MAY fill —
+       and must. This is the FALSE branch of the one-liner that fixes both legs
+       here, and it is the only thing standing between that fix and its lazy
+       spelling: an unconditional `{ kind: "owner" }` would switch auto-fill off
+       for every edit ever made, silently, and every refusal above would still
+       pass. It is also §11.3's second half on an edit — "adding a photo is
+       never the only way to reach a value" has a mirror image, and this is it. */
+    const openMedia = mediaFake();
+    const unpinned: Entry = { ...entry, place: { ...entry.place!, geo: undefined } };
+    expect(
+      unpinned.place?.geo,
+      "the unpinned fixture still carries a coordinate, so this leg is the same case as the one above",
+    ).toBeUndefined();
+    expect(
+      unpinned.place?.name?.value,
+      "the unpinned fixture lost its place name too, so it is not the entry this leg claims to edit",
+    ).toBe(SPEC_PLACE_NAME);
+
+    await renderEditor(fake.session, {
+      initial: { entry: unpinned, etag: '"entry-7"' },
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+    await awaitLiveCoordinateControls();
+    await pickAndSettle(away, openMedia);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "the same photo fills nothing on an edit of an entry with no pin to protect: auto-fill is off for every edit, and the refusals above prove only that",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(AWAY.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(AWAY.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(away),
+    );
+  });
+
+  /**
+   * OUTCOME 2: THE PIN IS DELETED, AND THIS IS THE ORDINARY CASE.
+   *
+   * Settings ready, photo taken INSIDE the home region, so `fuzzForPublication`
+   * DROPS — §9 step 2, "inside the home radius, drop the coordinate entirely.
+   * Do not coarsen it." `fuzzed()` returns `undefined` for a drop, and
+   * `placeFor` reads `undefined` as a REMOVAL rather than an omission (which is
+   * correct and deliberate: it is what lets an owner retract a coordinate at
+   * all). The two correct pieces compose into a deletion nobody asked for.
+   *
+   * Attach a photo you took at home to an entry you are correcting, and that
+   * entry loses its pin — from the document AND from the index row the public
+   * trip page renders it from. No message says so, the save reports success,
+   * and the boxes look exactly as they did.
+   *
+   * THE FIXTURE REALLY REACHES THE DROP BRANCH, and it is not asserted here for
+   * the first time: this section's control runs `GPS_INSIDE_HOME` through the
+   * real `fuzzForPublication` against the real §7.6 document and shows
+   * `{ kind: "drop", reason: "insideHome" }`. Without that, "the geometry
+   * survived" would be a claim about a photo that never triggered a drop.
+   *
+   * THE ALLOW-CASE FOR BOTH TESTS IS IN THE ONE ABOVE — an edit of an entry
+   * with no stored geometry, where the same fill must still happen. It is
+   * deliberately not repeated here: it is the same one-liner's false branch,
+   * and a second copy would cost two renders and pin nothing new.
+   *
+   * WHAT WOULD BREAK IT: the same seeding defect as outcome 1; "fill, then drop
+   * only the NEW coordinate" spellings that treat a drop as an omission —
+   * which would fix this test and break §9's retraction, so `placeFor` is not
+   * where this belongs.
+   */
+  it("does not delete the pin when the photo was taken inside the home region", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const athome = jpegWithGps("kitchen.jpg", GPS_INSIDE_HOME);
+    const entry = await specEntry();
+
+    const stored = entry.place?.geo;
+    expect(stored, "the §7.3 fixture carries no coordinate to lose").toBeDefined();
+    expect(stored!.precisionMeters, "the fixture's pin is not a fuzzed one").toBe(500);
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      pipeline: fakePipeline().pipeline,
+      storage: fakeStorage().storage,
+    });
+
+    await awaitLiveCoordinateControls();
+    expect(shownValue(LABEL.latitude), "the latitude box was prefilled on an edit").toBe("");
+    expect(shownValue(LABEL.longitude), "the longitude box was prefilled on an edit").toBe("");
+
+    setText(LABEL.headline, "First night in Shinjuku, revisited");
+    await pickAndSettle(athome, media);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+    await waitFor(() => expect(pod.indexPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const quads = quadsOf(put.body, put.url);
+
+    /* The mutation half, and here it is doing double duty: the save went
+       through, which is what makes the missing geometry a deletion rather than
+       a refusal. */
+    expect(oneObject(quads, `${put.url}#it`, SCHEMA.headline)?.value).toBe(
+      "First night in Shinjuku, revisited",
+    );
+
+    /* THE PIN IS STILL THERE. This is the assertion the defect fails, and it can
+       only be made here: on screen nothing changed and the save said it
+       worked. */
+    const geo = geoNodeOf(quads, put.url);
+    expect(
+      geo,
+      "the entry's #geo was DELETED from a world-readable resource: a photo taken inside the home region fuzzed to `undefined`, and `placeFor` reads `undefined` as a removal",
+    ).toBeDefined();
+    for (const [predicate, expected] of [
+      [SCHEMA.latitude, stored!.lat],
+      [GEO.lat, stored!.lat],
+      [SCHEMA.longitude, stored!.long],
+      [GEO.long, stored!.long],
+    ] as const) {
+      const term = oneObject(quads, geo!, predicate);
+      expect(
+        Number(term?.value),
+        `${predicate} is not the coordinate this entry was stored with`,
+      ).toBe(expected);
+      expect(datatypeOf(term), predicate).toBe(XSD.decimal);
+    }
+    expect(oneObject(quads, geo!, DY.precisionMeters)?.value).toBe(
+      String(stored!.precisionMeters),
+    );
+
+    /* AND THE PLACE KEPT ITS NAME, so this is "the pin survived" rather than
+       "the whole place node happened to survive". */
+    const place = placeNodeOf(quads, put.url);
+    expect(place, "the edit dropped the place node the entry arrived with").toBeDefined();
+    expect(oneObject(quads, place!, SCHEMA.name)?.value).toBe(SPEC_PLACE_NAME);
+
+    /* THE INDEX ROW KEPT IT TOO — this is the surface a visitor loses the pin
+       on, since §7.4's row is what the public trip page renders. */
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put.url);
+    expect(row, "the edited entry has no row in the index it was written to").toBeDefined();
+    expect(
+      objectsOf(rows, row!, DY.lat).map((t) => Number(t.value)),
+      "the index row lost the pin the entry arrived with",
+    ).toEqual([stored!.lat]);
+    expect(objectsOf(rows, row!, DY.long).map((t) => Number(t.value))).toEqual([stored!.long]);
+
+    /* AND THE OWNER'S FRONT DOOR IS ON NOTHING THAT LEFT THE BROWSER. Against
+       the module constant, not the control: the boxes are empty and
+       `not.toContain("")` holds for every string. This one is true of today's
+       code as well — the drop is what makes it true — and it is here because
+       the fix must not buy the pin back by publishing the reading instead. */
+    expect(pod.wire(), "the at-home photo's latitude is on the wire").not.toContain(
+      String(AT_HOME.lat),
+    );
+    expect(pod.wire(), "the at-home photo's longitude is on the wire").not.toContain(
+      String(AT_HOME.long),
+    );
+
+    expect(shownValue(LABEL.latitude), "the photo filled the latitude of an edit").toBe("");
+    expect(shownValue(LABEL.longitude), "the photo filled the longitude of an edit").toBe("");
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a note credits the photo for a coordinate that was never published and is not in the form",
+      ).not.toMatch(alt(athome));
+    }
+  });
+});
+
+/* ──── 11j. a coordinate that came back from a draft is not the photo's ───── */
+
+describe("entry editor — a photo after a draft was restored", () => {
+  /**
+   * `restore()`'s ONE CONDITIONAL CREDIT, IN BOTH DIRECTIONS — and until now
+   * neither direction had an assertion about its consequence. The line was
+   * REACHED by two existing tests (8h's Restore round trip runs the true
+   * branch, the banner tests run the false one), which is a different thing
+   * from being covered: reached-and-unasserted is exactly the state that lets a
+   * line be deleted with the suite green.
+   *
+   * THE TRUE BRANCH. `restore()` writes the boxes with no DOM event — the
+   * form's own comment says so about `touched` — so it comes through neither
+   * `onChange`, and without the credit the record reads `nobody` over a form
+   * that visibly holds a pair. Attach a photo and it takes both boxes: §11.3's
+   * forbidden overwrite, reached by the one path that does not look like typing.
+   *
+   * THE FALSE BRANCH MATTERS AS MUCH, and that is the half a "just credit
+   * unconditionally" simplification gets wrong. `seededDraft` defaults `lat` and
+   * `long` to `""` because a draft with no coordinate in it is the ordinary one
+   * — the owner types the story first — and crediting the owner for that would
+   * silently switch auto-fill off for the whole session, for everyone who ever
+   * clicks Restore. Both legs are therefore here, and each is the other's
+   * allow-case.
+   *
+   * ACCEPTED COST, RECORDED SO IT IS A DECISION AND NOT A DEFECT: a coordinate
+   * that came from a photo loses its attribution across a restore. It comes
+   * back credited to the owner, and a later photo may not replace it. The draft
+   * keeps `lat`/`long` as text and nothing about where they came from, and both
+   * available answers are refusals — so the third, "remember it was a photo's",
+   * would mean adding a provenance field to the payload to store something no
+   * reader needs. The photo itself IS restored into the slot list, so the owner
+   * is not left with a number and no explanation.
+   *
+   * WHAT WOULD BREAK IT: deleting the credit from `restore()` (leg one goes
+   * red); crediting unconditionally, i.e. dropping the `if` (leg two goes red);
+   * crediting `{ kind: "photo" }` there, which would pass both legs and put a
+   * file name that is not on screen into the note.
+   */
+  it("keeps what a restore put in the boxes, and still fills a draft that held no coordinate", async () => {
+    const KEY = draftKeyFor(OWNER, NEW_SCOPE);
+    const media = mediaFake();
+    const fake = fakeStudioSession();
+    const source = jpegWithGps("beach.jpg", GPS_TOKYO);
+
+    /* ── leg one: a draft that HELD a coordinate ─────────────────────────── */
+    const kept = fakeStorage({
+      [KEY]: JSON.stringify(seededDraft({ lat: TYPED.lat, long: TYPED.long, precision: "500" })),
+    });
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: kept.storage,
+    });
+
+    const offered = screen.queryAllByRole("region", { name: /draft/i });
+    expect(
+      offered,
+      "no draft was offered, so there is no restore to observe: the editor is reading a key this file no longer writes (v1 rather than v2), or is not reading one at all",
+    ).toHaveLength(1);
+    fireEvent.click(within(offered[0]).getByRole("button", { name: "Restore" }));
+
+    await awaitLiveCoordinateControls();
+
+    /* THE PREMISE, AND THE WHOLE REASON THE CREDIT IS NEEDED: the pair is in
+       the boxes and no keystroke put it there. */
+    expect(
+      shownValue(LABEL.latitude),
+      "Restore did not put the kept latitude back into the control",
+    ).toBe(TYPED.lat);
+    expect(shownValue(LABEL.longitude)).toBe(TYPED.long);
+
+    await pickAndSettle(source, media);
+    await waitFor(() => expect(media.puts).toHaveLength(2));
+
+    expect(
+      shownValue(LABEL.latitude),
+      "a photo overwrote a latitude a restore had put in the box: `restore()` credited nobody, so the record read `nobody` over a form that visibly held a pair",
+    ).toBe(TYPED.lat);
+    expect(
+      shownValue(LABEL.longitude),
+      "a photo overwrote a longitude a restore had put in the box",
+    ).toBe(TYPED.long);
+
+    for (const label of [LABEL.latitude, LABEL.longitude] as const) {
+      expect(
+        describedTextOf(label),
+        "a note credits the photo for a coordinate that came back from a draft",
+      ).not.toMatch(alt(source));
+    }
+
+    cleanup();
+
+    /* ── leg two: the ORDINARY draft, which holds no coordinate at all ───── */
+    const openMedia = mediaFake();
+    const empty = fakeStorage({ [KEY]: JSON.stringify(seededDraft()) });
+    await renderEditor(fake.session, {
+      pipeline: fakePipeline().pipeline,
+      storage: empty.storage,
+    });
+
+    const second = screen.queryAllByRole("region", { name: /draft/i });
+    expect(second, "no draft was offered on the second leg").toHaveLength(1);
+    fireEvent.click(within(second[0]).getByRole("button", { name: "Restore" }));
+
+    await awaitLiveCoordinateControls();
+
+    /* TWO PREMISES, AND THE SECOND IS THE ONE THAT STOPS THIS LEG BEING "a
+       photo filled an untouched form" — which 11a already pins. A restore
+       really did happen here, and it left auto-fill alone. */
+    expect(
+      shownValue(LABEL.latitude),
+      "the default seeded draft carries a coordinate, so this leg is not the empty case it is about",
+    ).toBe("");
+    expect(shownValue(LABEL.longitude)).toBe("");
+    expect(
+      shownValue(LABEL.headline),
+      "the draft was not restored at all, so nothing here is about a restored form",
+    ).toBe("Rain on the Philosopher's Path");
+
+    await pickAndSettle(source, openMedia);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.latitude),
+        "restoring a draft with no coordinate in it switched auto-fill off for the rest of the session: the credit in `restore()` is unconditional",
+      ).not.toBe("");
+    });
+    expect(Number(shownValue(LABEL.latitude))).toBe(TOKYO.lat);
+    expect(Number(shownValue(LABEL.longitude))).toBe(TOKYO.long);
+    expect(describedTextOf(LABEL.latitude), "the filled control names no source photo").toMatch(
+      alt(source),
+    );
   });
 });
