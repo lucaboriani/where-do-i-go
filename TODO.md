@@ -1005,6 +1005,15 @@ In progress on branch `phase-2-studio`.
             the redundancy out loud, because a no-op defended by a comment claiming otherwise is a
             shape this file has already carried once. Worth resolving deliberately rather than by
             deletion.
+      - [ ] **`OFFSET_SHAPE`'s width is unpinned.** It is read only inside `restore()`, and every
+            draft-offset fixture the suite exercises is `"+09:00"`, `"+05:45"`, `""` or `"banana"` —
+            none is shape-valid but unlisted. So tightening it from a regex to list membership
+            passes all 166 tests, while a draft carrying `+05:15` would then be refused on restore
+            and silently fall back, losing an offset the owner had. The loose/strict split is
+            deliberate — wide for what the select may *display*, strict for what a photo may
+            *supply* — and only the strict half is pinned. One test closes it: a draft whose offset
+            is shape-valid and unlisted restores unchanged. Found by mutating a hypothetical
+            alternative rather than the shipped code, so nothing is reachable today.
       - [ ] **Replace the line-number citations in `test/entry-editor.test.tsx`'s docblocks with
             symbol references.** They went stale twice in one stage — once by ~76 lines, once by 57
             — and the second time happened *within a single fix round*, after being corrected,
