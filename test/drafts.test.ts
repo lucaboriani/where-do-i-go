@@ -12,7 +12,7 @@
  *   type StorageLike  = { getItem(k): string | null; setItem(k, v): void;
  *                         removeItem(k): void }
  *   type DraftAddress = { webId: string; scope: string }
- *   type Draft        = exactly thirteen fields — see FIELDS below
+ *   type Draft        = exactly seventeen fields — see FIELDS below
  *
  *   draftKey(at: DraftAddress): string
  *   readDraft(storage: StorageLike, at: DraftAddress): Draft | null
@@ -123,8 +123,8 @@ const AT_NEW: DraftAddress = { webId: OWNER, scope: NEW };
 const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
 
 /**
- * The thirteen fields, sorted. Asserted as a SET rather than field by field,
- * because "exactly these" is the property that matters: a fourteenth field is
+ * The seventeen fields, sorted. Asserted as a SET rather than field by field,
+ * because "exactly these" is the property that matters: a seventeenth field is
  * how the ETag gets in, and a missing one is a field the editor silently stops
  * restoring.
  *
@@ -137,22 +137,48 @@ const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
  * to back it up. test/entry-editor.test.tsx section 8h owns the decision that
  * what is kept is the coordinate as TYPED rather than as published.
  *
+ * `placeName`, `locality` AND `country` ARRIVED WITH THE EDITOR'S PLACE
+ * CONTROLS on 2026-09-06, and the key did NOT move for them either. §9 is why
+ * they exist at all: inside the home radius the coordinate is dropped rather
+ * than coarsened, and the mitigation is that "the entry is still written, with
+ * its place name if it has one" — which needed a control that could give it
+ * one. They are form strings like the nine before them, empty when nothing has
+ * been typed, and section 7 below holds the decision not to bump: no `v2`
+ * payload can carry a place name, because there was no control to type one
+ * into, so an older draft restores three empty boxes rather than three
+ * defaults standing in for something lost.
+ *
  * `photos` ARRIVED WITH THE EDITOR'S PICKER, and the key did NOT move with it —
- * the one time the version test is answered "no". A `v2` payload cannot carry a
+ * the first time the version test was answered "no". A `v2` payload cannot carry a
  * photo, because there was no control to attach one with, so an older draft
  * restores an empty list: the truth about that draft rather than a default
  * standing in for something lost. It is a `Photo[]` and not a form string
  * because the editor uploads on pick and then holds URLs; see the field's own
  * docblock in lib/studio/drafts.ts, and section 6 below for the empty-list
  * default.
+ *
+ * `offset` ARRIVED WITH THE EDITOR'S UTC-OFFSET CONTROL on 2026-09-06, and the
+ * key did NOT move for it either — the third time that test is answered "no".
+ * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", and until
+ * that control existed the offset was the entry's own or, failing that, the
+ * EDITING MACHINE'S: writing up a Japan trip from home stamped an evening in
+ * Tokyo `+02:00`, silently. The offset is now a value the owner chooses, which
+ * makes it a form value like the eleven strings around it and therefore
+ * something a draft has to keep — a restored draft that dropped it would hand
+ * the owner back the same silent guess the control exists to replace. Section 8
+ * below owns the decision not to bump, and the `.default("")` that buys it.
  */
 const FIELDS = [
+  "country",
   "headline",
   "lat",
+  "locality",
   "long",
   "mode",
   "occurred",
+  "offset",
   "photos",
+  "placeName",
   "precision",
   "savedAt",
   "slug",
@@ -171,12 +197,23 @@ const DRAFT: Draft = {
   headline: "Rain on the Philosopher's Path",
   story: "Two hours of drizzle and nobody else on the path.",
   occurred: "2026-04-02T16:20",
+  // The offset of the PLACE, chosen by the owner — not the zone the machine
+  // editing this happens to be in. Kyoto in April is +09:00; the odd ones are
+  // section 8's subject, because a draft that could not hold `+05:45` would
+  // make Nepal unwritable from a restored form.
+  offset: "+09:00",
   tagsText: "walking, rain",
   mode: "Train",
   status: "draft",
   lat: "35.026345",
   long: "135.794782",
   precision: "500",
+  // The place, as the form holds it: three strings, and the country a CODE
+  // rather than a name — lib/pod/entry-model.ts writes it untagged for the same
+  // reason the slug is untagged, so what the form keeps is what it will send.
+  placeName: "Gion, Kyoto",
+  locality: "Kyoto",
+  country: "JP",
   // The common draft: text typed, no photo attached yet. The photo-carrying
   // cases are section 6's, where they are the subject rather than the setting.
   photos: [],
@@ -260,7 +297,7 @@ describe("draftKey", () => {
 });
 
 describe("writeDraft / readDraft", () => {
-  it("round-trips exactly the thirteen fields, and stores them under the key", async () => {
+  it("round-trips exactly the seventeen fields, and stores them under the key", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items, calls } = fakeStorage();
 
@@ -387,10 +424,10 @@ describe("what a draft must never carry", () => {
    * persisted shape, the schema starts keeping it and this fails. It also
    * settles the unknown-key question for the whole module — the schema STRIPS
    * what it does not know rather than rejecting the value, so a payload from a
-   * slightly different build still restores its twelve fields instead of being
-   * thrown away. test/entry-editor.test.tsx leans on that choice.
+   * slightly different build still restores its seventeen fields instead of
+   * being thrown away. test/entry-editor.test.tsx leans on that choice.
    */
-  it("restores none of them, and still restores the twelve that are legitimate", async () => {
+  it("restores none of them, and still restores the seventeen that are legitimate", async () => {
     const { draftKey, readDraft } = await loadDrafts();
     const payload = JSON.stringify({
       ...DRAFT,
@@ -672,5 +709,334 @@ describe("the photos in a draft", () => {
     // The allow-case, so this is not a reader that refuses everything.
     expect(writeDraft(storage, AT_NEW, { ...DRAFT, photos: [PHOTO] })).toBe(true);
     expect(readDraft(storage, AT_NEW)?.photos).toEqual([PHOTO]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 7. THE PLACE A DRAFT NAMES — and, again, the version segment left alone.
+ *
+ * Three more form strings, and the reason they exist is §9 rather than
+ * convenience: inside the home radius the coordinate is dropped entirely, and
+ * the whole mitigation for that is "the entry is still written, with its place
+ * name if it has one — it is the geometry that is absent, not the entry". Until
+ * the studio grew these controls there was never a name to keep, so an entry
+ * written near home was placeless. A draft that dropped them on the way to
+ * storage would put the owner right back there after a crash.
+ *
+ * THE VERSION TEST, ANSWERED "NO" A SECOND TIME. A bump exists to prevent the
+ * HALF-RESTORE: a field the payload cannot carry, showing whatever the editor's
+ * own defaults left in it, under a banner that has just said the draft came
+ * back. No `v2` payload can carry a place name, because there was no control to
+ * type one into, so an older draft restores three empty boxes — the truth about
+ * that draft. Bumping would throw away real unsaved prose in exchange for
+ * nothing.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("the place fields in a draft", () => {
+  /**
+   * The round trip, and the empty case with it — a half-written entry whose
+   * owner has not said where they were yet is the ordinary draft, so `""` has
+   * to survive as `""` rather than being dropped or refused.
+   *
+   * WHAT WOULD BREAK IT: leaving the fields out of the schema, where unknown
+   * keys are STRIPPED silently and the write still reports success; or giving
+   * them `.default("")`, which is the operator that loses the difference
+   * between "nowhere in particular" and "never asked" — see the test below.
+   *
+   * THIS DOCBLOCK USED TO NAME `.optional()` AS THE HAZARD and it had it exactly
+   * backwards, which is worth leaving on the record because a comment that
+   * misstates which operator collapses a distinction is how the bug returns.
+   * Measured on zod 4.5.4: `.optional()` leaves an absent key absent and an
+   * explicit `""` as `""`; `.default("")` turns BOTH into `""`. `.optional()`
+   * is what preserves the difference the editor depends on.
+   */
+  it("round-trips the three place fields, including empty ones", async () => {
+    const { readDraft, writeDraft } = await loadDrafts();
+    const { storage } = fakeStorage();
+
+    expect(writeDraft(storage, AT_NEW, DRAFT)).toBe(true);
+    const back = readDraft(storage, AT_NEW);
+    expect(back?.placeName, "the place name did not survive the round trip").toBe("Gion, Kyoto");
+    expect(back?.locality).toBe("Kyoto");
+    expect(back?.country).toBe("JP");
+    expect(Object.keys(back!).sort()).toEqual(FIELDS);
+
+    // The common draft: text typed, nothing said about where yet.
+    const nowhere: Draft = { ...DRAFT, placeName: "", locality: "", country: "" };
+    expect(writeDraft(storage, AT_NEW, nowhere)).toBe(true);
+    expect(readDraft(storage, AT_NEW)).toEqual(nowhere);
+  });
+
+  /**
+   * THE DECISION THE KEY DID NOT MOVE FOR, in the only form that can be
+   * observed: a payload written before these controls existed still restores
+   * its prose, and says NOTHING about the place.
+   *
+   * IT ASSERTED `""` HERE UNTIL 2026-09-06, AND THAT WAS THE BUG. `""` is not
+   * "this draft has no place"; in the editor it is the instruction REMOVE, the
+   * only way a name already on the Pod comes off it. A default that manufactured
+   * one for a payload with no opinion made restoring an old draft onto an entry
+   * that HAS a place delete `schema:name` and the whole `<#address>` on the next
+   * save — the half-restore the version segment exists to prevent, reached by
+   * the operator chosen to avoid a version bump. `test/entry-editor.test.tsx`
+   * §1b drives that scenario end to end; this is the half in the store.
+   *
+   * WHAT WOULD BREAK IT: bumping the key to `v3` (every unsaved draft on every
+   * machine becomes invisible, which is the loss this feature exists to
+   * prevent); leaving the fields required with no default, which refuses the
+   * whole payload and loses the same text by a quieter route; or `.default("")`,
+   * which loses the place instead of the prose.
+   */
+  it("restores a draft written before the place fields existed, saying nothing about the place", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.placeName;
+    delete before.locality;
+    delete before.country;
+    // The fixture really is missing them, or the rest of this test is about a
+    // payload that has them.
+    for (const field of ["placeName", "locality", "country"]) {
+      expect(Object.keys(before), field).not.toContain(field);
+    }
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(
+      back,
+      "a draft written before the place controls is no longer restorable: the key moved, or the fields are required",
+    ).not.toBeNull();
+    expect(
+      back!.placeName,
+      "an absent place name came back as a value: `\"\"` is the editor's instruction to REMOVE, and this payload has no opinion to express",
+    ).toBeUndefined();
+    expect(back!.locality).toBeUndefined();
+    expect(back!.country).toBeUndefined();
+    // And absent really is absent in the parse output, not merely undefined-valued.
+    for (const field of ["placeName", "locality", "country"]) {
+      expect(Object.keys(back!), field).not.toContain(field);
+    }
+    // The mutation half: the text the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+    // And the coordinate, which is the field the key DID move for: a v2 payload
+    // carries it, so this is a restore of everything except the three new boxes.
+    expect(back!.lat).toBe(DRAFT.lat);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 8. THE OFFSET A DRAFT CARRIES — and, a third time, the version segment left
+ *    alone.
+ *
+ * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", because
+ * normalising to UTC "destroys the fact that it was evening, which for a travel
+ * diary is most of the meaning". Until the editor grew a control for it that
+ * offset was the entry's own or, failing that, THE EDITING MACHINE'S — so
+ * writing up a Japan trip from home stamped an evening in Tokyo `+02:00`,
+ * silently, with nothing on the form that could correct it. It is now a value
+ * the owner picks, which makes it a form value like `occurred` beside it, and
+ * therefore something the local copy has to keep: a restored draft that dropped
+ * it would put the owner back in front of the same silent guess.
+ *
+ * A STRING, AND NOT VALIDATED HERE, which is deliberate. The fence is the
+ * editor's list of the thirty-eight offsets actually in use; this module's job
+ * is to hand back what the form was holding. A schema that refused anything
+ * outside that list would throw away the whole payload — the prose included —
+ * the day an entry written by another tool carried `+05:15`, and losing a long
+ * entry is the exact failure `docs/decisions.md` §10 says this store exists to
+ * prevent. The one thing that must NOT happen is silent substitution, and that
+ * is what the tests below pin.
+ *
+ * THE VERSION TEST, ANSWERED "NO" A THIRD TIME. A bump exists to prevent the
+ * HALF-RESTORE: a field the payload cannot carry, showing whatever the editor's
+ * own default left in it, under a banner that has just said the draft came
+ * back. No `v2` payload can carry an offset, because there was no control to
+ * choose one with, so such a draft restores `""` — which the editor reads as
+ * "this draft has nothing to say about the offset" and fills from the same
+ * fallback chain it would have used anyway. `.default("")`, and THAT IS THE
+ * OPPOSITE CHOICE TO THE PLACE FIELDS BELOW (`.optional()`), not the same
+ * reason applied twice: for a place, `""` is an instruction — REMOVE THIS,
+ * the only way a name already published comes off the Pod — so collapsing it
+ * into "absent" would make removal impossible. An offset has no REMOVE
+ * instruction (§3 and §6 require `dy:occurredAt` to carry one and refuse it
+ * without, on read and on write), so `""` can only mean "this draft has
+ * nothing to say," which is the same thing absent already means. Absent and
+ * `""` are therefore one instruction here, and collapsing them is lossless
+ * rather than lossy.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("the offset in a draft", () => {
+  /**
+   * The two that make this a select over thirty-eight values rather than an
+   * hours stepper — India and Nepal — plus a negative half hour, because a sign
+   * dropped somewhere between the form and JSON is the other way this gets
+   * quietly wrong.
+   *
+   * WHAT WOULD BREAK IT: leaving `offset` out of the schema, where unknown keys
+   * are STRIPPED silently and `writeDraft` still reports `true`; storing it as a
+   * number of hours, which cannot express any of these three.
+   */
+  it.each(["+05:30", "+05:45", "-09:30", "+00:00"])(
+    "round-trips %s exactly as the form held it",
+    async (offset) => {
+      const { readDraft, writeDraft } = await loadDrafts();
+      const { storage } = fakeStorage();
+      const somewhere: Draft = { ...DRAFT, offset };
+      // The mutation really happened: every row differs from the fixture, so a
+      // schema that dropped the field cannot pass by handing back "+09:00".
+      expect(somewhere.offset).not.toBe(DRAFT.offset);
+
+      expect(writeDraft(storage, AT_NEW, somewhere)).toBe(true);
+      const back = readDraft(storage, AT_NEW);
+      expect(back?.offset, "the offset did not survive the round trip").toBe(offset);
+      expect(back).toEqual(somewhere);
+      expect(Object.keys(back!).sort()).toEqual(FIELDS);
+    },
+  );
+
+  /**
+   * `""` IS A REAL VALUE, kept as itself rather than becoming an absent key.
+   * `.default("")` and `.optional()` answer THIS input identically — a
+   * present `""` stays a present `""` under either — so this test does not
+   * discriminate between the two operators; the one below it does, on a key
+   * that is genuinely absent. What this one pins is the value itself: `""`
+   * means "this draft says nothing about the offset, use the fallback
+   * chain", and the editor does not need to tell that apart from "absent" —
+   * one expression covers both, which is the whole reason `.default("")` was
+   * chosen over `.optional()` here.
+   */
+  it("keeps an empty offset as an empty offset, not as an absent field", async () => {
+    const { readDraft, writeDraft } = await loadDrafts();
+    const { storage } = fakeStorage();
+    const blank: Draft = { ...DRAFT, offset: "" };
+
+    expect(writeDraft(storage, AT_NEW, blank)).toBe(true);
+    const back = readDraft(storage, AT_NEW);
+    expect(back).toEqual(blank);
+    expect(
+      Object.keys(back!).sort(),
+      "an empty offset came back with the key missing entirely",
+    ).toEqual(FIELDS);
+  });
+
+  /**
+   * AN OFFSET NO CONTROL CAN OFFER IS STILL KEPT. `+05:15` is not one of the
+   * thirty-eight; an entry written by another tool can carry one, and the
+   * editor's own rule is that it renders rather than being silently replaced.
+   * A store that refused it would take the prose down with it.
+   */
+  it("keeps an offset that is not in the editor's list rather than refusing the payload", async () => {
+    const { readDraft, writeDraft } = await loadDrafts();
+    const { storage } = fakeStorage();
+    const odd: Draft = { ...DRAFT, offset: "+05:15" };
+
+    expect(writeDraft(storage, AT_NEW, odd), "an unusual offset lost the whole draft").toBe(true);
+    expect(readDraft(storage, AT_NEW)?.offset).toBe("+05:15");
+  });
+
+  /**
+   * THE DECISION THE KEY DID NOT MOVE FOR, in the only form that can be
+   * observed: a payload written before the control existed still restores its
+   * prose, with `""` where the offset would be.
+   *
+   * WHAT WOULD BREAK IT: bumping the key to `v3` (every unsaved draft on every
+   * machine becomes invisible, which is the loss this feature exists to
+   * prevent); leaving the field required with no default, which refuses the
+   * whole payload and loses the same text by a quieter route.
+   */
+  it("restores a draft written before the offset control, with an empty offset", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.offset;
+    // The fixture really is missing the field, or the rest of this test is
+    // about a payload that has one.
+    expect(Object.keys(before)).not.toContain("offset");
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(
+      back,
+      "a draft written before the offset control is no longer restorable: the key moved, or the field is required",
+    ).not.toBeNull();
+    expect(back!.offset, "the missing field did not default to an empty string").toBe("");
+    // The mutation half: the text the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+    // And the wall clock, which is the half of the timestamp such a payload DID
+    // carry: the offset is the only thing missing from it.
+    expect(back!.occurred).toBe(DRAFT.occurred);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 9. TASK 2.5 — `savedAt` BECOMES `.optional()`, AT THE MAINTAINER'S EXPLICIT
+ *    INSTRUCTION, AFTER BEING SHOWN THE DOCBLOCK ABOVE ARGUES AGAINST IT.
+ *
+ * `.optional()`, not `.default(...)`: this module holds no clock, so an
+ * absent `savedAt` must stay absent rather than being given one it never had.
+ *
+ * THE CONSEQUENCE IS NOT HERE — IT IS IN test/entry-editor.test.tsx. Today the
+ * schema is what keeps a payload with no `savedAt` off the render path: it is
+ * refused outright and `readDraft` answers `null`. Making the field optional
+ * moves such a payload ONTO the render path, where the banner's
+ * `savedAtText = (savedAt: string) => savedAt.slice(...)` on `undefined` is a
+ * TypeError thrown from the mount effect. This file only pins the store's
+ * half: a payload with no `savedAt` comes back USABLE, key genuinely absent,
+ * rather than refused. The render half — that the editor survives it, and
+ * still offers Restore — is `entry editor — a draft with no savedAt at all
+ * (task 2.5)` in test/entry-editor.test.tsx.
+ *
+ * STRUCTURED ON §8's "restores a draft written before the offset control":
+ * same shape, a different field, and the same three-part pin — the fixture
+ * really is missing the key, the payload comes back rather than being
+ * refused, and the prose the owner would otherwise lose is really in there.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe("savedAt becoming optional (task 2.5)", () => {
+  /**
+   * THE ONE THAT MATTERS. Today `savedAt` is `z.iso.datetime({ offset: true })`
+   * with no default and no `.optional()`, so `Draft.safeParse` refuses the
+   * whole payload the moment the key is missing and `readDraft` answers
+   * `null` — the CORRECT red state for this test, and the reason it is
+   * red for: not a missing export, not a thrown exception, but the payload
+   * being turned away. Once `savedAt` is `.optional()`, the same bytes parse
+   * and the prose comes back with the key genuinely absent rather than
+   * defaulted to some invented timestamp.
+   */
+  it("readDraft returns a usable draft from a payload with no savedAt at all", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    const before = { ...DRAFT } as Partial<Draft>;
+    delete before.savedAt;
+    // The fixture really is missing the field, or the rest of this test is
+    // about a payload that has one.
+    expect(Object.keys(before)).not.toContain("savedAt");
+    expect(JSON.stringify(before)).not.toContain("savedAt");
+
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const back = readDraft(storage, AT_NEW);
+
+    expect(
+      back,
+      "a payload with no savedAt was refused outright — savedAt is still required",
+    ).not.toBeNull();
+    // The mutation half: the prose the owner would lose really is in there.
+    expect(back!.headline).toBe(DRAFT.headline);
+    expect(back!.story).toBe(DRAFT.story);
+    expect(back!.occurred).toBe(DRAFT.occurred);
+    // And the field stays ABSENT rather than being invented: `.optional()`,
+    // never `.default(...)`, because this module holds no clock. A schema
+    // that manufactured a timestamp would pass the two lines above and fail
+    // only here.
+    expect(
+      Object.keys(back!),
+      "an absent savedAt came back with the key present anyway",
+    ).not.toContain("savedAt");
+    expect(back).not.toHaveProperty("savedAt");
+    // Sixteen of the seventeen: everything FIELDS names except the one this
+    // payload has nothing to say about. Not FIELDS itself — that would assert
+    // the opposite of what this task changes.
+    expect(Object.keys(back!).sort()).toEqual(FIELDS.filter((field) => field !== "savedAt"));
   });
 });

@@ -85,19 +85,54 @@
  *   same rule the place, `created` and `datePublished` follow. The binaries
  *   have no other reference, so dropping the triple orphans the bytes.
  *
- * A PHOTO'S EXIF `DateTimeOriginal` IS DELIBERATELY NOT WIRED TO
- * `schema:dateCreated` YET. §6 requires a UTC offset on every `xsd:dateTime`,
- * and lib/media/exif.ts yields an offset-less wall clock — EXIF has no zone and
- * `OffsetTimeOriginal` is usually absent (§11.5). Inventing this machine's
- * offset for a photo taken elsewhere would stamp the wrong instant onto a
- * permanent record. An existing `dateCreated` is carried through untouched.
- * A photo's GPS is a coordinate like any other and goes through §9 steps 1–4;
- * neither wire is stage 1's.
+ * A PHOTO'S EXIF `DateTimeOriginal` IS STILL NOT WIRED TO THE PHOTO'S OWN
+ * `schema:dateCreated`, AND AS OF 2026-09-07 IT DOES REACH THE ENTRY'S
+ * TIMESTAMP — THROUGH THE FORM, exactly as the GPS below does. §6 requires a UTC
+ * offset on every `xsd:dateTime`, and lib/media/exif.ts yields an offset-less
+ * wall clock — EXIF has no zone and `OffsetTimeOriginal` is usually absent
+ * (§11.5) — so inventing this machine's offset for a photo taken elsewhere
+ * would stamp the wrong instant onto a permanent record. That argument still
+ * forbids the direct write, and an existing `dateCreated` is carried through
+ * untouched. What it never forbade is the pair of CONTROLS: the wall clock
+ * lands in "When it happened", the half EXIF does not carry is the offset
+ * select beside it, and the owner is TOLD when that half is only this machine's
+ * guess instead of reading `21:38 +02:00` in which both halves look like data
+ * (§11.5: "worse than not auto-dating at all, because it looks right"). See
+ * `offerTimestamp`, `TimeAuthor` and `OFFSET_GUESS_ID`.
+ *
+ * A PHOTO'S GPS *IS* WIRED, AS OF 2026-09-07, AND IT IS WIRED TO THE FORM.
+ * This paragraph used to end "neither wire is stage 1's", which was true of
+ * stage 1 and is now false of the coordinate half: `derived.metadata.gps`
+ * fills the two coordinate boxes when nothing else has (§11.3), and it fills
+ * NOTHING ELSE.
+ *
+ *   IT FEEDS THE FORM, NEVER THE WRITE PATH, and that is the whole of the
+ *   privacy argument. A photo's GPS arrives looking authoritative — it is a
+ *   real reading, from a real receiver — and the tempting spelling puts it on
+ *   `place.geo` directly, which publishes the exact spot a picture was taken.
+ *   Landing it in the inputs instead means it reaches the Pod by the ONE route
+ *   a typed coordinate does: `fuzzed()` at save time, §9 steps 1–4, snapped or
+ *   dropped. There is no second path, and §9's guarantee is that there is not.
+ *
+ *   FIRST WRITER WINS, IN EVERY DIRECTION (§11.3, and ruling T3-B for the last
+ *   of them). Auto-fill only ever writes into a coordinate nobody has supplied:
+ *   not one the owner typed, not one an earlier photo offered, and not one the
+ *   entry being edited already has — an edit's boxes are empty by design, and
+ *   what they mean when empty is "the pair on the Pod stands". See
+ *   `coordinateAuthor`.
+ *
+ *   AND IT ASKS THE SAME GATE EVERY OTHER COORDINATE WRITER ASKS. Settings that
+ *   cannot be read leave the three controls dead (§9's fail-closed posture), and
+ *   a photo does not get past that either — `offerCoordinate`.
+ *
+ *   AND IT SAYS SO ON SCREEN. A value that appeared without being typed has to
+ *   name where it came from, or the owner cannot tell it from something they
+ *   did yesterday — `COORDINATE_SOURCE_ID`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * PLAIN CONTROLS ON PURPOSE. TODO.md keeps layout deliberately unstyled until
  * phase 7, and native `<select>`, `<input>` and `<textarea>` need no Radix on a
- * screen with twelve controls on it. Every one of them has a real `<label>`.
+ * screen of sixteen controls. Every one of them has a real `<label>`.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -112,7 +147,7 @@ import { saveEntry } from "@/lib/pod/save-entry";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import { SCHEMA_VERSION } from "@/lib/vocab";
-import type { Pipeline } from "@/lib/media/pipeline";
+import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { ReactNode } from "react";
 import type {
   Entry,
@@ -266,14 +301,24 @@ function offsetHere(wall: string): string {
  * the evening for every reader. Converting through a `Date` and back would
  * rewrite an entry edited from another time zone into that zone's offset — the
  * same instant, spelled as the wrong time of day, which for a travel diary is
- * most of the meaning. So only the OFFSET is supplied here, and on an edit it
- * is the one already stored.
+ * most of the meaning. So only the OFFSET is supplied here, and it is the one
+ * the owner's own control is holding.
+ *
+ * THE OFFSET IS REQUIRED, AND THE FALLBACK THAT USED TO BE ON THIS LINE HAS
+ * MOVED RATHER THAN GONE. It read `storedOffset ?? offsetHere(wall)` — the
+ * entry's own offset, else the EDITING MACHINE'S — which is the guess the
+ * offset control exists to replace, and it fired where nobody could see it. The
+ * same chain is now the control's INITIAL VALUE, where the owner can read it
+ * and correct it. Keeping a copy here as well would be a second chain that has
+ * to agree with the first and says nothing when it stops: the rule §9 step 3
+ * states for the precision — what the control shows is what gets applied —
+ * spelled for the offset.
  */
-function toOffsetDateTime(local: string, storedOffset: string | undefined): string | undefined {
+function toOffsetDateTime(local: string, offset: string): string | undefined {
   const parts = LOCAL_DATETIME.exec(local);
   if (!parts) return undefined;
   const wall = `${parts[1]}T${parts[2]}${parts[3] ?? ":00"}`;
-  return `${wall}${storedOffset ?? offsetHere(wall)}`;
+  return `${wall}${offset}`;
 }
 
 /** The offset an already-stored timestamp carries. `Z` is a valid offset and
@@ -290,6 +335,25 @@ function offsetOf(value: string | undefined): string | undefined {
 const wallClockOf = (value: string | undefined) => (value === undefined ? "" : value.slice(0, 16));
 
 /**
+ * This machine's clock, right now, as a wall clock with no offset on it.
+ *
+ * SPLIT OUT OF `nowWithOffset` FOR THE OFFSET CONTROL'S INITIAL VALUE, which
+ * needs the offset of the current instant and has no wall clock of its own to
+ * ask about: `occurred` is `""` on a create, and `offsetHere("")` is `+00:00`
+ * rather than this machine's zone — measured, not reasoned about, because
+ * `offsetHere` treats an unparseable date as zero minutes. A new entry
+ * defaulting to UTC while the owner sits in Tokyo is the exact silent
+ * wrong-offset bug the control exists to remove.
+ */
+function wallClockNow(): string {
+  const at = new Date();
+  return (
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    `T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`
+  );
+}
+
+/**
  * Now, with this machine's offset — the one instant a save is stamped with:
  * `dcterms:created` on a create, `schema:datePublished` on a first publication,
  * and, through `saveEntry`'s `now`, `dcterms:modified` on the entry and its
@@ -299,11 +363,75 @@ const wallClockOf = (value: string | undefined) => (value === undefined ? "" : v
  * `dy:occurredAt` they take the offset of wherever the owner is sitting.
  */
 function nowWithOffset(): string {
-  const at = new Date();
-  const wall =
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
-    `T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+  const wall = wallClockNow();
   return `${wall}${offsetHere(wall)}`;
+}
+
+/**
+ * THE OFFSETS ACTUALLY IN USE, west to east, and the odd ones are the point.
+ *
+ * `+05:45` is Nepal, `+08:45` is Eucla, `+12:45` is the Chathams, `-09:30` is
+ * the Marquesas, `+05:30` is India. A list of whole hours makes those places
+ * unwritable, which for a travel diary is the wrong corner to cut, and it is
+ * also why this is a `<select>` over a fixed list rather than a stepper: a
+ * numeric control that admits `+05:45` admits `+05:61` with it.
+ *
+ * BOTH HALVES OF A ZONE'S YEAR, AND THIS LIST WAS WRONG ON THAT TWICE OVER
+ * UNTIL 2026-09-07 (F2). `-02:30` is Newfoundland DAYLIGHT Time, May to
+ * November, and `-03:30` — the same island in the other half of its year — was
+ * already here. `+13:45` is Chatham DAYLIGHT Time, September to April, beside
+ * the `+12:45` the paragraph above names as one of the odd ones the list exists
+ * for. So two of the places argued for were writable for half a year each, and
+ * the cost is not a wall clock — §7.3's guarantee survives: the owner writing
+ * up the Chathams in January picks the nearest offered value and the INSTANT is
+ * an hour out, which is what any cross-trip ordering uses. Nothing on screen
+ * says so, and `offsetOptions`' union cannot rescue it either, because on a
+ * create there is no stored value and no photo to supply one.
+ *
+ * "ACTUALLY IN USE" IS A MEASURED CLAIM AS OF THAT DATE, AND THE WAY IT WAS
+ * WRONG IS WORTH MORE THAN THE TWO STRINGS. Task 2's review verified this list
+ * programmatically *against the brief text*, so the brief was the oracle rather
+ * than the world — and neither could name a value neither of them knew about.
+ * The oracle is the set of offsets in real civil use, daylight ones included;
+ * the durable form of the claim is `ODD_OFFSETS` in test/entry-editor.test.tsx,
+ * which lists the non-whole-hour zones and goes red if one stops being offered.
+ * A COUNT IS NOT THE CLAIM, so there is none here: the length moved the moment
+ * these two were added and it moves again the next time a legislature moves a
+ * zone.
+ *
+ * `+00:00`, NEVER `Z`. Both are valid `xsd:dateTime` offsets and mean the same
+ * instant, but §6 and lib/pod/rdf.ts want the explicit spelling and `offsetOf`
+ * normalises a stored `Z` onto it — so a list offering `Z` would be a second
+ * spelling of one value, and the control would blank on every entry written
+ * with the other one.
+ *
+ * IN ORDER, RATHER THAN SORTED AT USE. The strings do not sort into this order:
+ * `-` precedes `+` in ASCII, so a string sort puts the western hemisphere first
+ * and then orders it backwards, `-01:00` before `-12:00`. `offsetMinutes` below
+ * is the comparator for the one case that cannot be written out here — an
+ * offset the entry carries that is not on this list.
+ */
+const OFFSETS = [
+  "-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00",
+  "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:30", "-02:00",
+  "-01:00", "+00:00", "+01:00", "+02:00", "+03:00", "+03:30", "+04:00",
+  "+04:30", "+05:00", "+05:30", "+05:45", "+06:00", "+06:30", "+07:00",
+  "+08:00", "+08:45", "+09:00", "+09:30", "+10:00", "+10:30", "+11:00",
+  "+12:00", "+12:45", "+13:00", "+13:45", "+14:00",
+] as const;
+
+/** What an offset has to LOOK like to be one, which is a wider fence than
+ *  `OFFSETS` on purpose: `+05:15` is not a zone anyone uses today and an entry
+ *  can still carry it, because some other tool wrote it. This editor's job is
+ *  to show such a value and put it back unchanged — so the shape is what is
+ *  checked, and the list is only what is OFFERED. */
+const OFFSET_SHAPE = /^[+-]\d{2}:\d{2}$/;
+
+/** `+05:45` → 345, `-09:30` → -570. A sort key and nothing else: no triple
+ *  carries minutes, and `toOffsetDateTime` concatenates the string itself. */
+function offsetMinutes(offset: string): number {
+  const sign = offset.startsWith("-") ? -1 : 1;
+  return sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
 }
 
 /** `dy:tag` is a token, not prose (§3): comma-separated in, trimmed, untagged. */
@@ -401,32 +529,328 @@ const NO_SETTINGS_NOTE =
  *  be told what it is. */
 const CHECKING_NOTE = "Waiting for the rules that decide what may be published with an entry.";
 
+/**
+ * THE PROVENANCE NOTE'S END OF THE ASSOCIATION — one element for the PAIR, not
+ * one per box, and both boxes point at it.
+ *
+ * ONE, BECAUSE THE COORDINATE IS ONE VALUE. A latitude and a longitude are two
+ * halves of one point: `coordinateAuthor` records a single author for the pair
+ * (a photo can never supply half a coordinate — lib/media/exif.ts sets `gps`
+ * only when both tags are present — so mixing sources is something only the
+ * owner could cause, and refusing both boxes is the cure), and two sentences
+ * saying the same thing beside each other is noise for anyone hearing them read
+ * out one after the other.
+ *
+ * `aria-describedby`, THROUGH `coordinateHelp`, AND NOT AN `aria-label` ON A
+ * WRAPPER. This file has the receipt for the wrapper spelling: a
+ * `<section aria-label="Photos">` around the picker made six tests fail with
+ * "found multiple elements", because a wrapper with a name shadows the control
+ * inside it. A description adds no accessible name and cannot collide with any
+ * label on the form.
+ *
+ * NOT RENDERED WHEN THERE IS NOTHING TO SAY, for `COORDINATE_NOTE_ID`'s reason:
+ * an id naming an element that is not there computes to the empty string,
+ * silently, and an attribute left on permanently announces provenance for a
+ * number the owner has since typed themselves.
+ */
+const COORDINATE_SOURCE_ID = "entry-coordinate-source";
+
+/** Names the FILE, which is what the owner recognises — the photo has no other
+ *  name on screen, and its `contentUrl` is a content-addressed hash nobody can
+ *  read. The second sentence is there because the first one otherwise reads as
+ *  a hold: the boxes are live, and typing replaces this. */
+const coordinateSourceNote = (name: string) =>
+  `Latitude and longitude came from ${name}. Type in either box to replace them.`;
+
+/**
+ * THE TIMESTAMP'S THREE NOTES, ONE PER CLAIM — `COORDINATE_SOURCE_ID`'s shape
+ * and all of its reasons: `aria-describedby` from the control itself and never
+ * an `aria-label` on a wrapper (a `<section aria-label="Photos">` around the
+ * picker once cost this file six tests, because a named wrapper shadows the
+ * control inside it), and each one RENDERED EXACTLY WHEN SOMETHING POINTS AT
+ * IT, because an id naming an element that is not there computes to the empty
+ * string — silently, with nothing on screen to show for it.
+ *
+ * THREE, BECAUSE THERE ARE THREE CLAIMS AND THEY STOP BEING TRUE AT THREE
+ * DIFFERENT MOMENTS. One element per claim is what makes each of them
+ * removable on its own; a single sentence covering all three would have to
+ * outlive the shortest-lived thing in it.
+ *
+ *   `OCCURRED_SOURCE_ID` — "the time came from a.jpg". Dies at the first
+ *     keystroke in the clock: §11.3's provenance rule (the owner is told a
+ *     photo supplied a value, "so a wrong pin is attributable to the photo
+ *     instead of to the editor") is what puts it there, and the coordinate's
+ *     rule — "a note left standing beside a number the owner typed over is a
+ *     claim they have no way to check" — is what takes it away.
+ *   `OFFSET_SOURCE_ID` — "the offset came from a.jpg". §11.3 again, for the
+ *     half a modern phone does write. Dies when the owner chooses an offset.
+ *   `OFFSET_GUESS_ID` — "the offset beside this time is this machine's guess"
+ *     (§11.5). Dies ONLY when the offset acquires an author, which is ruling
+ *     T4-G: a keystroke in the CLOCK says nothing about who supplied the
+ *     OFFSET, so the warning is still true after one and stays. It loses the
+ *     photo's NAME at that keystroke, for `OCCURRED_SOURCE_ID`'s reason, and
+ *     keeps saying the thing that is still checkable.
+ *
+ * WHY §11.3's CREDIT IS NOT OPTIONAL HERE, recorded because this file argued
+ * the other way for a day: the guess mark is `null` whenever the photo supplied
+ * BOTH halves, so a camera reset to factory time publishes a wrong
+ * `dy:occurredAt` — the most load-bearing fact on the entry — attributable to
+ * the editor rather than to the file. §11.5 is silent about provenance because
+ * it does not restate its parent, exactly as it does not restate "never
+ * overwrites"; reading that silence as a withdrawal would withdraw the
+ * no-overwrite rule with it.
+ *
+ * AND THE SENTENCES ARE ONE HALF OF THE GUESS; THE `data-offset-unconfirmed`
+ * ATTRIBUTE ON THE CONTROL IS THE OTHER. Wording alone cannot carry that state,
+ * and this control is the proof: its PERMANENT hint already says the offset is
+ * "not of wherever you are writing this", so a reader — or a test — fenced on
+ * phrasing would find the same words in the confirmed cases as in the guessed
+ * one. Every one of these is written by `creditTime`, which is what stops them
+ * drifting from each other or from the records.
+ */
+const OCCURRED_SOURCE_ID = "entry-when-source";
+const OFFSET_SOURCE_ID = "entry-offset-source";
+const OFFSET_GUESS_ID = "entry-offset-guess";
+
+/** Names the FILE, which is the only name a photo has on screen — its
+ *  `contentUrl` is a content-addressed hash nobody can read. The second
+ *  sentence is there because the first otherwise reads as a hold: the control
+ *  is live, and typing replaces this. `coordinateSourceNote`'s shape. */
+const occurredSourceNote = (name: string) =>
+  `The time came from ${name}. Type in the box to replace it.`;
+
+const offsetSourceNote = (name: string) =>
+  `The offset came from ${name}. Choose another to replace it.`;
+
+/**
+ * THE GUESS, AND IT SAYS WHICH HALF THE PHOTO DID NOT SUPPLY rather than only
+ * where the value came from: §11.5's whole argument is that `21:38 +02:00`
+ * reads as data in both halves, so a note that credited the photo without
+ * saying that would leave the owner unable to act on it.
+ *
+ * `null` IS THE STATE AFTER THE OWNER TYPES IN THE CLOCK, not a missing name.
+ * The claim "the offset is not from a.jpg" needs a.jpg's clock to still be in
+ * the box to mean anything; the claim "the offset is this machine's guess" does
+ * not, and it is the one that is still true (T4-G). So the name goes and the
+ * warning stays, in one sentence that no longer promises something the owner
+ * cannot check.
+ */
+const offsetGuessNote = (name: string | null) =>
+  name === null
+    ? `The offset is this machine's guess for the time above, not the time zone of the place ` +
+      `it happened in. Choose that offset if it was somewhere else.`
+    : `The offset is not from ${name} — the photo carries no time zone of its own, so this is ` +
+      `this machine's guess. Choose the offset of the place it happened in.`;
+
+/**
+ * WHO PUT THE COORDINATE IN THE BOXES — the record §11.3 turns on, and a
+ * different question from `touchedCoordinate`.
+ *
+ * `touchedCoordinate` (in `save()`) is `lat.trim() !== "" || long.trim() !== ""`
+ * and is HALF of what decides whether a coordinate is WRITTEN AT ALL: the other
+ * half is pair-completeness — ruling F-A — which sits at the composition beside
+ * it rather than inside it, because half a pair is not a point and `Number("")`
+ * is `0`. An auto-filled coordinate should be written, so neither of those must
+ * be given this record's meaning. This one decides whether auto-fill MAY WRITE
+ * HERE, and the three answers are not reducible to two:
+ *
+ *   nobody — nothing has supplied a coordinate: the boxes are empty, no photo
+ *            has offered one, and the entry being edited, if there is one, has
+ *            none either. Fill.
+ *   owner  — the owner typed, or accepted a restored draft that holds a
+ *            coordinate, OR THE ENTRY ARRIVED WITH ONE. Never overwrite: a
+ *            photo picked afterwards would silently replace a place they CHOSE
+ *            with the place a camera happened to be, and §9 would then fuzz and
+ *            publish it, so the only surface showing the substitution would be
+ *            a public triple.
+ *   photo  — an earlier photo filled it. Never overwrite either, which is the
+ *            direction §11.3 names explicitly: filling on every `ready` moves
+ *            the entry to wherever the LAST picture was taken, a different
+ *            place every time one is added on a day's walk, with the note
+ *            updating politely as it goes.
+ *
+ * IT IS EXPLICIT RATHER THAN INFERRED FROM EMPTINESS, IN BOTH DIRECTIONS — and
+ * the second direction was a live defect for a day (ruling T3-B) before it was
+ * written down here.
+ *
+ * A box can be NON-EMPTY because the owner typed, because a photo filled it, or
+ * because a draft was restored into it; the first two forbid a fill, and the
+ * value alone tells none of them apart. AND A BOX CAN BE EMPTY AND STILL FORBID
+ * ONE: on an EDIT both boxes start empty by design — see the `lat` state, which
+ * explains that prefilling the stored pair would walk the pin — and `save()`
+ * reads empty as "leave the stored coordinate alone". So on an edit emptiness
+ * does not mean "there is no value"; it means "the value on the Pod stands",
+ * and filling it IS an overwrite of something the owner has not touched, merely
+ * spelled as an offer. The latitude's own hint promises exactly that: "Leave
+ * both boxes empty to keep the coordinate this entry already has."
+ *
+ * WHAT GETTING THAT WRONG COSTS IS PUBLISHED DATA, not a convenience. The fill
+ * flips `touchedCoordinate` to true, `fuzzed()` runs, and `placeFor` reads a
+ * `drop` as a REMOVAL — so a photo taken inside the home region, which is the
+ * ordinary case of attaching a picture from home to an entry you are
+ * correcting, takes the entry's `#geo` off a world-readable resource and off
+ * the §7.4 index row the public trip page renders its pin from. No message, no
+ * failed save, both boxes exactly as they were. A photo taken elsewhere is the
+ * same shape one step less destructive: the pin MOVES to wherever the picture
+ * was taken.
+ *
+ * "Is it empty?" therefore cannot answer this question in either direction,
+ * which is why the record is a value in its own right and is SEEDED FROM THE
+ * ENTRY rather than from the form.
+ */
+type CoordinateAuthor = { kind: "nobody" } | { kind: "owner" } | { kind: "photo"; name: string };
+
+/**
+ * WHO SUPPLIED EACH HALF OF THE TIMESTAMP — `CoordinateAuthor`'s question, with
+ * its three answers and its whole argument for asking it explicitly rather than
+ * reading it off an empty box, asked TWICE.
+ *
+ * TWO RECORDS, NOT ONE, AND THE SYMMETRY WITH THE COORDINATE IS THE TRAP
+ * (ruling T4-C). `coordinateAuthor` is deliberately ONE record for a pair,
+ * because a latitude from the owner beside a longitude from a photo is a point
+ * that is nowhere. A timestamp does not compose that way: a wall clock is "the
+ * time at the place" and the offset is "the place's zone", so the owner
+ * correcting WHEN while the photo supplies WHERE is coherent, and so is the
+ * reverse. Fusing them into one flag would refuse a fill that is honest and buy
+ * nothing at all.
+ *
+ * SEEDED FROM THE ENTRY, AND THAT CONDITION IS RULING T4-B — the defect
+ * `coordinateAuthor` shipped with for a day (T3-B), on a field where it is
+ * worse shaped. `occurred` and `offset` are NOT empty on an edit: both are
+ * seeded from `existing.occurredAt`, so "nothing has been typed here" cannot
+ * mean "there is nothing here". A record reading `nobody` on an edit lets a
+ * photo replace `dy:occurredAt` — "when the moment happened", the single most
+ * load-bearing fact on a travel diary entry — with the value it replaced
+ * visible on screen the whole time. The coordinate's version of this at least
+ * hid behind an empty box.
+ *
+ * AND IT IS NOT `initial === undefined ? nobody : owner`, WHICH IS THE LAZY
+ * SPELLING THE FIX ROUND MEASURED: it switches auto-date off for every edit ever
+ * made, silently, while every refusal a test can make of these records still
+ * passes. What separates the two is the ALLOW-CASE — an edit of an entry with
+ * no `dy:occurredAt` at all (the field is `.optional()`), where there is nothing
+ * to protect and the photo may still date it.
+ *
+ * `nobody` MEANS ONE MORE THING ON THE OFFSET THAN IT DOES ON THE CLOCK, and
+ * `offsetGuess` is what does something with it: the offset control always shows
+ * a value, so an unauthored offset is not an absence — it is
+ * `offsetHere(wallClockNow())`, THIS MACHINE'S GUESS, which is the state §11.5
+ * says the owner must be able to see.
+ *
+ * AND `photo` CARRIES TWO THINGS AS OF 2026-09-07 — ruling T4-E, and the
+ * correction it needed the same day. A fill has to ask not only WHETHER the
+ * other half is a photo's but WHOSE: photo A's clock beside photo B's zone is
+ * the one composition in this task with no authority anywhere in it (see
+ * `offerTimestamp`). T4-E asked that question with the FILE NAME — and
+ * `PhotoSlot`'s docblock, further down this file, says a file name is not an
+ * identity: the picker is `multiple`, it deduplicates nothing, and two cameras
+ * both calling their first photo `IMG_0001.jpg` walked back through the guard
+ * as one file. So the COMPARISON is on `key`, the per-editor slot identity
+ * `attach` mints and React reconciles on, unique by construction; `name` stays
+ * for the NOTES, which are §11.3's sentences and want the file the owner
+ * recognises. `CoordinateAuthor` needs no `key` — it uses the name for display
+ * only and never compares it.
+ */
+type TimeAuthor =
+  | { kind: "nobody" }
+  | { kind: "owner" }
+  | { kind: "photo"; key: string; name: string };
+
 /** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
  *  type for it, and this file imports no Zod. */
 type EntryPlace = NonNullable<Entry["place"]>;
 
+/** The three things this form can SAY about a place, as terms rather than as
+ *  form strings: the empty box has already become `undefined` by the time one
+ *  of these is built, because `""` is not a name — see `placeTextOf`. */
+type PlaceText = Pick<EntryPlace, "name" | "locality" | "country">;
+
 /**
- * The place to write, given whatever the entry already had and whatever the
- * fuzz allowed.
+ * The place to write, given whatever the entry already had, whatever the fuzz
+ * allowed, and whatever the three text controls are holding.
  *
- * A DROP IS A REMOVAL, NOT AN OMISSION, which is the half that is easy to miss
- * on an EDIT: the entry being edited may already carry a `#geo`, and spreading
- * the old place in and merely failing to add a new one leaves the previous
- * coordinate on a world-readable resource — a leak that outlives the edit made
- * to remove it.
+ * `undefined` IS A REMOVAL, NOT AN OMISSION, ON ALL FOUR FIELDS. That is the
+ * half that is easy to miss on an EDIT: the entry being edited may already
+ * carry a `#geo` or a `schema:name`, and spreading the old place in and merely
+ * failing to add a new value leaves the old one on a world-readable resource —
+ * a leak, or a name the owner has deleted from the form and cannot delete from
+ * their Pod, either way outliving the edit made to remove it.
+ *
+ * THE FOUR ARE REMOVED INDEPENDENTLY, which is why the geometry and the text
+ * arrive as separate arguments and are never folded into one flag. Clearing a
+ * name must not take the coordinate with it, and §9's drop must not take the
+ * name: "it is the geometry that is absent, not the entry." The original
+ * comment here said the same thing about growth — "a `Place` that grows one
+ * must not lose it every time a coordinate is dropped" — and the spread of
+ * `existing` below is still what keeps that true for a fifth field this form
+ * does not hold.
+ *
+ * THAT SENTENCE NAMED A "copy-and-delete shape" UNTIL 2026-09-07 (F7), AND
+ * THERE IS NO DELETE. The behaviour it claims is real, but the mechanism was
+ * removed as a no-op — see the comment inside the body, which says so in as
+ * many words and therefore contradicted this one. Correct behaviour defended by a
+ * false reason is the shape both halves of this pair were an instance of: the
+ * loop that stood here had a comment claiming it did something, and its removal
+ * left a docblock claiming it was still there.
  *
  * A place with nothing left in it is no place at all rather than an empty
  * `<#place>` node, which would be a `schema:Place` asserting nothing.
  */
-function placeFor(existing: EntryPlace | undefined, geo: EntryPlace["geo"]): EntryPlace | undefined {
-  if (geo !== undefined) return { ...existing, geo };
-  if (existing === undefined) return undefined;
-  // Copy-and-delete rather than naming the other fields: a `Place` that grows
-  // one must not lose it every time a coordinate is dropped.
-  const rest: EntryPlace = { ...existing };
-  delete rest.geo;
-  return Object.values(rest).some((value) => value !== undefined) ? rest : undefined;
+function placeFor(
+  existing: EntryPlace | undefined,
+  geo: EntryPlace["geo"],
+  text: PlaceText,
+): EntryPlace | undefined {
+  // Start from what the entry already had, so a field this form does not hold
+  // survives; then let this save's answer overwrite it, `undefined` INCLUDED.
+  // Spreading `undefined` over a stored value is what makes a removal a
+  // removal rather than an omission, so this is not a merge and must not
+  // become one.
+  const place: EntryPlace = { ...existing, ...text, geo };
+  /* A KEY PRESENT WITH AN `undefined` VALUE IS NOT CONTENT, and needs no
+     delete pass to say so — a loop that deleted them stood here and was a
+     no-op with a comment claiming otherwise, which is worse than either half
+     alone. `Object.values({ name: undefined }).some((v) => v !== undefined)`
+     is already `false`, so an emptied place is `undefined` here rather than a
+     bare `<#place>` asserting nothing; and `lib/pod/entry-model.ts` guards
+     every field on truthiness or `!== undefined` before it writes a triple, so
+     the surviving keys produce no triples either. */
+  return Object.values(place).some((value) => value !== undefined) ? place : undefined;
 }
+
+/**
+ * The three boxes as RDF terms, with `""` MEANING REMOVE.
+ *
+ * The one place `""` and `undefined` are translated between, and the reason it
+ * is a function rather than three ternaries inlined in `save()`: they are
+ * different instructions on three fields, and a spelling that got one of them
+ * wrong would either publish `""@en` — an entry claiming to be somewhere called
+ * nothing — or make a name impossible to retract once written.
+ *
+ * TRIMMED, AND NOTHING DOWNSTREAM WOULD CATCH IT IF IT WERE NOT. `Place.name`
+ * is `min(1)` and `" ".length === 1`, so `Place.safeParse({ name: { value: " " } })`
+ * SUCCEEDS — measured, not assumed. An untrimmed one-space box therefore
+ * publishes `schema:name " "@en` on a world-readable resource: a name that
+ * renders as nothing everywhere, that no reader can see to delete, and that a
+ * `value === ""` check does not find either. Every guard between here and the
+ * Turtle asks "is it absent", and a space is not absent. This is the guard.
+ *
+ * THE LANGUAGE IS THE ENTRY'S OWN, exactly as the headline and the body get it,
+ * so an entry written in another language keeps its tag. `locality` and
+ * `country` carry none here: the locality is tagged by `text()` at
+ * serialisation, and the country is a CODE and is deliberately untagged —
+ * `"JP"@en` is a different RDF term from `"JP"`, so every consumer filtering on
+ * the plain literal would stop matching entries this studio wrote (§7.3).
+ */
+const placeTextOf = (
+  form: { placeName: string; locality: string; country: string },
+  language: string,
+): PlaceText => ({
+  name:
+    form.placeName.trim() === "" ? undefined : { value: form.placeName.trim(), language },
+  locality: form.locality.trim() === "" ? undefined : form.locality.trim(),
+  country: form.country.trim() === "" ? undefined : form.country.trim(),
+});
 
 /* ═══════════════════════════════════════════════════════════════ the photos ══ */
 
@@ -674,8 +1098,9 @@ export const DRAFT_DEBOUNCE_MS = 800;
  *  name, so every create in this browser shares one draft. */
 const NEW_DRAFT_SCOPE = "new";
 
-/** The twelve fields the FORM holds — `Draft` minus the stamp, which is put on
- *  at the moment of the write and never earlier (§6). */
+/** The sixteen fields the FORM holds — `Draft` minus the stamp, which is put on
+ *  at the moment of the write and never earlier (§6). It read "twelve" until
+ *  2026-09-07, having missed `photos`, the three place fields and `offset`. */
 type DraftText = Omit<Draft, "savedAt">;
 
 /**
@@ -692,23 +1117,29 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
   a.length === b.length && a.every((photo, at) => photo.contentUrl === b[at]?.contentUrl);
 
 /**
- * Have the twelve fields moved between two snapshots?
+ * Have the sixteen fields moved between two snapshots?
  *
  * Field by field rather than `JSON.stringify`, which would answer "different"
- * for the same twelve values in a different key order. The consequence of a
+ * for the same sixteen values in a different key order. The consequence of a
  * false "different" is not cosmetic: it is a local copy written back for text
  * the Pod already holds, which is exactly the resurrected draft the clear after
  * a save exists to prevent.
  *
- * The three coordinate fields are in here for the same reason the other eight
+ * The three coordinate fields are in here for the same reason the other nine
  * are: they are what the form holds. A comparison that skipped them would call
  * a form whose only change was the latitude "unchanged" and drop that change
  * from the local copy — the one field on this screen nobody can retype from
- * memory a day later.
+ * memory a day later. So are the three place fields, and there the loss is the
+ * one §9 leans on: near home the coordinate is dropped and the NAME is all the
+ * entry has left to say where it was.
  *
  * So are the photos, and there the consequence is worse than retyping: a photo
  * attached while the Pod was answering is bytes that are already uploaded and
  * about to be referenced by nothing at all.
+ *
+ * And so is the offset, which is half of the timestamp: an offset corrected
+ * while the Pod was answering, dropped from this comparison, would leave the
+ * local copy holding the guess the owner had just replaced.
  */
 const sameText = (a: DraftText, b: DraftText) =>
   a.tripIri === b.tripIri &&
@@ -716,12 +1147,16 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.headline === b.headline &&
   a.story === b.story &&
   a.occurred === b.occurred &&
+  a.offset === b.offset &&
   a.tagsText === b.tagsText &&
   a.mode === b.mode &&
   a.status === b.status &&
   a.lat === b.lat &&
   a.long === b.long &&
   a.precision === b.precision &&
+  a.placeName === b.placeName &&
+  a.locality === b.locality &&
+  a.country === b.country &&
   samePhotos(a.photos, b.photos);
 
 /**
@@ -752,6 +1187,12 @@ function browserStorage(): StorageLike | null {
  * is in now — the same rule `wallClockOf` follows and for the same reason. The
  * machine-readable instant is on the `<time dateTime>` beside it, offset and
  * all, which is what the offset requirement on `savedAt` exists for.
+ *
+ * TAKES A `string`, NOT `string | undefined`, AND STAYS THAT WAY (task 2.5):
+ * `lib/studio/drafts.ts`'s `Draft.savedAt` became `.optional()`, but this
+ * function's one caller only reaches it inside an `offered.savedAt !==
+ * undefined` check (ruling 2.5-A, below), so the absent case never arrives
+ * here at all rather than arriving and being handled.
  */
 const savedAtText = (savedAt: string) => `${savedAt.slice(0, 10)} at ${savedAt.slice(11, 16)}`;
 
@@ -788,6 +1229,38 @@ export default function EntryEditor({
   const [headline, setHeadline] = useState(existing?.headline.value ?? "");
   const [story, setStory] = useState(existing?.articleBody?.value ?? "");
   const [occurred, setOccurred] = useState(() => wallClockOf(existing?.occurredAt));
+  /**
+   * THE OTHER HALF OF THE TIMESTAMP, AND NOW AN ANSWER RATHER THAN A GUESS.
+   *
+   * §7.3: `dy:occurredAt` "carries the local UTC offset of the place", because
+   * normalising to UTC destroys the fact that it was evening. Until this state
+   * existed the offset was computed at save time as
+   * `offsetOf(existing?.occurredAt) ?? offsetHere(wall)` — the entry's own,
+   * else THE EDITING MACHINE'S — so writing up a Japan trip from the sofa at
+   * home stamped an evening in Tokyo `+02:00`, silently, and no control on the
+   * form could correct it.
+   *
+   * THE INITIAL VALUE IS THAT SAME CHAIN, UNCHANGED. The behaviour has not
+   * moved; the guess has become visible and correctable, which is the whole
+   * change. On an edit it is the offset the entry already carries, so an edit
+   * that never opens this control writes the timestamp back exactly as stored.
+   *
+   * `wallClockNow()` RATHER THAN `occurred`, and that is not interchangeable:
+   * `occurred` is `""` on a create and `offsetHere("")` is `+00:00`, not this
+   * machine's zone. The control has a value at MOUNT, when there may be no date
+   * on the form at all, so the honest wall clock to ask about is the current
+   * instant.
+   *
+   * ONE CONSEQUENCE OF THAT, ON THE RECORD: in a zone with DST, a create
+   * defaults to TODAY'S offset rather than the one in force on the date the
+   * owner then types. The old code asked about the entry's own wall clock and
+   * so got that right by accident, in the one case where its answer was
+   * defensible at all. It is a fair trade because the value is now on screen
+   * and one click from correct, where before it was neither.
+   */
+  const [offset, setOffset] = useState(
+    () => offsetOf(existing?.occurredAt) ?? offsetHere(wallClockNow()),
+  );
   const [tagsText, setTagsText] = useState(existing?.tags.join(", ") ?? "");
   const [mode, setMode] = useState<Mode | "">(existing?.travelModeFrom ?? "");
   const [status, setStatus] = useState<EntryStatus>(existing?.status ?? "draft");
@@ -817,6 +1290,39 @@ export default function EntryEditor({
    * project would be choosing for someone else's front door".
    */
   const [precision, setPrecision] = useState("");
+
+  /**
+   * WHERE THE OWNER WAS, IN WORDS — and unlike the coordinate above, SEEDED
+   * FROM THE ENTRY BEING EDITED.
+   *
+   * The asymmetry is the whole of the "untouched versus removed" logic for
+   * text, so it is worth saying why it goes the other way. The stored
+   * coordinate must not be prefilled because what is on the Pod is the
+   * PUBLISHED pair, already snapped, and putting it in the box makes it
+   * indistinguishable from something typed — so every save re-snaps it and the
+   * pin walks. A name has no such transformation: what is on the Pod is exactly
+   * what was typed, so showing it costs nothing and buys the two things the
+   * coordinate has to buy with a separate `touchedCoordinate` flag. A box the
+   * owner never opens still holds the stored value, so saving writes it back
+   * unchanged — untouched. A box the owner EMPTIES holds `""`, which `save()`
+   * turns into `undefined` and `placeFor` turns into a removal.
+   *
+   * Prefilling is therefore not a convenience here; it is what makes the two
+   * instructions distinguishable at all. An editor that left these empty on an
+   * edit would delete the place name of every entry whose headline was
+   * corrected — silently, and only discoverable by reading the Pod.
+   *
+   * "SEEDED FROM THE ENTRY" STOPS BEING TRUE AT EXACTLY ONE MOMENT: `restore()`,
+   * which writes these controls from a stored draft rather than from the entry.
+   * That is where the missing flag would otherwise have been needed, and it is
+   * handled there instead — a draft field that is ABSENT leaves the control
+   * alone, and only an explicitly empty one empties it.
+   */
+  const [placeName, setPlaceName] = useState(existing?.place?.name?.value ?? "");
+  const [locality, setLocality] = useState(existing?.place?.locality ?? "");
+  /** A CODE, not prose (§7.3) — `schema:addressCountry` is written untagged,
+   *  so what belongs in this box is `JP`, not `Japan`. */
+  const [country, setCountry] = useState(existing?.place?.country ?? "");
 
   /**
    * THE PHOTOS PICKED IN THIS EDITOR, and NOT the ones the entry arrived with.
@@ -857,6 +1363,165 @@ export default function EntryEditor({
    * the same `attach`, and is declared just above for the same reason.
    */
   const touched = useRef(false);
+
+  /**
+   * WHO SUPPLIED THE COORDINATE — see `CoordinateAuthor` for what the three
+   * answers mean and why "is the box empty?" is not one of them.
+   *
+   * A REF, AND READ AT THE MOMENT OF THE FILL RATHER THAN FROM A CLOSURE. This
+   * is `touched`'s reason plus one more that is specific to this record. A fill
+   * happens in `attach`'s continuation, after two awaits — the decode and two
+   * PUTs — and the handler that started it closed over the render BEFORE the
+   * pick. So a closure would answer "who supplied the coordinate?" as of a
+   * moment that can be several seconds old, and the two things that can happen
+   * inside that window are exactly the two this record exists to refuse: the
+   * owner typing while the photo uploads, and a second photo settling. Reading
+   * a ref written synchronously means the first writer wins even when the two
+   * writers overlap.
+   *
+   * DECLARED HERE, ABOVE `attach`, for the reason `touched`'s note gives at
+   * length: `react-hooks/immutability` refuses a `.current` write inside a
+   * function that closes over a `useRef` declared below it, and it reports the
+   * pre-existing writes rather than the new declaration when you get it wrong.
+   *
+   * SEEDED FROM THE ENTRY, AND THAT CONDITION IS THE WHOLE OF RULING T3-B.
+   * `nobody` unconditionally is the spelling this shipped with for a day, and
+   * it let a photo move — or, from inside the home region, DELETE — a pin an
+   * edit was loaded with. See `CoordinateAuthor` for the mechanism; the short
+   * version is that on an edit an empty box means "the stored pair stands", so
+   * there is a value to protect even though the form holds none.
+   *
+   * IT IS `existing?.place?.geo`, NOT `lat`/`long`, AND NOT UNCONDITIONAL.
+   * Both boxes are `""` on an edit by design, so seeding from them is the same
+   * defect spelled differently. And an unconditional `{ kind: "owner" }` would
+   * switch auto-fill off for EVERY edit, silently — including an entry that has
+   * no pin to protect, which is the case with nothing to lose and the one place
+   * the fill is still wanted on an edit. Every refusal a test can make of this
+   * record passes under that lazy spelling; what catches it is the allow-case,
+   * an edit of an entry with no geometry where the photo must still fill.
+   */
+  const coordinateAuthor = useRef<CoordinateAuthor>(
+    existing?.place?.geo === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
+  /**
+   * The same fact again, as state, because the note is RENDERED and a ref
+   * changing re-renders nothing.
+   *
+   * THEY CANNOT DRIFT, BECAUSE THERE IS ONE WRITER: `creditCoordinate` below is
+   * the only thing that assigns either, and it assigns both. This file argues
+   * against two things that have to agree and say nothing when they stop — the
+   * offset chain, the precision select — and the argument holds here: what makes
+   * this pair safe is not that it is small, it is that neither member has a
+   * setter of its own.
+   */
+  const [coordinateSource, setCoordinateSource] = useState<string | null>(null);
+  /**
+   * THE ONE WRITER. Everything that puts a coordinate in the boxes says so
+   * through this: the two `onChange` handlers, `restore()`, and the auto-fill.
+   *
+   * The note follows the record rather than being cleared separately, so
+   * "the owner has typed" and "the note has stopped being true" cannot come
+   * apart — a note left standing beside a number the owner typed over is a
+   * claim they have no way to check.
+   */
+  function creditCoordinate(to: CoordinateAuthor) {
+    coordinateAuthor.current = to;
+    setCoordinateSource(to.kind === "photo" ? to.name : null);
+  }
+
+  /**
+   * WHO SUPPLIED THE WALL CLOCK, AND WHO SUPPLIED THE OFFSET — see `TimeAuthor`
+   * for why these are two records rather than one, and for why they are seeded
+   * from the entry rather than from the boxes.
+   *
+   * REFS, AND READ AT THE MOMENT OF THE FILL, for `coordinateAuthor`'s reason:
+   * a fill happens in `attach`'s continuation, after the decode and two PUTs,
+   * so a closure would answer "who supplied this?" as of a moment that can be
+   * several seconds old — and the two things that happen inside that window are
+   * exactly the two these records exist to refuse, the owner typing while the
+   * photo uploads and a second photo settling.
+   *
+   * DECLARED HERE, ABOVE `attach`, for the reason `touched`'s note gives at
+   * length: `react-hooks/immutability` refuses a `.current` write inside a
+   * function that closes over a `useRef` declared BELOW it, and it reports the
+   * pre-existing writes rather than the new declaration when you get it wrong.
+   */
+  const occurredAuthor = useRef<TimeAuthor>(
+    existing?.occurredAt === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
+  const offsetAuthor = useRef<TimeAuthor>(
+    existing?.occurredAt === undefined ? { kind: "nobody" } : { kind: "owner" },
+  );
+  /**
+   * THE SAME TWO FACTS AGAIN AS STATE, BECAUSE THE NOTES ARE RENDERED and a ref
+   * changing re-renders nothing — `coordinateSource`'s reason, twice. Which
+   * photo the clock came from, and which the offset came from; `null` for a
+   * value no photo supplied.
+   */
+  const [occurredSource, setOccurredSource] = useState<string | null>(null);
+  const [offsetSource, setOffsetSource] = useState<string | null>(null);
+  /**
+   * IS THE OFFSET THIS MACHINE'S GUESS, STANDING BESIDE A CLOCK A PHOTO
+   * SUPPLIED? §11.5's state, and the one the owner must be able to see.
+   *
+   * A BOOLEAN AND NOT A NAME, as of ruling T4-G. It held the photo's name until
+   * 2026-09-07, which fused two facts with two lifetimes into one value: the
+   * name is only checkable while the photo's clock is still in the box, and the
+   * warning is true for as long as nobody has answered the offset. The name now
+   * comes from `occurredSource` — so a keystroke in the clock takes the name
+   * out of the sentence and leaves the warning standing.
+   *
+   * IT IS A RECORD, NOT A COMPARISON, and that is not a detail: marking the
+   * offset whenever it equals `offsetHere(wallClockNow())` would tell an owner
+   * who deliberately chose the zone they are sitting in — for most entries the
+   * right answer — that their own choice is a guess.
+   */
+  const [offsetGuess, setOffsetGuess] = useState(false);
+  /**
+   * THE ONE WRITER for the two records and all three surfaces —
+   * `creditCoordinate`'s deal, with more to keep true: the mark reads BOTH
+   * records, so deriving it anywhere else would be a second copy of the rule
+   * that says nothing when the two stop agreeing.
+   *
+   * THE TWO CREDITS ARE THE RECORDS, RESTATED. `photo` means a file supplied
+   * this half and is named for it (§11.3); `owner` and `nobody` both mean
+   * nothing on screen may credit a photo for it.
+   *
+   * THE MARK, IN ONE LINE: the offset is a guess while NOBODY has supplied it
+   * and a photo has supplied the clock beside it. Three halves, all
+   * load-bearing:
+   *
+   *   - `nobody` on the offset IS this machine's guess (see `TimeAuthor`), so
+   *     the mark is ruling T4-A's "the displayed offset is the machine's own"
+   *     without interrogating the value. On an edit the entry's stored offset is
+   *     seeded `owner`, so a photo that lacks the tag casts no doubt on it —
+   *     badging confirmed data because a photo said nothing is §11.5's error
+   *     with the sign flipped.
+   *   - `photo` on the wall clock is what makes this §11.5's composition rather
+   *     than the ordinary default every create opens with. A photo that carried
+   *     no time at all leaves the offset exactly as it was and has said nothing
+   *     about it, so it marks nothing.
+   *   - `|| was` IS RULING T4-G, and it is the whole of it. The clock's own
+   *     `onChange` credits the owner, which used to clear the mark — so the
+   *     owner nudging `07:05` to `07:06`, because they remember it was a minute
+   *     later, left `07:06 +09:00` with §11.5's composition fully intact and
+   *     the warning gone. A keystroke in the clock says nothing about who
+   *     supplied the OFFSET, so the warning is still true; what it does say is
+   *     that the note may no longer name the photo, and `occurredSource`
+   *     handles that on its own line. Choosing an offset is what ends the mark,
+   *     which is what scenario 3 says in words.
+   *
+   * A CALLER THAT CHANGES ONE RECORD PASSES THE OTHER'S CURRENT VALUE, which is
+   * how two independent records (T4-C) share one writer without becoming one
+   * flag.
+   */
+  function creditTime(occurredTo: TimeAuthor, offsetTo: TimeAuthor) {
+    occurredAuthor.current = occurredTo;
+    offsetAuthor.current = offsetTo;
+    setOccurredSource(occurredTo.kind === "photo" ? occurredTo.name : null);
+    setOffsetSource(offsetTo.kind === "photo" ? offsetTo.name : null);
+    setOffsetGuess((was) => offsetTo.kind === "nobody" && (occurredTo.kind === "photo" || was));
+  }
 
   const [target, setTarget] = useState<Target | null>(
     initial === undefined ? null : { url: documentUrlOf(initial.entry.iri), etag: initial.etag },
@@ -963,20 +1628,69 @@ export default function EntryEditor({
 
   /**
    * The ids one coordinate control describes itself by: its own hint, if it has
-   * one, and the note above while there is one.
+   * one, the note above while there is one, and — for the two BOXES — the
+   * provenance note while a photo is credited with what they hold.
    *
-   * Built rather than written out because BOTH HALVES ARE SILENT WHEN WRONG. An
+   * Built rather than written out because EVERY HALF IS SILENT WHEN WRONG. An
    * id that names nothing computes to the empty string, and an attribute left
    * on permanently reads as correct markup while announcing a reason that has
    * stopped being true. `undefined` rather than `""` for the same reason: no
    * attribute at all is the honest spelling of "nothing to say".
+   *
+   * THE SOURCE NOTE IS PASSED IN RATHER THAN READ HERE, because it belongs to
+   * two of the three controls and not to the third: the precision select is
+   * about the grid a point is published in, and a photo has no opinion about
+   * that. A helper that added it unconditionally would have the select announce
+   * where a coordinate came from, which is true of neither its value nor its
+   * effect.
    */
-  const coordinateHelp = (ownHintId?: string): string | undefined => {
-    const ids = [ownHintId, coordinateNote === null ? undefined : COORDINATE_NOTE_ID].filter(
-      (id): id is string => id !== undefined,
-    );
+  const coordinateHelp = (ownHintId?: string, sourceNoteId?: string): string | undefined => {
+    const ids = [
+      ownHintId,
+      coordinateNote === null ? undefined : COORDINATE_NOTE_ID,
+      sourceNoteId,
+    ].filter((id): id is string => id !== undefined);
     return ids.length === 0 ? undefined : ids.join(" ");
   };
+
+  /** The provenance note's id while there is a note, for the two boxes to name.
+   *  `undefined` is what keeps `coordinateHelp` from pointing at an element that
+   *  is not rendered — the two are decided by the same value on purpose. */
+  const coordinateSourceId = coordinateSource === null ? undefined : COORDINATE_SOURCE_ID;
+
+  /**
+   * EACH CONTROL'S PERMANENT HINT, PLUS WHATEVER IS CURRENTLY TRUE ABOUT WHERE
+   * ITS VALUE CAME FROM — `coordinateHelp`'s shape, for its reason: every half
+   * of this is silent when it is wrong. An id that names nothing computes to
+   * the empty string, and an attribute left on permanently reads as correct
+   * markup while announcing a reason that has stopped being true.
+   *
+   * THE HINT IS ALWAYS FIRST, so the credit or the warning is heard as an
+   * addition to what the control is for rather than in place of it.
+   *
+   * ONE FUNCTION PER CONTROL RATHER THAN `coordinateHelp`'s PARAMETERS: there
+   * are two controls and each has its own set of things that can be true of it,
+   * and the guess note belongs to the offset alone — the clock is not in doubt,
+   * it is the thing the offset is in doubt BESIDE.
+   */
+  const occurredHelp = (): string =>
+    ["entry-when-hint", occurredSource === null ? undefined : OCCURRED_SOURCE_ID]
+      .filter((id): id is string => id !== undefined)
+      .join(" ");
+
+  /* The guess and the credit are mutually exclusive by construction — the mark
+     requires the offset to be NOBODY's and the credit requires it to be a
+     photo's — but both are listed rather than branched, because that exclusion
+     lives in `creditTime` and a second copy of it here is a second thing to
+     keep true. */
+  const offsetHelp = (): string =>
+    [
+      "entry-offset-hint",
+      offsetGuess ? OFFSET_GUESS_ID : undefined,
+      offsetSource === null ? undefined : OFFSET_SOURCE_ID,
+    ]
+      .filter((id): id is string => id !== undefined)
+      .join(" ");
 
   /**
    * What the precision control offers: the fixed grids, the owner's own default
@@ -1002,9 +1716,46 @@ export default function EntryEditor({
     return [...grids].sort((a, b) => a - b);
   }, [gate, precision]);
 
-  /** The offset the stored timestamp carries, kept across the edit. See
-   *  toOffsetDateTime for why it is not recomputed from this machine. */
-  const storedOffset = offsetOf(existing?.occurredAt);
+  /**
+   * What the offset control offers: `OFFSETS`, plus whatever it is
+   * currently holding.
+   *
+   * `precisionOptions`' SHAPE EXACTLY, including why it is a `Set`. It does not
+   * special-case the value it cannot offer — it unions the held value into the
+   * list, and the `Set` is what stops an offset that IS on the list appearing
+   * twice. That single shape covers all three things this control has to do
+   * with `+05:15`: render it rather than blanking, survive an edit that never
+   * touched it, and not duplicate `+09:00`.
+   *
+   * SILENT SUBSTITUTION IS THE FAILURE THIS PREVENTS, AND IT IS NOT THE BLANK
+   * CONTROL EVERYONE EXPECTS — measured, on this file's own tests, by deleting
+   * the `add` above and rendering an entry stored with `+05:15`: the control
+   * showed **`-12:00`**, the FIRST option, not an empty box. React marks no
+   * option as selected when the value matches none of them, and a single
+   * `<select>` with nothing selected displays and reports its first option. So
+   * the failure mode is an offset the owner never chose, in a control that
+   * looks answered.
+   *
+   * THE UNION IS THEREFORE UNCONDITIONAL, which is where this parts company
+   * with `precisionOptions`: that one adds `gridOf(precision)` only when it is
+   * a usable grid, because §9 step 3 refuses a precision the select cannot show
+   * and the value is validated again at save time. Here what the control shows
+   * has to equal what `toOffsetDateTime` concatenates for EVERY state it can be
+   * in, including one no code path can produce — a shape check on this line
+   * would buy a tidier option list at the price of a control disagreeing with
+   * the timestamp it is about to write.
+   *
+   * SORTED BY MINUTES, because `OFFSETS` is already in order and the one value
+   * that may not be on it has to land WHERE A READER WILL LOOK: `+05:15`
+   * belongs between `+05:00` and `+05:30`, and appending it after `+14:00`
+   * looks like a bug in the list. A string sort is not available — see
+   * `offsetMinutes`.
+   */
+  const offsetOptions = useMemo(() => {
+    const all = new Set<string>(OFFSETS);
+    all.add(offset);
+    return [...all].sort((a, b) => offsetMinutes(a) - offsetMinutes(b));
+  }, [offset]);
   const trip = trips.find((t) => t.iri === tripIri);
   /** The address is fixed once the resource exists: this editor writes, and
    *  moving a resource is a copy and a delete it does not do. */
@@ -1065,6 +1816,272 @@ export default function EntryEditor({
     () => slots.flatMap((slot) => (slot.state === "ready" ? [slot.photo] : [])),
     [slots],
   );
+
+  /**
+   * §11.3, AND IT IS AN OFFER RATHER THAN AN ASSIGNMENT: a photo may fill a
+   * coordinate nobody has supplied, and may never take one away.
+   *
+   * WHAT IT WRITES IS THE PHOTO'S OWN READING, AT FULL PRECISION, INTO THE
+   * FORM. Not a rounded one, and not `place.geo`:
+   *
+   *   - THE FORM, because that is the only route to the Pod that goes through
+   *     §9. `fuzzed()` runs at save time over whatever these two boxes hold, so
+   *     a photo's GPS is snapped or dropped exactly as a typed one is, and
+   *     nothing downstream needs to know which it was. Putting `metadata.gps`
+   *     on the `Entry` instead would publish the exact spot a picture was
+   *     taken — no render-time mitigation behind it, and no second chance after
+   *     the PUT.
+   *   - AT FULL PRECISION, because a value rounded on the way IN is a snap the
+   *     owner did not choose, applied before the grid they did choose, and
+   *     invisible afterwards: 45.5155 and 45.51 look equally deliberate in a
+   *     number box. `String` rather than `toFixed`, so the digits the reader
+   *     returned are the digits shown.
+   *
+   * `gps` IS OPTIONAL AND THE GUARD IS NOT DECORATION. `readMetadata` returns
+   * `{}` for a file it cannot read at all — screenshots, scans, location
+   * services off — which is the case this meets most often. The obvious
+   * `setLat(String(metadata.gps?.lat))` writes the string "undefined" into a
+   * `type="number"` box, which a browser then shows as empty: a coordinate
+   * silently cleared by attaching a scan.
+   */
+  function offerCoordinate(name: string, metadata: PipelineResult["metadata"]) {
+    /**
+     * §9 FAILS CLOSED, AND A PHOTO IS NOT AN EXCEPTION TO IT. This is the same
+     * gate the two boxes wear as `disabled={!coordinatesLive}`, asked by the
+     * one writer that does not arrive as a keystroke.
+     *
+     * WITHOUT IT THE EDITOR CONTRADICTS ITSELF IN ONE ACCESSIBLE DESCRIPTION.
+     * The controls are dead and already say "This entry will be saved without a
+     * map pin: your privacy settings could not be read", and the note would
+     * compose a second sentence into that same description telling the owner to
+     * type in a box the browser will not let them type in.
+     *
+     * AND IT IS A MECHANISM, NOT ONLY A CONTRADICTION. `fuzzed()` returns
+     * `undefined` for any gate that is not `ready`, and `placeFor` reads
+     * `undefined` as a REMOVAL — so on an EDIT this fill would delete the
+     * entry's stored `#geo` by the fail-closed branch, which was harmless
+     * before the picker existed only because these boxes could not become
+     * non-empty. That is the sort of safety that stops being safety without
+     * anything changing where it was written.
+     *
+     * THE GATE IS READ FROM THE RENDER THAT STARTED THE PICK, and unlike
+     * `coordinateAuthor` that needs no ref: `gate` goes `checking` → `ready` or
+     * `closed` exactly once, on mount, and never back. So a stale read can only
+     * be `checking` where the truth is now `ready` — a refusal where a fill was
+     * permissible, which is the direction §9 says to err in.
+     */
+    if (!coordinatesLive) return;
+
+    const gps = metadata.gps;
+    if (gps === undefined) return;
+    /* FIRST WRITER WINS. `nobody` is the only answer that admits a fill — see
+       `CoordinateAuthor` for why the other two are both refusals, and why this
+       is one record for the pair rather than one per box. */
+    if (coordinateAuthor.current.kind !== "nobody") return;
+
+    creditCoordinate({ kind: "photo", name });
+    setLat(String(gps.lat));
+    setLong(String(gps.long));
+    /**
+     * A FILL IS A CHANGE TO THE FORM, and every change arms the autosave.
+     *
+     * IT IS ALREADY ARMED TWICE OVER BY THE TIME THIS RUNS, measured rather
+     * than assumed, and that is recorded here so that nobody reads a green
+     * draft test as proof of this line: the pick itself is a `change` event on
+     * a control inside the `<form>`, which the form's own handler turns into
+     * `touched.current = true`, and `move` did it again on the `ready` above
+     * for the reason its docblock gives. So removing this line changes no test
+     * — and it stays, because an idempotent write of `true` cannot disagree
+     * with the other two, and the alternative is a fill whose arming depends on
+     * where in `attach` it happens to be called from.
+     */
+    touched.current = true;
+  }
+
+  /**
+   * §11.5, AND IT IS THE SAME OFFER `offerCoordinate` MAKES, MADE TWICE: a
+   * photo may fill a half nobody has supplied, and may never take one away.
+   *
+   * THE WALL CLOCK GOES IN UNSHIFTED, WHICH IS WHAT THE FIELD MEANS. §7.3:
+   * `dy:occurredAt` "carries the local UTC offset of the place", so the value is
+   * the time it was THERE and `toOffsetDateTime` copies it rather than
+   * recomputing it — see its docblock, whose reasoning this fill depends on.
+   * Routing the photo's `07:05` through a `Date` would rewrite five past seven
+   * in Tokyo as whatever o'clock it is here, and for any photo taken on the far
+   * side of this machine's midnight it would move the DATE, not merely the hour.
+   *
+   * TO THE MINUTE, THROUGH `wallClockOf`, WHICH IS THE ONE SPELLING OF "a
+   * timestamp, as this control shows it". Keeping the photo's `:33` is legal end
+   * to end — `LOCAL_DATETIME` accepts optional seconds and passes them through
+   * — but a `datetime-local` with no `step` neither displays nor edits seconds,
+   * so they would be a third of a minute the owner cannot see and the first
+   * keystroke would silently drop. `toOffsetDateTime` supplies the `:00` §6
+   * wants, exactly as it does for a hand-typed clock.
+   *
+   * NO §9 GATE HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION.
+   * `offerCoordinate` asks `coordinatesLive` because the fail-closed posture is
+   * about publishing a POINT; an offset is not a coordinate and neither is a
+   * wall clock. The offset control is deliberately not tied to that gate either
+   * — see its own note in the form — because an owner whose privacy settings
+   * cannot be read still gets to say what time of day it was.
+   *
+   * AND A HALF MAY ONLY JOIN THE OTHER HALF IT BELONGS WITH — ruling T4-E, and
+   * the guard that closes the one reachable data defect this task shipped.
+   * `offerCoordinate` needs no analogue: a photo either carries both GPS tags
+   * or neither (lib/media/exif.ts sets `gps` only when both are present), so
+   * `coordinateAuthor` is one record for a pair and a mixed coordinate cannot
+   * be composed from two photos at all. The timestamp's two halves arrive
+   * independently, and any day's walk produces the sequence:
+   *
+   *   1. `tokyo.jpg` — a clock and no zone. The clock fills, the offset is
+   *      left as this machine's guess, and the mark and the note go on.
+   *   2. `chathams.jpg` — a phone that writes both. Its clock is refused,
+   *      correctly, because the first photo already supplied one.
+   *   3. Its ZONE was then accepted, because the offset was still `nobody`'s —
+   *      which composed Tokyo's `07:05` with the Chathams' `+12:45`, an instant
+   *      that happened at NEITHER place, and cleared the mark in the same
+   *      motion, because the mark reads "a photo dated it and nobody offset
+   *      it". §11.5's stated failure, reached by two photos, with the warning
+   *      removed by the act of composing it.
+   *
+   * T4-C IS NOT WHAT PERMITTED THAT, AND STANDS. It says the wall clock and the
+   * offset are independent because the owner correcting WHEN beside a photo
+   * supplying WHERE is coherent — one side is a competent authority who can see
+   * both halves and fix either. Photo A's clock beside photo B's zone has no
+   * authority anywhere in it: it is T3-A's "value that is nowhere", and neither
+   * the value nor any warning about it survives. So each branch asks WHOSE the
+   * other half is, not merely whether it is spoken for, and `{ kind: "photo" }`
+   * carrying the slot's `key` is what makes that askable.
+   *
+   * `key`, AND NOT THE FILE NAME, WHICH IS HOW T4-E's OWN GUARD DEGENERATED FOR
+   * A DAY (F1). It compared `file.name`, and `PhotoSlot`'s docblock — up where
+   * the slot type is declared — says a name is not an identity: the picker is
+   * `multiple` and deduplicates nothing. Two cameras both calling their first photo
+   * `IMG_0001.jpg` is the ordinary case, not a contrived one, and it walked the
+   * sequence above straight back through the guard: A's clock in, B's clock
+   * refused, B's ZONE accepted because `"IMG_0001.jpg" === "IMG_0001.jpg"`, and
+   * the mark cleared in the same motion. The guard passed both of its tests and
+   * failed on the pair of names any two cameras produce. `key` is minted per
+   * slot in `attach` and cannot collide, which makes the comparison ask the
+   * question the ruling meant.
+   *
+   * BOTH BRANCHES, OR NEITHER. Guarding only the zone leaves the mirror — a
+   * zone-only photo, then a clock-only one — exactly as it was, and the order
+   * the owner picks two photos in is an accident. The same-`key` comparison is
+   * what keeps ONE photo supplying both halves legal: by the zone branch the
+   * clock's record already names the slot being offered, and the wall branch
+   * sees an offset no photo has touched yet.
+   *
+   * BOTH TAGS ARE OPTIONAL AND NEITHER GUARD IS DECORATION. `readMetadata`
+   * returns `{}` for a file it cannot read at all — a scan, a screenshot, a
+   * camera whose clock was never set, which it rejects by sentinel — and that is
+   * the case this meets most often. The obvious
+   * `setOccurred(String(metadata.dateTimeOriginal))` writes the nine characters
+   * `undefined` into the state; a `datetime-local` reads that back as empty, so
+   * the box CANNOT show the defect and the autosaved draft is the only surface
+   * that can.
+   */
+  function offerTimestamp(key: string, name: string, metadata: PipelineResult["metadata"]) {
+    /* FIRST WRITER WINS, PER HALF — `nobody` is the only answer that admits a
+       fill, and `TimeAuthor` is where the other two are argued out, including
+       why an edit's NON-empty box is not the question being asked here. */
+    let occurredTo = occurredAuthor.current;
+    let offsetTo = offsetAuthor.current;
+    let filled = false;
+
+    const wall = metadata.dateTimeOriginal;
+    if (
+      wall !== undefined &&
+      occurredTo.kind === "nobody" &&
+      /* …and not beside ANOTHER photo's zone (T4-E). `offsetTo` is untouched by
+         this photo at this line, so a `photo` here is always an earlier one.
+         On the slot's `key` and never on `name`, which two cameras share — F1,
+         argued in the docblock. */
+      (offsetTo.kind !== "photo" || offsetTo.key === key)
+    ) {
+      setOccurred(wallClockOf(wall));
+      occurredTo = { kind: "photo", key, name };
+      filled = true;
+    }
+
+    /* THE HALF EXIF USUALLY HAS NOTHING TO SAY ABOUT (§11.5), and when it does
+       say something it is already `+09:00`-shaped: lib/media/exif.ts reads tag
+       0x9011 and validates it against `/^[+-]\d{2}:\d{2}$/`, so what arrives
+       here is an offset or nothing. It goes in AS READ — never through
+       `offsetHere` or a `Date`, either of which answers with this machine's zone
+       — and `offsetOptions` unions whatever the control holds into the list, so
+       an offset the list does not carry renders instead of the select silently
+       showing its first option.
+
+       SHAPE-VALID IS NOT IN RANGE, AND `+99:99` IS WHAT THAT COSTS (F4). That
+       regex is the WHOLE of exif.ts's validation, so a camera — or this
+       project's own fixture builder — can put 6 039 minutes east of Greenwich
+       into the control, `offsetOptions` unions it into the select beside thirty
+       real zones, and `toOffsetDateTime` concatenates it onto the wall clock the
+       same photo supplied. It then fails CLOSED, which is the good half:
+       `serialiseEntry`'s `Entry.safeParse` refuses the timestamp and nothing
+       reaches the Pod. The defect is the advice the owner is then given —
+       `announce`'s "The entry did not reach your Pod … try again", which is
+       false on the first retry and on every one after it, with nothing on the
+       form pointing at a select quietly showing `+99:99`. So the range is
+       checked HERE, on the way in, and NOT in `OFFSET_SHAPE`: that fence is
+       deliberately wider, because an entry some other tool wrote may carry
+       `+05:15` and this editor's job is to show such a value and put it back
+       unchanged (§1c). What may not happen is ACCEPTING one from a photo. 840
+       minutes is `+14:00`, the eastern end of `OFFSETS` and of the world.
+
+       THE TOTAL-MINUTES FENCE ABOVE MISSES A SECOND WAY TO BE SHAPE-VALID AND
+       IMPOSSIBLE, AND `+05:61` IS WHAT THAT COSTS (closing item 4, still F4).
+       exif.ts's regex accepts any two digits in the minutes pair, so `61` is
+       shape-valid, and `offsetMinutes` composes it as `5 * 60 + 61 = 361` —
+       comfortably inside ±840, the same fence that stops `+99:99`. Nothing
+       between here and the Pod catches it except `Entry.safeParse`'s
+       `z.iso.datetime({ offset: true })`, at the very end of the chain, after
+       Save — so `+05:61` fills the control, gets unioned into the select, and
+       reproduces the exact "did not reach your Pod … try again" on every
+       retry that the paragraph above exists to prevent. So the minutes digits
+       are range-checked separately, right here, rather than by widening the
+       total-minutes fence to catch them incidentally — `Number(zone.slice(4,
+       6)) < 60` reads the same two characters `offsetMinutes` does, checked
+       on their own before they are composed into it.
+
+       THIS IS THE SAME LOOSE/STRICT SPLIT AS `+99:99`'S, ONE FIELD OVER, AND
+       `OFFSET_SHAPE` STAYS AS WIDE AS IT WAS: loose for what this editor
+       DISPLAYS — a stored `+05:15`, or for that matter a stored `+05:61` some
+       other tool once wrote, must still render and round-trip unchanged
+       (§1c) — strict for what it ACCEPTS FROM A PHOTO, which is this
+       conjunct and only this conjunct. Tightening `OFFSET_SHAPE` instead
+       would refuse to RENDER a value this editor is only obliged to show. */
+    const zone = metadata.offsetTimeOriginal;
+    if (
+      zone !== undefined &&
+      Math.abs(offsetMinutes(zone)) <= 840 &&
+      Number(zone.slice(4, 6)) < 60 &&
+      offsetTo.kind === "nobody" &&
+      /* …and not beside ANOTHER photo's clock (T4-E, on `key` — F1). The wall
+         branch has already run, so for a photo carrying both tags `occurredTo`
+         names THIS slot and the comparison lets it through — which is what
+         keeps 12b's one-photo case, and this guard, from being in each other's
+         way. */
+      (occurredTo.kind !== "photo" || occurredTo.key === key)
+    ) {
+      setOffset(zone);
+      offsetTo = { kind: "photo", key, name };
+      filled = true;
+    }
+
+    /* UNCONDITIONAL, AND IDEMPOTENT WHEN NOTHING FILLED: the mark is derived
+       from these two records in one place, so re-crediting them with what they
+       already hold recomputes the same answer. What it must not do is leave a
+       fill uncredited, which is why it is not inside either branch. */
+    creditTime(occurredTo, offsetTo);
+    /* A fill is a change to the form, and every change arms the autosave —
+       `offerCoordinate`'s line, with its reasoning: armed twice over already by
+       the time this runs, and an idempotent write of `true` cannot disagree with
+       the other two. Guarded by `filled` because a photo that supplied neither
+       half has changed nothing to keep. */
+    if (filled) touched.current = true;
+  }
 
   /**
    * PROCESS, UPLOAD, THEN HOLD A `Photo` — never the `File`.
@@ -1132,15 +2149,36 @@ export default function EntryEditor({
         source,
         derivatives: { web: derived.web, thumb: derived.thumb },
         blurDataUrl: derived.blurDataUrl,
-        // `derived.metadata` is deliberately unused for now: its
-        // DateTimeOriginal has no UTC offset and §6 requires one, and its GPS
-        // is a coordinate that has to go through §9 before it can be published.
+        // `derived.metadata` is not uploaded, and that is what stripping means:
+        // the derivatives are re-encoded without it. Its GPS and its two time
+        // tags are READ below, into the form and nowhere else: `DateTimeOriginal`
+        // has no UTC offset and §6 requires one, so the offset comes from the
+        // control beside the clock — the photo's own when it carried one, and
+        // otherwise a guess the owner is told about (`offerTimestamp`).
       });
-      move(
-        stored.ok
-          ? { key, name, state: "ready", photo: stored.value }
-          : { key, name, state: "failed", message: describe(stored.error) },
-      );
+      if (!stored.ok) {
+        move({ key, name, state: "failed", message: describe(stored.error) });
+        return;
+      }
+      move({ key, name, state: "ready", photo: stored.value });
+      /**
+       * ON `ready`, AND NOT A LINE EARLIER. The metadata has been in hand since
+       * the decode, so filling from it before the upload is spelled in one line
+       * fewer — and it offers the owner a coordinate for a photo that is about
+       * to fail its PUT and be announced as not attached. A coordinate from a
+       * photo that is not on the entry has nothing on screen to explain it,
+       * and its note names a file the form no longer holds.
+       */
+      offerCoordinate(name, derived.metadata);
+      /* THE TWO OFFERS ARE INDEPENDENT AND BOTH ARE MADE, in either order: a
+         photo may carry GPS and no clock, a clock and no GPS, both or neither
+         (lib/media/exif.ts reads them from different IFDs and guards each
+         separately), and neither half may stand in for the other or clear it.
+
+         THE `key` GOES IN BESIDE THE NAME because that is photo identity here
+         and the name is not — see `TimeAuthor`. `offerCoordinate` takes the
+         name alone on purpose: it displays it and never compares it. */
+      offerTimestamp(key, name, derived.metadata);
     } catch (cause) {
       move({
         key,
@@ -1230,12 +2268,22 @@ export default function EntryEditor({
     headline,
     story,
     occurred,
+    // The offset the owner chose, beside the wall clock rather than folded into
+    // it: the control they type the time into has none, and a draft that kept
+    // only the wall clock would hand back the machine's guess.
+    offset,
     tagsText,
     mode,
     status,
     lat,
     long,
     precision,
+    // Where the owner was, in words. Kept for the reason §9 makes sharpest: a
+    // crash near home would otherwise leave an entry with no coordinate AND no
+    // name, which is a placeless entry rather than a coarse one.
+    placeName,
+    locality,
+    country,
     /**
      * THE PHOTOS, AS `Photo` OBJECTS — which is only possible because the pick
      * uploaded them. A `File` here would serialise to `{}` without throwing,
@@ -1273,8 +2321,8 @@ export default function EntryEditor({
    * THE AUTOSAVE. Keyed on the form values, so every change restarts the window
    * and the typing coalesces into one write.
    *
-   * What goes in is the thirteen fields of `Draft` and nothing else — the twelve
-   * the form holds, plus the `savedAt` stamp put on below. The ETag, the
+   * What goes in is the seventeen fields of `Draft` and nothing else — the
+   * sixteen the form holds, plus the `savedAt` stamp put on below. The ETag, the
    * `dcterms:created` and the `schema:datePublished` this component is holding
    * right now are deliberately absent: they come from the read that produced
    * this state (§10), a draft outlives that read by however long the browser was
@@ -1297,12 +2345,16 @@ export default function EntryEditor({
           headline,
           story,
           occurred,
+          offset,
           tagsText,
           mode,
           status,
           lat,
           long,
           precision,
+          placeName,
+          locality,
+          country,
           photos: attached,
           savedAt: nowWithOffset(),
         },
@@ -1347,12 +2399,18 @@ export default function EntryEditor({
     headline,
     story,
     occurred,
+    // Changing the offset alone has to arm a window: it is not typing, and this
+    // is the dependency that makes the state change reach the debounce.
+    offset,
     tagsText,
     mode,
     status,
     lat,
     long,
     precision,
+    placeName,
+    locality,
+    country,
     // The ready photos, so attaching one arms a window like any other change.
     // Its identity moves on every slot transition, not only on a settle, so a
     // photo in flight restarts the window — which is what a debounce is for.
@@ -1490,6 +2548,94 @@ export default function EntryEditor({
     setHeadline(draft.headline);
     setStory(draft.story);
     setOccurred(draft.occurred);
+    /**
+     * THE OFFSET GOES BACK ONLY IF THE DRAFT HAS ONE TO GIVE, and `""` is not
+     * one. This is the load-bearing half of `Draft.offset` being
+     * `.default("")` — see its docblock in lib/studio/drafts.ts.
+     *
+     * `""` ARRIVES FROM TWO PLACES AND MEANS THE SAME THING IN BOTH: a payload
+     * written before this control existed (the schema's default fills the
+     * absent key), and one somebody emptied by hand. Neither is an instruction,
+     * because there is no "remove the offset" — §3 and §6 require
+     * `dy:occurredAt` to carry one — so both mean "this draft has nothing to
+     * say about the offset".
+     *
+     * WRITING `""` THROUGH IS THE FAILURE, and it is a blank control under a
+     * banner that has just said the draft came back — measured, by making this
+     * line unconditional and running section 8j: `shownValue` read `""`. The
+     * save after it composes a timestamp out of a wall clock and nothing, which
+     * §3 and §6 refuse on the next read.
+     *
+     * THE FALL-THROUGH IS THE CONTROL'S CURRENT VALUE, which is `?? placeName`'s
+     * reasoning rather than `presetPrecision`'s, and the choice matters:
+     *
+     *   - "leave the control showing what it is showing" is the honest reading
+     *     of a draft with no opinion, and on an untouched form that value IS
+     *     `offsetOf(existing?.occurredAt) ?? offsetHere(…)` — the entry's own
+     *     offset on an edit, this machine's on a create — because that is what
+     *     the state was initialised with;
+     *   - re-deriving the chain here would be a SECOND copy of it, two things
+     *     that have to agree and say nothing when they stop, and it would
+     *     discard an offset the owner had corrected before clicking Restore.
+     *     Overwriting an explicit choice with a re-derived guess is the exact
+     *     class of bug this control was added to remove.
+     *
+     * `presetPrecision` is not the model here because the precision case is
+     * about a value that is UNUSABLE — what the control shows has to be what
+     * `fuzzForPublication` is given (§9 step 3) — whereas this is a value that
+     * is ABSENT, which is the place fields' case.
+     *
+     * THE SHAPE, NOT THE LIST, IS THE TEST. `+05:15` is not one of the offsets
+     * `OFFSETS` offers and must still be restored; `banana` from a hand-edited
+     * payload must not — not because it would reach `dy:occurredAt` (it would
+     * reach the composer and fail the save: `serialiseEntry` re-validates with
+     * `Entry.safeParse`, lib/pod/entry-model.ts, so a shape-invalid offset is
+     * refused there, not written to the Pod), but because showing it in the
+     * control would be indistinguishable from an offset this editor actually
+     * offers. One expression covers `""` and that, which is what collapsing
+     * absent into `""` bought.
+     */
+    setOffset(OFFSET_SHAPE.test(draft.offset) ? draft.offset : offset);
+    /**
+     * AND A RESTORED TIMESTAMP IS NOT ONE A PHOTO MAY REPLACE — the coordinate's
+     * credit further down, for its reason: `restore()` writes these controls
+     * without a DOM event, so it comes through neither `onChange`, and without
+     * this the records would still read `nobody` over a form that visibly holds
+     * a date. Attach a photo and it takes both halves: the overwrite §11.3
+     * forbids, reached by the one path that does not look like typing.
+     *
+     * EACH RECORD MIRRORS ITS OWN SETTER, which is why the two lines are not
+     * spelled alike. `setOccurred` above writes UNCONDITIONALLY, so the record
+     * has to say whatever the payload said — and `""` is a draft with no date
+     * in it, the common case, which leaves the clock open rather than switching
+     * auto-date off for the rest of the session. `setOffset` writes only when
+     * the payload's offset has the shape, so when it has nothing to say the
+     * control keeps its value and the record keeps its author.
+     *
+     * A RESTORED OFFSET IS THE OWNER'S ALTHOUGH THE PAYLOAD CANNOT SAY WHETHER
+     * THEY CHOSE IT OR THIS MACHINE GUESSED IT — `Draft` keeps no provenance —
+     * and the cost is recorded rather than hidden: a draft whose offset was an
+     * unconfirmed guess comes back WITHOUT the mark. The other way round is
+     * worse in the direction §11.3 cares about, a photo silently replacing an
+     * offset the owner chose, corrected, and accepted back off the banner.
+     *
+     * AND WITHIN A SESSION THAT CLEARING IS A NO-OP, which is the fact that
+     * settles it rather than merely excusing it (contributed by the review,
+     * 2026-09-07). The draft read is one-shot, so the banner exists only from
+     * mount; while it is up the whole form sits inside
+     * `<fieldset disabled={offered !== null}>`, which includes the photo
+     * picker — so no photo can have been attached yet, `offsetGuess` is
+     * ALWAYS `false` when this runs, and there is no mark here to lose. The
+     * loss is strictly cross-session, and cross-session no code change can
+     * recover it: after a reload the editor cannot know the restored clock came
+     * from a photo. A `Draft` provenance field is not one option among several,
+     * it is the only one, and lib/studio/drafts.ts treats every field addition
+     * as a deliberate versioning decision.
+     */
+    creditTime(
+      draft.occurred.trim() === "" ? { kind: "nobody" } : { kind: "owner" },
+      OFFSET_SHAPE.test(draft.offset) ? { kind: "owner" } : offsetAuthor.current,
+    );
     setTagsText(draft.tagsText);
     setMode(draft.mode);
     setStatus(draft.status);
@@ -1503,6 +2649,32 @@ export default function EntryEditor({
     setLat(draft.lat);
     setLong(draft.long);
     /**
+     * AND A RESTORED COORDINATE IS NOT A COORDINATE A PHOTO MAY REPLACE.
+     *
+     * `restore()` writes these boxes without a DOM event, so it comes through
+     * neither `onChange` — the form's own note says so about `touched` — and
+     * without this line the record would still read `nobody` over a form that
+     * visibly holds a pair. Attach a photo and it takes the boxes: the exact
+     * overwrite §11.3 forbids, reached by the one path that does not look like
+     * typing.
+     *
+     * CREDITED TO THE OWNER, ALTHOUGH THE DRAFT CANNOT SAY WHETHER THEY TYPED
+     * IT OR A PHOTO FILLED IT — because both answers are refusals and the third
+     * is not available. `Draft` keeps `lat`/`long` as text and nothing about
+     * where they came from, and adding a provenance field to the payload would
+     * be a schema change to store something no reader needs: what the record
+     * has to answer is "may auto-fill write here", and for a restored pair that
+     * is no either way.
+     *
+     * AN EMPTY DRAFT IS NOT A RESTORED COORDINATE. `""`/`""` is a draft with no
+     * coordinate in it — the common case, since most entries have none — and
+     * marking that as the owner's would make Restore silently switch auto-fill
+     * off for the rest of the session.
+     */
+    if (draft.lat.trim() !== "" || draft.long.trim() !== "") {
+      creditCoordinate({ kind: "owner" });
+    }
+    /**
      * WHAT THE CONTROL SHOWS HAS TO BE WHAT IS APPLIED (§9 step 3), so a
      * precision the select cannot show is refused rather than restored. Two
      * ways to get one: a draft kept while the settings were unreadable, which
@@ -1512,6 +2684,34 @@ export default function EntryEditor({
      * lie in whichever direction is worse.
      */
     setPrecision(gridOf(draft.precision) === null ? presetPrecision : draft.precision);
+    /**
+     * THE PLACE TEXT GOES BACK VERBATIM — EXCEPT WHERE THE PAYLOAD CANNOT SPEAK
+     * FOR THE FIELD AT ALL, and that exception is the whole of it.
+     *
+     * `""` and absent are DIFFERENT INSTRUCTIONS here, which is why
+     * lib/studio/drafts.ts makes these three `.optional()` rather than giving
+     * them a default. An empty string is a box the owner emptied, and in
+     * `placeTextOf` that is REMOVE; an absent field is a `v2` payload written
+     * before these controls existed, which has no opinion about the place
+     * because there was no control to form one with.
+     *
+     * WRITING `undefined` THROUGH AS `""` IS A SILENT DELETION FROM THE POD.
+     * Restore such a draft onto an entry that already has a name and the boxes
+     * go empty, and the next save removes `schema:name` and the whole
+     * `<#address>` — the half-restore the version segment exists to prevent,
+     * arrived at by the operator chosen to avoid a version bump. `?? placeName`
+     * is therefore "leave the control showing whatever it is showing", which on
+     * an edit is the stored value.
+     *
+     * IT IS ALSO WHAT KEEPS THE `placeName` STATE'S ARGUMENT TRUE. That note
+     * says these controls need no `touchedPlaceText` flag because they are
+     * seeded from the entry — and a restore is the one moment that stops being
+     * true, since it writes the controls from something other than the entry.
+     * Leaving an absent field alone is what closes that gap.
+     */
+    setPlaceName(draft.placeName ?? placeName);
+    setLocality(draft.locality ?? locality);
+    setCountry(draft.country ?? country);
     /**
      * THE PHOTOS COME BACK ALREADY UPLOADED, which is the whole reason the pick
      * is the upload: these are URLs on the Pod, so a draft restored in a new tab
@@ -1651,7 +2851,8 @@ export default function EntryEditor({
      *                    all. They were snapped when they were stored and are
      *                    not necessarily on today's grid, so re-snapping them
      *                    would walk the pin on every save (see the note on the
-     *                    `lat` state).
+     *                    `lat` state). ONE BOX OF THE PAIR counts as this, and
+     *                    the paragraph at the end of this block is why.
      *   snap           → the published pair replaces whatever was there.
      *   drop           → the geometry is REMOVED. §9 step 2: not coarsened, and
      *                    the place keeps its name — "it is the geometry that is
@@ -1659,17 +2860,100 @@ export default function EntryEditor({
      *                    a `#geo` that is already on the Pod, which is the half
      *                    an "add the new one" spelling silently skips.
      *
+     * THE THREE TEXT FIELDS HAVE THE SAME THREE OUTCOMES AND ARE DECIDED
+     * SEPARATELY, because a coordinate and a name are removed independently:
+     * §9's drop keeps the name — "the entry is still written, with its place
+     * name if it has one" — and clearing a name must leave the coordinate
+     * alone. Their "untouched" is carried by the controls themselves rather
+     * than by a flag; see the `placeName` state.
+     *
      * FAIL CLOSED ON EVERYTHING ELSE. A form that somehow holds a coordinate
      * without trustworthy settings — a restored draft, a control re-enabled by
      * hand — publishes none: `fuzzForPublication` refuses settings that do not
      * parse, and the two guards above it refuse a gate that never opened and a
      * precision that is not a positive integer of metres. Every one of those is
      * a drop, and a drop still saves the entry.
+     *
+     * "TYPED" HERE MEANS "IN THE BOXES", AND THAT INCLUDES A PAIR A PHOTO
+     * FILLED. This flag asks whether there is a coordinate to publish, and an
+     * auto-filled one is a coordinate to publish — it is on the form, the owner
+     * can see it, it is credited to the photo it came from, and it goes through
+     * `fuzzed()` on this line like any other. `coordinateAuthor` is the record
+     * that distinguishes the two, and it is deliberately not consulted here:
+     * this line decides WHETHER a coordinate is written, that record decides
+     * whether AUTO-FILL may write into the form, and collapsing them would
+     * either publish nothing for every photo-filled entry or re-fuzz a stored
+     * pair on every save.
+     *
+     * AND HALF A PAIR IS "NOTHING TYPED" — RULING F-A, AND THE TWO DIRECTIONS
+     * DO NOT EVEN LAND IN THE SAME OCEAN. `Number("")` is `0`, so one typed
+     * latitude composes `{ lat: 45.5155, long: 0 }`, which is finite and in
+     * range and which `fuzzForPublication` therefore snaps and publishes.
+     * Measured through the real function against §7.6's own settings:
+     * `{45.5155, 0} → 45.51486 / 0.00000` and `{0, 9.2103} → 0.00000 /
+     * 9.20909`. Both publish; neither drops. LATITUDE ONLY lands at 0° east of
+     * the owner's own latitude — inland south-west France, a plausible-looking
+     * pin on land, not open water. LONGITUDE ONLY lands in the Gulf of Guinea,
+     * a few tens of km off Gabon — not the 700-odd km that belongs to `{0, 0}`
+     * elsewhere in this codebase. The land pin is the worse of the two: nothing
+     * distinguishes it on the map or in the data from a coordinate the owner
+     * actually chose. Either way `dy:precisionMeters 500` stands beside it,
+     * describing a pin the owner never typed as accurate to within half a
+     * kilometre. Ruling T3-A's stated cost was that such an owner "must type
+     * the second, rather than getting a silently wrong location" — which
+     * assumed they are forced to notice, and nothing forces them: the outcome
+     * region says saved and nothing on the form is red.
+     *
+     * F-A makes a half pair behave as the absence it already is, which is what
+     * §9 does everywhere else — an unreadable gate, an unusable grid and
+     * `insideHome` all drop rather than approximate. It may NOT be spelled as
+     * the `drop` the table above defines: on an edit that deletes the pin the
+     * entry already has, which is a removal the owner did not ask for either.
+     * TELLING them, rather than silently dropping, is the better long-term
+     * answer; it belongs in TODO.md as an open item and is not this line.
      */
     const touchedCoordinate = lat.trim() !== "" || long.trim() !== "";
-    const place = touchedCoordinate
-      ? placeFor(existing?.place, fuzzed({ lat: Number(lat), long: Number(long) }))
-      : existing?.place;
+    const place = placeFor(
+      existing?.place,
+      /* "Nothing typed" is spelled as THE GEOMETRY THE ENTRY ALREADY HAD, which
+         `placeFor` carries through unchanged. It is deliberately not spelled as
+         `undefined`: that is the DROP, and collapsing the two would delete a
+         coordinate from the Pod every time an entry was edited without
+         retyping one.
+
+         THE PAIR-COMPLETENESS CONJUNCTS ARE RULING F-A, argued at the end of
+         the docblock above: both boxes, or this is the untouched case.
+
+         `touchedCoordinate` IS SUBSUMED BY THEM RATHER THAN LOAD-BEARING, and
+         that is said out loud because this file has already carried one no-op
+         defended by a comment claiming otherwise (see `placeFor`). A whole pair
+         is necessarily a touched one, so the flag narrows nothing on this line.
+         It stays because it names the question the docblock above argues —
+         "is there a coordinate to publish at all" — and because folding the
+         AND into its definition would give one name to two different rules:
+         "the owner has been in these boxes", which is what that argument is
+         about, and "what is in them is a point", which is this line. Ruling
+         F-A fences the flag for the first reason; the second is why it would
+         still be worth two names.
+
+         THE REDUNDANCY IS CONDITIONAL ON `touchedCoordinate`'S CURRENT
+         DEFINITION, NOT A PERMANENT PROPERTY OF THIS LINE: it holds only
+         because a whole pair (both trims non-empty) always implies it under
+         today's OR of the two trims. Any future redefinition of
+         `touchedCoordinate` that is not implied by a whole pair — a third box
+         added to the OR, a debounce, anything that can be false while both
+         boxes hold text — changes what this conjunct does, and it would stop
+         being a no-op the moment that happens. */
+      touchedCoordinate && lat.trim() !== "" && long.trim() !== ""
+        ? fuzzed({ lat: Number(lat), long: Number(long) })
+        : existing?.place?.geo,
+      /* AND THE TEXT NEEDS NO SUCH FLAG, which is the asymmetry the `placeName`
+         state's note explains rather than an omission here: these three
+         controls ARE seeded from the entry, so a box nobody opened already
+         holds the stored value and writing it back is the untouched case. What
+         `touchedCoordinate` has to reconstruct, the form carries. */
+      placeTextOf({ placeName, locality, country }, language),
+    );
 
     /**
      * `dcterms:created` AND the fields this form does not offer are carried
@@ -1687,7 +2971,16 @@ export default function EntryEditor({
       headline: { value: headline.trim(), language },
       articleBody: body === "" ? undefined : { value: body, language },
       trip: trip.iri,
-      occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, storedOffset),
+      // WHAT THE TWO CONTROLS HOLD, concatenated and never converted — see
+      // `toOffsetDateTime`. Either half may have been typed or chosen by the
+      // owner, filled by a photo's EXIF (`offerTimestamp`), or left exactly as
+      // the entry arrived: `offset` starts as the entry's own on an edit, so an
+      // edit that never opened either control writes the timestamp back as it
+      // was stored. What this line must not become is a THIRD source — §9 step
+      // 3's rule for the precision, spelled for the timestamp: what the owner
+      // can see is what gets published, which is also why a photo's EXIF is
+      // never read here.
+      occurredAt: occurred === "" ? undefined : toOffsetDateTime(occurred, offset),
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
       place,
@@ -1763,7 +3056,7 @@ export default function EntryEditor({
        * are: §10's 412 tells the owner to reload, and the draft is what survives
        * the reload.
        *
-       * `text` is this render's snapshot of the eight fields — the same values
+       * `text` is this render's snapshot of the sixteen fields — the same values
        * the entry above was assembled from, because `save()` is synchronous up
        * to the await — so it is what reached the Pod. `settleDraft` compares it
        * with what is on the form now and keeps the difference.
@@ -1812,9 +3105,32 @@ export default function EntryEditor({
           title="Unsaved draft"
           className="mt-4 border border-hairline bg-surface p-4"
         >
+          {/*
+            RULING 2.5-A (task 2.5): the banner still appears when `savedAt`
+            is absent; only the `<time>` goes away. `lib/studio/drafts.ts`
+            made the field `.optional()` for a payload written by another
+            build or hand-edited in devtools — never one this editor wrote,
+            since `nowWithOffset()` stamps every write site here — and such a
+            payload must not crash the mount effect that offers it back.
+
+            THE SPELLING CHOSEN: the whole ", from <time>…</time>" clause is
+            conditional on `offered.savedAt !== undefined`, not just the
+            `<time>` tag, so the sentence reads as a complete claim either
+            way — "kept what you were writing here" rather than a comma
+            trailing into nothing. An empty `<time>` was rejected: a `<time>`
+            with no `dateTime` to point at is markup with nothing to say.
+            An invented timestamp was rejected too: it would tell the owner a
+            moment that never happened, which is worse than omitting the
+            nicety this field is.
+          */}
           <p>
-            {"This browser kept what you were writing here, from "}
-            <time dateTime={offered.savedAt}>{savedAtText(offered.savedAt)}</time>
+            {"This browser kept what you were writing here"}
+            {offered.savedAt !== undefined && (
+              <>
+                {", from "}
+                <time dateTime={offered.savedAt}>{savedAtText(offered.savedAt)}</time>
+              </>
+            )}
             {". Nothing on this form has been changed."}
           </p>
           {/*
@@ -1822,7 +3138,7 @@ export default function EntryEditor({
 
             The sentence above explains the DRAFT and stops there — it kept your
             text, the form is untouched — which accounts for the banner but not
-            for the nine controls underneath it going dead. Someone who reads
+            for the seventeen controls underneath it going dead. Someone who reads
             only that sentence has been told what happened and not what is now
             being withheld, and the fieldset does not announce itself.
 
@@ -1854,7 +3170,7 @@ export default function EntryEditor({
         className="mt-4"
         /*
           ONE PLACE THAT MARKS THE FORM AS TOUCHED, rather than a line in each of
-          eight handlers. React's `onChange` is delivered to ancestors, so this
+          sixteen handlers. React's `onChange` is delivered to ancestors, so this
           catches every control on the form including ones added later — and a
           field whose handler forgot the line would be a field whose typing is
           silently not backed up. `restore()` deliberately does NOT come through
@@ -1895,12 +3211,17 @@ export default function EntryEditor({
           browser stops it, and says so through the controls' own appearance and
           to a screen reader.
 
-          THE SAVE BUTTON IS IN HERE TOO — the ninth control, held by the same
-          attribute for the same reason. See the note on the button itself for
-          the one click that closes.
+          THE SAVE BUTTON IS IN HERE TOO — the seventeenth control and the last
+          one, held by the same attribute for the same reason. See the note on
+          the button itself for the one click that closes. It said "the ninth"
+          from the day the fieldset landed until 2026-09-07, by which point the
+          picker, the three place fields and the UTC offset had made it wrong by
+          eight: sixteen `Field`s are the fieldset's grid children now, and the
+          button is what follows them.
 
-          `grid gap-4` MOVED HERE FROM THE FORM. The eight fields were the
-          form's direct grid children; a wrapper around them is otherwise the
+          `grid gap-4` MOVED HERE FROM THE FORM, when there were eight fields
+          and they were the form's direct grid children; a wrapper around them
+          is otherwise the
           grid's only item, every field collapses into one cell and the gaps
           disappear. `display: contents` would have kept the form as the grid,
           and is declined: `fieldset` is the one element where browser support
@@ -1980,8 +3301,234 @@ export default function EntryEditor({
               type="datetime-local"
               className={CONTROL}
               value={occurred}
-              aria-describedby="entry-when-hint"
-              onChange={(event) => setOccurred(event.target.value)}
+              aria-describedby={occurredHelp()}
+              /* THE KEYSTROKE IS WHAT MAKES THE CLOCK THE OWNER'S, recorded
+                 here rather than in the form's own `onChange` for the reason the
+                 coordinate boxes give: that handler catches every control on the
+                 form, and this record is about this one. §11.3 in one line —
+                 from now on a photo may offer no wall clock.
+                 AND THE OFFSET'S RECORD PASSES THROUGH UNTOUCHED (T4-C): the
+                 owner correcting WHEN says nothing about the zone.
+                 WHICH IS ALSO WHY THIS KEYSTROKE TAKES THE CREDIT AND LEAVES
+                 THE WARNING — ruling T4-G, and the comment that used to be here
+                 was the argument against it: it claimed a typed-over clock
+                 leaves "the default every create opens with, which the
+                 permanent hint already covers". THAT EQUIVALENCE DOES NOT HOLD.
+                 On a create the owner types a clock from memory beside a guess
+                 they were never misled about; here `07:05` nudged to `07:06`
+                 leaves the clock substantially the photo's, and clearing the
+                 mark would leave §11.5's composition intact with the warning
+                 gone. "The time came from a.jpg" is what a keystroke makes
+                 uncheckable; "the offset is this machine's guess" is untouched
+                 by it and still true. `creditTime` keeps them apart. */
+              onChange={(event) => {
+                creditTime({ kind: "owner" }, offsetAuthor.current);
+                setOccurred(event.target.value);
+              }}
+            />
+          </Field>
+
+          {/*
+            WHERE THE TIME ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER.
+
+            §11.3: "the owner is told a photo supplied a value, so a wrong pin
+            is attributable to the photo instead of to the editor" — and for
+            this control the wrong value is `dy:occurredAt` itself, which a
+            camera reset to factory time supplies with every confidence. The
+            guess mark cannot carry this: it is `null` exactly when the photo
+            supplied BOTH halves, which is the case with nothing else on the
+            form to explain the date.
+
+            RENDERED EXACTLY WHEN `occurredHelp()` NAMES IT, and the pair of
+            them is decided by one value for `COORDINATE_SOURCE_ID`'s reason.
+          */}
+          {occurredSource !== null && (
+            <p id={OCCURRED_SOURCE_ID} className="text-sm text-muted-foreground">
+              {occurredSourceNote(occurredSource)}
+            </p>
+          )}
+
+          {/*
+            THE OTHER HALF OF THE TIMESTAMP, IMMEDIATELY BELOW THE CLOCK IT
+            BELONGS TO. §7.3: `dy:occurredAt` "carries the local UTC offset of
+            the place", and the control above hands back a wall clock with no
+            offset at all — so without this one the offset was the entry's own
+            or, failing that, the zone of whatever machine the form happened to
+            be open on. An evening in Tokyo written up at home became
+            `21:40+02:00`: the same instant, spelled as the wrong time of day,
+            which for a travel diary is most of the meaning.
+
+            INSIDE THE `<form>`, WHICH IS WHAT ARMS THE AUTOSAVE. React
+            delivers `onChange` to ancestors and the form's own handler is the
+            one place `touched` is set, so a "toolbar" spelling of this control
+            beside the datetime input but outside the form would move the state
+            and arm nothing: the owner corrects `+02:00` to `+09:00`, closes the
+            tab, and gets `+02:00` back. That is a bug this project has already
+            shipped once, in the photo pipeline, for exactly this reason.
+
+            NO `aria-label` HERE OR ON ANYTHING WRAPPING IT, and no
+            `<fieldset>`/`<legend>` pairing it with the clock. `getByLabelText`
+            matches `aria-label` on ANY element, this file has already lost six
+            tests to a wrapper that shadowed a real control, and a group named
+            "When" would be a second thing answering to the label above. The
+            `<label>` inside `Field` is the only name here.
+
+            HELD BY THE DRAFT FIELDSET AND BY NOTHING ELSE. It is deliberately
+            NOT tied to `coordinatesLive`: the privacy settings decide whether a
+            POINT may be published, and an offset is not a coordinate. An owner
+            whose settings cannot be read still gets to say what time of day it
+            was.
+          */}
+          <Field
+            id="entry-offset"
+            label="UTC offset"
+            hint="The offset of the place it happened in, not of wherever you are writing this. Kept exactly as chosen, so the time above always reads as that time of day."
+          >
+            <select
+              id="entry-offset"
+              name="entry-offset"
+              className={CONTROL}
+              value={offset}
+              /* THE STATE, ON THE CONTROL THAT HOLDS THE VALUE IN DOUBT — not
+                 on a wrapper, which is not what holds it, and not on the note,
+                 which is the sentence rather than the state. `undefined` rather
+                 than `"false"` for `coordinateHelp`'s reason: an attribute left
+                 on permanently reads as correct markup and answers a question
+                 nobody asked. See `creditTime` for the rule and
+                 `OFFSET_GUESS_ID` for why wording cannot carry this alone. */
+              data-offset-unconfirmed={offsetGuess ? "true" : undefined}
+              aria-describedby={offsetHelp()}
+              /* THE CHOICE IS WHAT ENDS THE GUESS (scenario 4), and it is one
+                 assignment rather than a second piece of state: the mark and the
+                 note both follow this record, so "the owner has chosen" and "the
+                 note has stopped being true" cannot come apart. The wall clock's
+                 record passes through untouched (T4-C). */
+              onChange={(event) => {
+                creditTime(occurredAuthor.current, { kind: "owner" });
+                setOffset(event.target.value);
+              }}
+            >
+              {/* The value is the offset AS WRITTEN, because that string is
+                  what is concatenated onto the wall clock and what the draft
+                  carries — one spelling, end to end. The text is the same
+                  string: a list of place names would be a second thing to keep
+                  true, and a wrong one is worse than none. */}
+              {offsetOptions.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {/*
+            WHY THE OFFSET ABOVE IS NOT DATA, WHILE THAT IS TRUE.
+
+            §11.5, and the sentence half of it: a wall clock the photo supplied
+            sits beside a zone it did not, and "the owner sees 21:38 +02:00" is
+            only a problem because every part of that reads as a reading. The
+            other half is `data-offset-unconfirmed` on the control itself — see
+            `OFFSET_GUESS_ID` for why neither half does this alone, and why this
+            is not a `role="alert"`: a photo that works announces nothing, and a
+            persistent live region about the offset would leak into every
+            save-outcome the form reports.
+
+            UNDER THE CONTROL AND ITS OWN HINT, named by `offsetHelp()`, and
+            RENDERED EXACTLY WHEN SOMETHING POINTS AT IT — `COORDINATE_SOURCE_ID`
+            's shape: a live `aria-describedby` naming an element that is not
+            there computes to the empty string, and the owner is back to a date
+            and a zone that appeared from nowhere.
+          */}
+          {offsetGuess && (
+            <p id={OFFSET_GUESS_ID} className="text-sm text-muted-foreground">
+              {/* The name comes from the CLOCK's record, which is what makes
+                  the sentence lose it at the first keystroke there while the
+                  warning stays — ruling T4-G, argued in `creditTime`. */}
+              {offsetGuessNote(occurredSource)}
+            </p>
+          )}
+
+          {/* AND WHEN THE PHOTO DID CARRY THE ZONE, WHO IT WAS (§11.3). Not a
+              guess and not marked — the value is as trustworthy as the clock
+              beside it — but still a value that appeared without being typed,
+              which is the whole of `COORDINATE_SOURCE_ID`'s argument. Mutually
+              exclusive with the note above by construction: that one requires
+              the offset to be nobody's. */}
+          {offsetSource !== null && (
+            <p id={OFFSET_SOURCE_ID} className="text-sm text-muted-foreground">
+              {offsetSourceNote(offsetSource)}
+            </p>
+          )}
+
+          {/*
+            WHERE THE OWNER WAS, IN WORDS — the three fields §9's mitigation
+            leans on, and the reason they sit HERE, immediately above the
+            coordinate: a place is one subject, and the entry's answer to
+            "where" is these four controls together.
+
+            THEY ARE NOT HELD BY `coordinatesLive`, and that is the point of
+            putting them beside it rather than inside it. The coordinate
+            controls go dead when the privacy settings cannot be read, because
+            there is no home region to check a point against; a place NAME needs
+            no such check — it is prose the owner chose, published exactly as
+            typed — so an editor that dimmed these three alongside the
+            coordinate would leave an owner with no settings unable to say
+            anything at all about where they were. They are inside the draft
+            fieldset with everything else, for the reason everything else is:
+            one storage slot.
+
+            NO `aria-label` ON THIS BLOCK OR ANYTHING WRAPPING IT, and no
+            `<fieldset>`/`<legend>` grouping the four. `getByLabelText` matches
+            `aria-label` on ANY element; this file has already lost six tests to
+            a wrapper that shadowed a real control, and a legend reading
+            "Place" would be a fifth thing for the form's own queries to find.
+            The `<label>` inside each `Field` is the only name here.
+          */}
+          <Field
+            id="entry-place-name"
+            label="Place name"
+            hint="Kept even when the coordinate is not. Near your home region the point is dropped rather than blurred, and this name is then all the entry says about where it was."
+          >
+            <input
+              id="entry-place-name"
+              name="entry-place-name"
+              type="text"
+              className={CONTROL}
+              value={placeName}
+              aria-describedby="entry-place-name-hint"
+              onChange={(event) => setPlaceName(event.target.value)}
+            />
+          </Field>
+
+          <Field id="entry-locality" label="Town or city">
+            <input
+              id="entry-locality"
+              name="entry-locality"
+              type="text"
+              className={CONTROL}
+              value={locality}
+              onChange={(event) => setLocality(event.target.value)}
+            />
+          </Field>
+
+          {/* A CODE, NOT A NAME (§7.3): `schema:addressCountry "JP"`, written
+              untagged, because `"JP"@en` is a different RDF term from `"JP"`
+              and every consumer filtering on the plain literal would stop
+              matching. The hint is what stops the owner typing "Japan" here —
+              nothing downstream can tell the two apart. */}
+          <Field
+            id="entry-country"
+            label="Country"
+            hint="The two-letter code, such as JP or IT — not the country's name."
+          >
+            <input
+              id="entry-country"
+              name="entry-country"
+              type="text"
+              className={CONTROL}
+              value={country}
+              aria-describedby="entry-country-hint"
+              onChange={(event) => setCountry(event.target.value)}
             />
           </Field>
 
@@ -2026,8 +3573,16 @@ export default function EntryEditor({
               className={CONTROL}
               value={lat}
               disabled={!coordinatesLive}
-              aria-describedby={coordinateHelp("entry-latitude-hint")}
-              onChange={(event) => setLat(event.target.value)}
+              aria-describedby={coordinateHelp("entry-latitude-hint", coordinateSourceId)}
+              /* THE KEYSTROKE IS WHAT MAKES THE PAIR THE OWNER'S, and it is
+                 recorded HERE rather than in the form's `onChange` above: that
+                 handler catches every control on the form, and this record is
+                 about these two. §11.3 in one line — from now on a photo may
+                 offer nothing, in either box (`CoordinateAuthor`). */
+              onChange={(event) => {
+                creditCoordinate({ kind: "owner" });
+                setLat(event.target.value);
+              }}
             />
           </Field>
 
@@ -2041,10 +3596,36 @@ export default function EntryEditor({
               className={CONTROL}
               value={long}
               disabled={!coordinatesLive}
-              aria-describedby={coordinateHelp()}
-              onChange={(event) => setLong(event.target.value)}
+              aria-describedby={coordinateHelp(undefined, coordinateSourceId)}
+              /* Either box, and the same record: a latitude from the owner
+                 beside a longitude from a photo is a point that is nowhere, and
+                 §9 would fuzz and publish it as though it were real. */
+              onChange={(event) => {
+                creditCoordinate({ kind: "owner" });
+                setLong(event.target.value);
+              }}
             />
           </Field>
+
+          {/*
+            WHERE THE PAIR ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER.
+
+            UNDER THE TWO BOXES AND ABOVE THE PRECISION SELECT, because that is
+            what it is about — one sentence for the pair, named by both boxes'
+            `aria-describedby` (see `COORDINATE_SOURCE_ID` for why one and not
+            two, and why not an `aria-label` on a wrapper).
+
+            RENDERED EXACTLY WHEN SOMETHING POINTS AT IT, which is
+            `coordinateSourceId`'s only other use: a live `aria-describedby`
+            naming an element that is not there computes to the empty string,
+            silently, and the owner is back to a number that appeared from
+            nowhere.
+          */}
+          {coordinateSource !== null && (
+            <p id={COORDINATE_SOURCE_ID} className="text-sm text-muted-foreground">
+              {coordinateSourceNote(coordinateSource)}
+            </p>
+          )}
 
           {/* §9 step 3: whatever this says, `dy:precisionMeters` says the same
               and the pair beside it is that grid's. The owner's own
@@ -2260,15 +3841,15 @@ export default function EntryEditor({
           </Field>
 
           {/*
-            THE NINTH CONTROL, HELD WITH THE OTHER EIGHT AND BY THE SAME
-            ATTRIBUTE. It carries no margin of its own: the fieldset is the
+            THE SEVENTEENTH CONTROL, HELD WITH THE OTHER SIXTEEN AND BY THE
+            SAME ATTRIBUTE. It carries no margin of its own: the fieldset is the
             grid, so this row takes its gap from `gap-4` like every field above
             it, and the `mt-4` it wore while it stood outside would now be a
             second gap on top of that one. The wrapper `<div>` stays, bare —
             the grid stretches its items, so a button promoted to a direct child
             of the fieldset becomes a full-width bar.
 
-            THE LOSS IT CLOSES, which is why it moved. The eight fields shipped
+            THE LOSS IT CLOSES, which is why it moved. The fields of the day shipped
             held and this button did not, and that left exactly one click
             between an unanswered banner and the text it was offering. On a
             CREATE the click is harmless — the form behind the banner is empty
@@ -2312,7 +3893,7 @@ export default function EntryEditor({
             {/*
               THE REASON IS ON THE BUTTON, NOT ON THE FIELDSET THAT DOES THE
               HOLDING, AND IT MUST NOT BE TIDIED UPWARD. It reads as though it
-              belongs there — one element holds nine controls, so one element
+              belongs there — one element holds seventeen controls, so one element
               should carry the reason once — and that spelling is heard by
               nobody. Measured (jsdom 30.0.1, dom-accessibility-api 0.5.16;
               it is the ARIA computation rather than a jsdom quirk):
@@ -2326,11 +3907,12 @@ export default function EntryEditor({
               were still there — the accessibility-shaped version of a rule
               exercised at a path it does not cover.
 
-              THIS BUTTON ALONE, not all nine. The banner sits directly above
-              the eight fields and its own sentence is about them; Save is the
-              one whose refusal has a consequence the owner will go looking for.
-              And one reason attached to nine controls is that reason announced
-              nine times to anyone reading the form linearly.
+              THIS BUTTON ALONE, not all seventeen. The banner sits directly
+              above the sixteen fields and its own sentence is about them; Save
+              is the one whose refusal has a consequence the owner will go
+              looking for. And one reason attached to seventeen controls is that
+              reason announced seventeen times to anyone reading the form
+              linearly.
 
               CONDITIONAL, BOTH WAYS. With no offer the element it would name is
               not rendered, and a dangling IDREF computes to "" — so the honest
@@ -2455,14 +4037,14 @@ export default function EntryEditor({
  *     save     (held)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
  *     restore  (free)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
  *
- * Byte-identical. Nine controls that look perfectly editable while swallowing
+ * Byte-identical. Seventeen controls that look perfectly editable while swallowing
  * every keystroke — which is a worse failure than an ugly one, because the
  * owner's conclusion is that the app is broken rather than that something is
  * being asked of them. The programmatic half of the same defect is the Save
  * button's `aria-describedby`, above.
  *
- * ONE VARIANT COVERS ALL EIGHT FIELDS BECAUSE `:disabled` IS INHERITED IN FACT
- * IF NOT IN NAME: a control inside a `<fieldset disabled>` is "actually
+ * ONE VARIANT COVERS ALL SIXTEEN FIELDS BECAUSE `:disabled` IS INHERITED IN
+ * FACT IF NOT IN NAME: a control inside a `<fieldset disabled>` is "actually
  * disabled" per HTML, so `:disabled` matches it without the attribute being on
  * the control. That is the same mechanism the hold itself relies on.
  *

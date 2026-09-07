@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import ExifReader from "exifreader";
 import { E2E } from "./environment";
@@ -52,6 +54,40 @@ import type { ExpandedTags } from "exifreader";
  *      below slices the exact range, which is why "no GPS survived" is a
  *      statement about this file rather than about whatever else was in the
  *      pool.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * AND ONE THING THE METADATA HALF NEEDS THAT THE SEEDED POD DOES NOT HAVE.
+ *
+ * Test 4 is about the READING rather than the pixels: real bytes → exifreader
+ * in the real worker → `PipelineResult.metadata` → `offerCoordinate` /
+ * `offerTimestamp` → the controls. Its coordinate half is gated on §7.6, and
+ * the Pod these specs run against has no §7.6 document at all.
+ * `scripts/seed-dev-pod.ts` takes FOUR of docs/data-model.md's seven Turtle
+ * blocks — diary, trip, entry, index — and writes no `privacy.ttl`; §7.6 says
+ * plainly that nothing in this codebase ever writes one.
+ *
+ * MEASURED 2026-09-07, NOT REASONED ABOUT: a GET of
+ * `…/e2e/travel/settings/privacy.ttl` answers 404, so does its container, and
+ * `.pod-data/e2e/travel/` holds no `settings` directory. §9 then fails closed —
+ * which is correct, and is what a fresh deployment does — so the two boxes
+ * render `disabled` and `offerCoordinate` returns at its first line. The
+ * obvious spelling of test 4 would therefore have watched the fill not happen
+ * for a reason with nothing to do with EXIF: this project's "the fixture cannot
+ * reach the branch", which stage 1's Playwright leg already hit once.
+ *
+ * So the settings are served to the browser by `page.route`, out of §7.6's own
+ * normative block extracted from docs/data-model.md at runtime — the same
+ * source `npm run pod:seed` reads, never a hand-copy. It is a PRECONDITION
+ * faked at the HTTP layer, which is the seam everything else in this repository
+ * fakes at, and the subject of the test — what the worker read, and what the
+ * editor did with it — runs for real either way.
+ *
+ * It also cannot pass vacuously. Before anything is picked, test 4 asserts the
+ * coordinate controls are LIVE and that the precision select shows §7.6's own
+ * `dy:defaultPrecisionMeters`, which can only be true once `readPrivacySettings`
+ * has resolved against that document — this app supplies no fallback for it. A
+ * glob that stopped matching fails there, saying so, instead of arriving at the
+ * coordinate assertions looking like an auto-fill that did not happen.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHAT THIS SPEC MEASURABLY CANNOT CATCH, so nobody reads a green run as more
@@ -313,6 +349,226 @@ test.describe("the media pipeline in a real browser", () => {
       false,
     );
   });
+
+  /**
+   * THE METADATA HALF — §11.4 AND §11.5 THROUGH THE REAL WORKER, WHICH IS THE
+   * ONE THING NO FAST TEST CAN DO.
+   *
+   * Every vitest test in stage 2 drives a FAKE pipeline: `metadata` is handed to
+   * the editor as a plain object, because jsdom has no `createImageBitmap`, no
+   * `OffscreenCanvas` and no encoder (see the header). So nothing in the fast
+   * suite has ever shown that the real Web Worker reads real EXIF bytes, or that
+   * what it read is what the real editor receives. This test pins that chain and
+   * nothing else: real bytes → exifreader in `lib/media/pipeline.worker.ts` →
+   * `PipelineResult.metadata` → `offerCoordinate` / `offerTimestamp` → the three
+   * controls.
+   *
+   * ONE CASE FOR BOTH HALVES, AND THAT IS THE POINT RATHER THAN A SHORTCUT. The
+   * same APP1 segment carries `GPSLatitude`/`GPSLongitude` and
+   * `DateTimeOriginal`; one pick drives both fills; and the seam being pinned is
+   * the same seam for both. Two tests here would be two OIDC round trips and two
+   * worker compiles to prove one thing twice — which is the slow-duplicate rule
+   * pointed the other way.
+   *
+   * WHAT IS DELIBERATELY NOT HERE, because test/entry-editor.test.tsx sections
+   * 11 and 12 own it against the fake pipeline and re-driving it in a browser
+   * would cost minutes and find nothing: that a photo never overwrites the
+   * owner's value, that the first photo wins, that a second photo's zone is
+   * refused beside the first photo's clock, the fuzzing at save, the provenance
+   * notes, and the unconfirmed-offset mark. The logic lives there. What lives
+   * here is that the values reaching those rules are a real reader's.
+   *
+   * THE PRECISE READING, NOT A FUZZED ONE, AND THAT IS NOT AN OVERSIGHT.
+   * `fuzzForPublication` runs at SAVE (§9 step 3, `offerCoordinate`'s docblock),
+   * because the save path is the only route to the Pod; the form holds what the
+   * photo said, to the digit. So the controls are compared against the reading
+   * itself. This case stops at the fill and never saves — see `serveHomeRegion`
+   * for what a save here would and would not be able to assert.
+   *
+   * WRITTEN AFTER THE CODE IT PINS, SO THE PIN IS THE MUTATIONS RATHER THAN THE
+   * GREEN RUN. Auto-fill already worked, so this passed the first time it ran,
+   * which on its own is worth nothing. Both halves were then shown red
+   * SEPARATELY, on 2026-09-07, by taking the worker's reading away from one
+   * offer at a time in components/studio/entry-editor.tsx:
+   *
+   *   - `offerCoordinate(name, {})` — red at "the photo's latitude never
+   *     reached the control", 44 polls of an `<input value="">`. Everything
+   *     after it, the wall clock included, still passed.
+   *   - `offerTimestamp(name, {})` — red at "the photo's DateTimeOriginal never
+   *     reached the control", with both coordinate assertions passing on the
+   *     way past.
+   *
+   * That is the pre-stage-2 state of `attach`, which read `derived.metadata` and
+   * threw it away; the editor was restored byte-for-byte afterwards (sha256
+   * 4b0240f2…59928). The two runs also say the halves are independent, which no
+   * single mutation could: each failure left the other half filled.
+   */
+  test("fills the coordinate and the wall clock from a real photo's own EXIF", async ({ page }) => {
+    /** §7.6 BEFORE THERE IS AN EDITOR TO READ IT: the read happens on mount, and
+     *  a route installed after sign-in would race it. See the header for why it
+     *  is served at all. */
+    const home = await serveHomeRegion(page);
+
+    await signInAsOwner(page);
+    await expectOwnerStudio(page);
+
+    /** THE PREMISE, AND IT IS THE LOAD-BEARING ONE. Without it a closed §9 gate
+     *  and a broken reader are the same empty box. */
+    await expectLiveCoordinateControls(page, home);
+
+    /**
+     * 1200x900, and smaller than every other fixture here on purpose: this case
+     * asserts nothing about pixels, and the three tests above already pay for a
+     * 6 MP decode. The EXIF is what matters, and the bitmap only has to be real
+     * enough for the worker to get to the end.
+     *
+     * SHINJUKU AND A MORNING IN APRIL. The coordinate is test 1's DMS spelling —
+     * test/media-exif.test.ts's fixture, and §7.3's own place. The capture time
+     * is NOT test 1's: `:33` seconds are non-zero, so a control that keeps them
+     * and one that truncates them are distinguishable rather than accidentally
+     * equal, and `07:05` is far enough from midnight in either direction that a
+     * wall clock routed through a `Date` moves the DATE and not merely the hour.
+     */
+    const EXIF_WHEN = "2026:04:11 07:05:33";
+    const plain = await makeJpeg(page, 1200, 900);
+    const withExif = spliceExif(plain, {
+      orientation: 1,
+      dateTimeOriginal: EXIF_WHEN,
+      gps: {
+        latRef: "N",
+        lat: [
+          [35, 1],
+          [41, 1],
+          [3768, 100],
+        ],
+        longRef: "E",
+        long: [
+          [139, 1],
+          [42, 1],
+          [1224, 100],
+        ],
+      },
+    });
+
+    /**
+     * THE SANITY CHECK THE OTHER THREE TESTS HAVE, DOING ONE MORE JOB HERE.
+     * There it keeps "no GPS came out" from being satisfied by a fixture that
+     * never had any; here it also PRODUCES THE EXPECTATION — `lib/media/exif.ts`
+     * hands `tags.gps.Latitude` through verbatim (it does no DMS arithmetic of
+     * its own), so this is the exact number the worker will send to the editor,
+     * read by the same library from the same bytes.
+     *
+     * THE HARD-CODED PAIR IS WHAT STOPS THAT BEING A TAUTOLOGY. A reader that
+     * returned nonsense would agree with itself all the way down; 35.6938 and
+     * 139.7034 are Shinjuku, written out, and they fail here rather than
+     * silently becoming the expectation.
+     */
+    const before = exifOf(withExif);
+    const readLat = before?.gps?.Latitude;
+    const readLong = before?.gps?.Longitude;
+    expect(readLat, "the fixture carries no GPS going in").toBeCloseTo(35.6938, 3);
+    expect(readLong, "the fixture carries no GPS going in").toBeCloseTo(139.7034, 3);
+    expect(
+      before?.exif?.DateTimeOriginal?.description,
+      "the fixture carries no capture time going in: the APP1 segment did not survive being spliced in, and both halves of this test would be about a photo that says nothing",
+    ).toBe(EXIF_WHEN);
+
+    /**
+     * AND IT IS NOWHERE NEAR THE HOME REGION THE SERVED SETTINGS DECLARE. §9
+     * step 2 drops a coordinate inside `dy:homeRadiusMeters` altogether, so a
+     * fixture at §7.6's Milan centre would make the save leg — if this case ever
+     * grows one — assert an absence that a total auto-fill failure produces too.
+     * A degree is ~111 km against a 3 km radius, so one degree in either axis is
+     * proof of "outside" without any geodesy here. Checked rather than trusted,
+     * because the fixture is read out of a document that can be edited.
+     */
+    expect(
+      Math.abs(home.lat - readLat!),
+      `the fixture's latitude is inside the home region §7.6 declares (${home.lat}): §9 would drop this point rather than snap it`,
+    ).toBeGreaterThan(1);
+    expect(
+      Math.abs(home.long - readLong!),
+      `the fixture's longitude is inside the home region §7.6 declares (${home.long})`,
+    ).toBeGreaterThan(1);
+
+    /**
+     * §7.3's spelling of the same instant, by mechanical substitution — and the
+     * substitution IS CHECKED, because a fixture edit built on a string replace
+     * that failed to match passes silently on the unmodified string. `readMetadata`
+     * turns `2026:04:11 07:05:33` into `2026-04-11T07:05:33`, and the editor's
+     * `wallClockOf` then slices it to the minute for a `datetime-local`.
+     */
+    const wall = EXIF_WHEN.replace(/^(\d{4}):(\d{2}):(\d{2}) /, "$1-$2-$3T");
+    expect(
+      wall,
+      `the EXIF date was not rewritten into §7.3's shape: the substitution did not match, and this expectation is still ${JSON.stringify(EXIF_WHEN)}`,
+    ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+
+    /** Nothing in any of the three, so every "filled" below is a change rather
+     *  than a coincidence — the editor starts a create with `lat`, `long` and
+     *  `occurred` all `""`. */
+    for (const [what, label] of [
+      ["latitude", LATITUDE],
+      ["longitude", LONGITUDE],
+      ["wall clock", WHEN],
+    ] as const) {
+      await expect(
+        control(page, label),
+        `the ${what} control was not empty to begin with, so nothing below distinguishes a fill from a value that was already there`,
+      ).toHaveValue("");
+    }
+
+    /** Fulfilled, not forwarded, and this case asserts nothing about it: it is
+     *  what keeps `attach` deterministic. A real PUT would 201 on the first run
+     *  and 412 on every run after, the path being content-addressed, and the
+     *  slot would then render a failure instead of settling. */
+    await collectUploads(page);
+
+    await attach(page, "asakusa.jpg", withExif);
+
+    /* ── THE COORDINATE (§11.4) ───────────────────────────────────────────── */
+
+    await expect(
+      control(page, LATITUDE),
+      "the photo's latitude never reached the control: the real worker read no GPS out of real EXIF bytes, or `PipelineResult.metadata` did not carry it to `offerCoordinate`",
+    ).not.toHaveValue("");
+
+    /**
+     * AS NUMBERS, NEVER AS TEXT — §11 guardrail 6's spirit for a decimal that is
+     * not on a wire: `35.6938` and `35.69380000000001` are the same coordinate
+     * and the lexical form is the implementer's. Six places is ~0.1 m, which no
+     * rounding on the way IN and no 500 m snap can survive, so this
+     * discriminates the precise reading from a fuzzed one.
+     */
+    expect(
+      Number(await control(page, LATITUDE).inputValue()),
+      "the latitude is not the photo's own reading: it was rounded, snapped or replaced between the worker and the control",
+    ).toBeCloseTo(readLat!, 6);
+    expect(
+      Number(await control(page, LONGITUDE).inputValue()),
+      "the longitude is not the photo's own reading",
+    ).toBeCloseTo(readLong!, 6);
+
+    /* ── AND THE WALL CLOCK (§11.5), FROM THE SAME PICK ───────────────────── */
+
+    await expect(
+      control(page, WHEN),
+      "the photo's DateTimeOriginal never reached the control: the real worker read no capture time, or `offerTimestamp` was not given it",
+    ).not.toHaveValue("");
+
+    /**
+     * THE SET OF HONEST SPELLINGS, as test/entry-editor.test.tsx's
+     * `wallClockShapes` defines it: keeping the photo's seconds and truncating
+     * them are both defensible and `LOCAL_DATETIME` accepts either. What is not
+     * in the set is `""`, anything shifted by this machine's zone, and anything
+     * carrying an offset — §7.3's field is the time it was THERE.
+     */
+    const shown = await control(page, WHEN).inputValue();
+    expect(
+      [wall.slice(0, 16), wall, `${wall}.000`],
+      `the wall clock shows ${JSON.stringify(shown)}, which is not the photo's local time in any spelling this control can hold: a shifted clock, a shifted DATE, or a value that came from somewhere other than the photo`,
+    ).toContain(shown);
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────── helpers ── */
@@ -478,5 +734,136 @@ async function dimensionsOf(
  *  so the guard below and the pick above can never drift apart and leave the
  *  guard passing on a control the pick cannot find. */
 const PHOTOS = /photos?\b/i;
+
+/**
+ * Test 4's three controls, spelled as `LABEL` in test/entry-editor.test.tsx
+ * spells them, for `PHOTOS`'s reason: that object is the table an implementer
+ * edits when they reword a label, and a second spelling here would go on
+ * matching nothing while looking like an auto-fill that did not happen.
+ *
+ * PLAYWRIGHT'S STRICT MODE IS THE ANALOGUE OF SECTION 8b's "EXACTLY ONE MATCH"
+ * CONTROL, and that is worth having rather than working around: `getByLabel`
+ * throws on two matches, so a `<section aria-label="…">` wrapper that shadowed
+ * one of these — the mistake that cost that file six tests — fails here by
+ * name instead of quietly resolving to the wrapper.
+ */
+const LATITUDE = /latitude/i;
+const LONGITUDE = /longitude/i;
+const PRECISION = /precision/i;
+const WHEN = /when|occurred|date/i;
+
+const control = (page: Page, label: RegExp) => page.getByLabel(label);
+
+/**
+ * §7.6, SERVED TO THE BROWSER, AND WHAT IT DECLARES.
+ *
+ * The header says why this is faked at all and why faking it does not touch
+ * what test 4 is about. Two mechanics are worth stating here:
+ *
+ *   - THE BLOCK IS EXTRACTED FROM docs/data-model.md AT RUNTIME, selected by
+ *     CONTENT rather than by position. `scripts/seed-dev-pod.ts` takes the first
+ *     four Turtle blocks by index; a fifth block added to §5 would silently
+ *     shift an index and hand this a diary. The §7 fixtures are normative, so a
+ *     hand-copied home region would test a copy of the spec — and this one is
+ *     read for its VALUES as well as its bytes, which makes that worse.
+ *
+ *   - GET ONLY, EVERYTHING ELSE FORWARDED. `session.fetch` sends `Authorization`
+ *     and `DPoP`, which makes this a preflighted cross-origin request; the real
+ *     Community Solid Server answers the OPTIONS, exactly as it does for the
+ *     media PUTs in `collectUploads`. The CORS headers on the fulfilled response
+ *     are not optional either: without them the browser rejects it before
+ *     `readPrivacySettings` sees a status, and §9 fails closed on a `network`
+ *     error that looks nothing like the truth.
+ *
+ * HOME_REGION_NOTE, and it is the reason test 4 stops at the fill. Saving would
+ * put the SNAPPED pair on the wire for a coordinate outside the region and no
+ * geometry at all for one inside it (§9 steps 2-3) — both worth asserting, and
+ * both already asserted in test/entry-editor.test.tsx sections 11e and 11f
+ * against this same §7.6 document. Here it would add a second full save cycle
+ * to the slowest test in the repository to re-prove them, and the value the
+ * FILL puts in the controls — which is what this case exists for — is the
+ * precise reading either way.
+ */
+async function serveHomeRegion(page: Page): Promise<{
+  lat: number;
+  long: number;
+  precisionMeters: string;
+}> {
+  const doc = readFileSync(fileURLToPath(new URL("../docs/data-model.md", import.meta.url)), "utf8");
+  const blocks = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)]
+    .map((match) => match[1]!)
+    .filter((block) => block.includes("dy:homeLat"));
+  expect(
+    blocks,
+    "docs/data-model.md has no single Turtle block declaring dy:homeLat: §7.6 was renamed, removed, or is now quoted twice, and this test would otherwise serve the wrong fixture",
+  ).toHaveLength(1);
+  const turtle = blocks[0]!;
+
+  await page.route("**/travel/settings/privacy.ttl", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/turtle",
+        etag: '"privacy-1"',
+        "access-control-allow-origin": E2E.siteUrl,
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "etag",
+      },
+      body: turtle,
+    });
+  });
+
+  return {
+    lat: declaredNumber(turtle, "homeLat"),
+    long: declaredNumber(turtle, "homeLong"),
+    /** As a STRING, because it is compared with what a `<select>` holds and
+     *  `500` is the value the option carries verbatim (§7.6 has no default for
+     *  this, which is what makes it a witness that the read resolved). */
+    precisionMeters: String(declaredNumber(turtle, "defaultPrecisionMeters")),
+  };
+}
+
+/** One `dy:` term's literal out of §7.6, with the match asserted: a regex that
+ *  stopped matching would otherwise yield `NaN`, and `NaN > 1` is `false` —
+ *  the "outside the home region" check would fail for a reason that is not
+ *  about the fixture at all. */
+function declaredNumber(turtle: string, term: string): number {
+  const found = new RegExp(`dy:${term}\\s+(-?[\\d.]+)\\s*[;.]`).exec(turtle);
+  expect(found, `§7.6 declares no dy:${term} in a shape this test can read`).not.toBeNull();
+  return Number(found![1]);
+}
+
+/**
+ * THE COORDINATE CONTROLS ARE LIVE, AND THE SETTINGS ARE WHY — the e2e twin of
+ * `awaitLiveCoordinateControls` in test/entry-editor.test.tsx, and load-bearing
+ * for the same reason: §9's fail-closed branch and a worker that read nothing
+ * are the same empty box, so the gate has to be proved OPEN before a photo is
+ * picked or every assertion after it is ambiguous.
+ *
+ * TWO CHECKS, AND THE SECOND CANNOT BE FAKED BY A PENDING STATE. `toBeEnabled`
+ * alone also holds for a build that never gated the controls at all; the
+ * precision select showing §7.6's own `dy:defaultPrecisionMeters` can only
+ * happen after `readPrivacySettings` resolved against the served document,
+ * because this app supplies no fallback for that value.
+ */
+async function expectLiveCoordinateControls(
+  page: Page,
+  home: { precisionMeters: string },
+): Promise<void> {
+  for (const label of [LATITUDE, LONGITUDE] as const) {
+    await expect(
+      control(page, label),
+      `the ${String(label)} control never became live: the §7.6 route did not match, or the read took §9's fail-closed branch — either way no photo can fill this box and nothing below is about EXIF`,
+    ).toBeEnabled();
+  }
+  await expect(
+    control(page, PRECISION),
+    "the precision control is not showing §7.6's own dy:defaultPrecisionMeters: the settings had not landed when this test started",
+  ).toHaveValue(home.precisionMeters);
+}
 
 const containerOf = (url: string): string => url.slice(0, url.lastIndexOf("/") + 1);
