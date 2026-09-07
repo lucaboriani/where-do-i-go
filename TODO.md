@@ -975,15 +975,36 @@ In progress on branch `phase-2-studio`.
             correctness one. It is **not** a container-layout change needing an ask — §7.6 defines
             the path and `readPrivacySettings` already looks there; the seeder simply never wrote
             it. **When it lands, delete the route rather than leave it shadowing a real resource.**
-      - [ ] **Two unreproduced flakes, and the pattern is the finding, not the incidents.** Both are
-            "wait for one thing, then assert on something another mechanism produces" — the test
-            waits on a commit-phase DOM node and then reads a fetch issued from a child's passive
-            effect, a gap load widens. `test/studio-shell.test.tsx` was fixed that way (one
-            `waitFor`, committed separately as `f89c152`). The second —
-            `test/studio-trip-loading.test.tsx > stops offering the trips … once the session
-            expires` — failed once in a full run, then passed 22/22 alone and three times under
-            `-t`, and **its message was never captured**, which is the part to do differently. It
-            is unfixed and unattributed, and a plausible instance of the same shape.
+      - [x] **Two flakes, and the pattern is the finding, not the incidents.** Both were "wait for
+            one thing, then assert on something another mechanism produces": the test waits on a
+            commit-phase DOM node and then reads a fetch issued from a passive effect, a gap load
+            widens. `test/studio-shell.test.tsx` was fixed that way (one `waitFor`, `f89c152`).
+            The second — `test/studio-trip-loading.test.tsx > stops offering the trips … once the
+            session expires` — failed once, then passed 22/22 alone and three times under `-t`, and
+            **its message was never captured**, which is the part to do differently. It was fixed
+            without ever being reproduced: the whole-branch review derived the mechanism from the
+            source instead, and two cross-checks in the same file confirmed the reading — the
+            sibling test at `:645` already counts *after* `settle()` and names §7.6 as the fourth
+            request, and `studioPod`'s own docblock records a prior intermittent failure of the same
+            kind. **A mechanism read off the source is worth more than a repro you cannot get**, and
+            neither flake needed load to be understood once the shape was named.
+      - [ ] **Tell the owner when half a coordinate pair is dropped, rather than dropping it in
+            silence.** A pair with one box filled now publishes no geometry and leaves any stored
+            coordinate alone — before that it published `{lat, 0}`, a pin in the Gulf of Guinea,
+            silently. Fail-closed is the right default and matches what §9 does for an unreadable
+            gate, an unusable grid and `insideHome`, but the owner still gets no word that the
+            number they typed reached nothing. Refusing the save with a message is the better
+            answer and needs its own test round. Found by the whole-branch review, which also
+            corrected the record: the ruling that made the coordinate one unit for auto-fill
+            purposes had claimed such an owner "must type the second" number — assuming they are
+            forced to notice. They were not; the save succeeded.
+      - [ ] **`touchedCoordinate` is now provably subsumed, and the redundancy is deliberate.** The
+            pair-completeness condition implies it (`wholePair → touched`), and its only use site is
+            that one line — so the alternatives were a redundant conjunct or an unused variable, and
+            the plan fences the name against redefinition. The conjunct stays with a comment saying
+            the redundancy out loud, because a no-op defended by a comment claiming otherwise is a
+            shape this file has already carried once. Worth resolving deliberately rather than by
+            deletion.
       - [ ] **Replace the line-number citations in `test/entry-editor.test.tsx`'s docblocks with
             symbol references.** They went stale twice in one stage — once by ~76 lines, once by 57
             — and the second time happened *within a single fix round*, after being corrected,
