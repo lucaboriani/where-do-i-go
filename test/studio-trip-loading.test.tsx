@@ -787,6 +787,27 @@ describe("studio shell — it lists for the owner and nobody else", () => {
 
     renderShell(fake.session);
     await waitFor(() => expect(editorHeadlineField()).toHaveLength(1));
+    /**
+     * WAIT FOR THE CHILD'S FETCH, NOT JUST THE PAINT — `f89c152` transposed,
+     * and the mechanism behind the intermittent failure `studioPod`'s docblock
+     * already records.
+     *
+     * `editorHeadlineField()` is a DOM node from a COMMIT phase; the §7.6 read
+     * belongs to a PASSIVE effect in that same editor (`readPrivacySettings`),
+     * which React may run after the commit rather than with it — and its MSW
+     * handler pushes into `requests` a round trip later still. So `before`
+     * below can be snapshotted at 3 while the settings GET is in flight;
+     * `settle()` then flushes it in and the count assertion at the end of this
+     * test fails by one, for a scheduling reason that has nothing to do with
+     * the session expiring. Load widens the gap, which is why it has never
+     * been captured.
+     *
+     * The sibling test above — "lists once, not once per render" — counts
+     * after `settle()` for the same reason, and names the fourth request as
+     * §7.6's. This is that ordering, applied to a snapshot taken before the
+     * event rather than to a total taken after it.
+     */
+    await waitFor(() => expect(pod.got(SETTINGS_URL)).toHaveLength(1));
     const before = pod.requests.length;
 
     act(() => {

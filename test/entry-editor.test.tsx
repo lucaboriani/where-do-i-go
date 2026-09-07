@@ -1444,6 +1444,225 @@ describe("entry editor — the home region", () => {
   });
 });
 
+/* ─────────── 1a-bis. half a pair is not a coordinate (ruling F-A) ───────── */
+
+describe("entry editor — one coordinate box filled and the other left empty", () => {
+  /**
+   * `Number("")` IS `0`, AND THE GULF OF GUINEA IS WHERE THAT LANDS.
+   *
+   * `save()` decides whether a coordinate is written at all with
+   * `lat.trim() !== "" || long.trim() !== ""` — an OR, so one box is enough —
+   * and then composes the point as `{ lat: Number(lat), long: Number(long) }`.
+   * With only a latitude typed the empty box arrives as `0`, which is a finite,
+   * in-range longitude that `fuzzForPublication` has no reason to refuse.
+   * MEASURED against §7.6's own settings, through the real function, rather
+   * than reasoned about:
+   *
+   *   { lat: 45.5155, long: 0      } → snap 45.51486 / 0.00000
+   *   { lat: 0,       long: 9.2103 } → snap 0.00000  / 9.20909
+   *
+   * Both publish. The owner typed one number, the save succeeded, and a
+   * world-readable resource now points 700-odd km off the African coast — with
+   * `dy:precisionMeters 500` beside it, describing that pin as accurate to
+   * within half a kilometre.
+   *
+   * RULING F-A: A HALF-FILLED PAIR IS NO COORDINATE, and falls through to
+   * `existing?.place?.geo` exactly as an empty pair does. §9's fail-closed rule
+   * everywhere else — an unreadable gate, an unusable grid, `insideHome` — is to
+   * drop rather than approximate, and dropping what the owner half-typed is
+   * plainly better than publishing a coordinate they did not choose. Both boxes
+   * are on screen, so nothing is hidden from them; TELLING them is the better
+   * long-term answer and is an open item rather than this test's subject.
+   *
+   * WHY RULING T3-A DID NOT ALREADY COVER IT: its stated cost was that an owner
+   * who types one number "must type the second, rather than getting a silently
+   * wrong location" — which assumed they are forced to notice. They are not.
+   * The save succeeds, the outcome region says so, and nothing on the form is
+   * red.
+   *
+   * ASSERTED AT THE WIRE, NEVER ON THE CONTROLS, and the ruling is why: it
+   * fences `touchedCoordinate` explicitly — that flag decides whether a
+   * coordinate is written AT ALL and Task 3's review confirmed it — so this
+   * test may not be about any particular internal. What it is about is the
+   * document a stranger can `curl`.
+   *
+   * THREE LEGS, AND THE THIRD IS WHAT STOPS THE FIRST TWO BEING VACUOUS:
+   *
+   *   1. A CREATE with only the latitude: no `#geo`, no coordinate predicate
+   *      anywhere, and no `dy:lat` on the index row. On a create there is no
+   *      stored geometry to fall through to, so "no coordinate" is the whole
+   *      outcome.
+   *   2. AN EDIT of the §7.3 entry with only the longitude — the MIRROR half,
+   *      because a fix that checked one box and not the other would leave this
+   *      direction exactly as it is. Here the fall-through is visible: the
+   *      entry's own stored pin has to survive, unchanged and un-re-snapped,
+   *      which is a stronger claim than "nothing was written".
+   *   3. THE ALLOW-CASE, in the same file's own digits: `OUTSIDE_HOME` is the
+   *      pair the home-region test above publishes, and legs 1 and 2 each type
+   *      exactly HALF of it. So the drop cannot be the home region, cannot be a
+   *      dead control, and cannot be an editor that publishes no coordinate at
+   *      all — this leg types both boxes and `SNAP_OUTSIDE_500` reaches the Pod.
+   *
+   * `awaitLiveCoordinateControls()` IN EVERY LEG, for the trap that has already
+   * made two pins in this file vacuous this stage: §7.6 arrives over MSW
+   * mid-flight, `fireEvent.change` fills a disabled input perfectly happily, and
+   * a test that asserts "no coordinate was published" against a form nobody
+   * could have typed into is green and worthless. It waits for the precision
+   * control to read §7.6's own 500, which cannot happen before the settings
+   * have landed.
+   *
+   * WHAT WOULD BREAK IT: today's code; treating a half-pair as a DROP — the
+   * §9-step-2 removal — rather than as untouched, which leg 2 catches by asking
+   * for the stored pin back; a completeness check on `lat` alone, which leg 2
+   * also catches; refusing the SAVE instead of the coordinate, which every leg
+   * catches, since §9 is explicit that a coordinate's absence still writes the
+   * entry.
+   */
+  it("writes no coordinate from a half-filled pair, and leaves a stored one alone", async () => {
+    const fake = fakeStudioSession();
+
+    /* ── LEG 1: A CREATE, LATITUDE ONLY ─────────────────────────────────── */
+    const pod = podFake();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    fillNewEntry();
+    await awaitLiveCoordinateControls();
+    expect(
+      typeAsUser(LABEL.latitude, OUTSIDE_HOME.lat),
+      "the latitude control refused the keystroke",
+    ).toBe(true);
+    // AND THE HALF-PAIR REALLY IS THE STATE THIS TEST IS ABOUT: the typed value
+    // stuck, and the other box is empty rather than holding something a
+    // previous render left behind.
+    expect(shownValue(LABEL.latitude), "the typed latitude did not stick").toBe(OUTSIDE_HOME.lat);
+    expect(
+      shownValue(LABEL.longitude),
+      "the longitude box is not empty, so this is a whole pair and the defect is out of reach",
+    ).toBe("");
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(put, "§9: it is the geometry that is absent, not the entry").toBeDefined();
+    const quads = quadsOf(put!.body, put!.url);
+    // The premise: this really is the save of the form that was filled in.
+    expect(oneObject(quads, `${put!.url}#it`, SCHEMA.headline)?.value).toBe(
+      "Rain on the Philosopher's Path",
+    );
+
+    expect(
+      geoNodeOf(quads, put!.url),
+      "a coordinate was published from one typed number: the empty box became 0 and the pin is in the Gulf of Guinea",
+    ).toBeUndefined();
+    for (const predicate of [
+      SCHEMA.geo,
+      SCHEMA.latitude,
+      SCHEMA.longitude,
+      GEO.lat,
+      GEO.long,
+      DY.precisionMeters,
+    ]) {
+      expect(
+        quads.filter((q) => q.predicate.value === predicate),
+        `${predicate} was written from half a pair`,
+      ).toEqual([]);
+    }
+
+    // The index row is the other place a coordinate escapes through (§7.4).
+    const { quads: rows, row } = indexRowOf(pod.indexPut()!.body, pod.indexPut()!.url, put!.url);
+    expect(row, "no index row points at the entry that was just written").toBeDefined();
+    for (const predicate of [DY.lat, DY.long, DY.precisionMeters]) {
+      expect(
+        objectsOf(rows, row!, predicate),
+        `the index row carries ${predicate} for a coordinate the entry does not have`,
+      ).toEqual([]);
+    }
+    // And the digits the owner typed are on no request at all.
+    expect(pod.wire(), "the typed latitude is on the wire").not.toContain(OUTSIDE_HOME.lat);
+
+    cleanup();
+
+    /* ── LEG 2: AN EDIT, LONGITUDE ONLY — the mirror half, over a stored pin */
+    const over = podFake();
+    const entry = await specEntry();
+    const stored = entry.place?.geo;
+    expect(
+      stored,
+      "the §7.3 fixture no longer carries a coordinate, so this leg is not about a stored pin",
+    ).toBeDefined();
+
+    await renderEditor(fake.session, {
+      initial: { entry, etag: '"entry-7"' },
+      storage: fakeStorage().storage,
+    });
+
+    await awaitLiveCoordinateControls();
+    // The boxes start EMPTY on an edit, even for an entry that has a coordinate
+    // — the premise for "one box filled" being reachable here at all.
+    expect(shownValue(LABEL.latitude), "the latitude box was seeded from the stored pin").toBe("");
+    expect(
+      typeAsUser(LABEL.longitude, OUTSIDE_HOME.long),
+      "the longitude control refused the keystroke",
+    ).toBe(true);
+    expect(shownValue(LABEL.longitude), "the typed longitude did not stick").toBe(
+      OUTSIDE_HOME.long,
+    );
+
+    await clickSaveAndWait();
+
+    const edited = over.entryPut();
+    expect(edited, "the edit was never written").toBeDefined();
+    const editedQuads = quadsOf(edited!.body, edited!.url);
+    const geo = geoNodeOf(editedQuads, edited!.url);
+    expect(
+      geo,
+      "half a pair deleted the coordinate the entry already had: that is §9 step 2's REMOVAL, and an empty pair is what this has to behave like",
+    ).toBeDefined();
+    expect(
+      [
+        Number(oneObject(editedQuads, geo!, SCHEMA.latitude)?.value),
+        Number(oneObject(editedQuads, geo!, SCHEMA.longitude)?.value),
+      ],
+      "the stored pin was replaced by one composed from an empty box: `Number(\"\")` is 0, so the latitude is the equator and the entry is 4 000 km from Tokyo",
+    ).toEqual([stored!.lat, stored!.long]);
+    expect(
+      Number(oneObject(editedQuads, geo!, DY.precisionMeters)?.value),
+      "the carried coordinate's precision moved",
+    ).toBe(stored!.precisionMeters);
+    expect(over.wire(), "the typed longitude is on the wire").not.toContain(OUTSIDE_HOME.long);
+    // And the index row says the same thing the entry does.
+    const second = indexRowOf(over.indexPut()!.body, over.indexPut()!.url, edited!.url);
+    expect(second.row).toBeDefined();
+    expect(Number(oneObject(second.quads, second.row!, DY.lat)?.value)).toBe(stored!.lat);
+    expect(Number(oneObject(second.quads, second.row!, DY.long)?.value)).toBe(stored!.long);
+
+    cleanup();
+
+    /* ── LEG 3: THE ALLOW-CASE, the same digits with both boxes filled ───── */
+    const whole = podFake();
+    await renderEditor(fake.session, { storage: fakeStorage().storage });
+
+    fillNewEntry();
+    await typeCoordinate(OUTSIDE_HOME);
+    await clickSaveAndWait();
+
+    const published = whole.entryPut();
+    expect(published, "a whole pair wrote nothing at all").toBeDefined();
+    const publishedQuads = quadsOf(published!.body, published!.url);
+    const publishedGeo = geoNodeOf(publishedQuads, published!.url);
+    expect(
+      publishedGeo,
+      "the whole pair published nothing either: this editor writes no coordinate at all, and the two legs above prove nothing",
+    ).toBeDefined();
+    expect(Number(oneObject(publishedQuads, publishedGeo!, SCHEMA.latitude)?.value)).toBe(
+      SNAP_OUTSIDE_500.lat,
+    );
+    expect(Number(oneObject(publishedQuads, publishedGeo!, SCHEMA.longitude)?.value)).toBe(
+      SNAP_OUTSIDE_500.long,
+    );
+  });
+});
+
 describe("entry editor — the precision it claims", () => {
   /**
    * §7.6: `dy:defaultPrecisionMeters` "is required outright, with no built-in
@@ -2393,9 +2612,44 @@ const OFFSET_WALL = "2026-04-02T16:20";
  *  matching the wrong row. */
 const offsetPattern = (offset: string) => new RegExp(offset.replace("+", "\\+"));
 
-/** The five that are not whole hours. Nepal, India, Eucla, the Chathams, the
- *  Marquesas — the places a stepper would delete from the map. */
-const ODD_OFFSETS = ["-09:30", "+05:30", "+05:45", "+08:45", "+12:45"];
+/**
+ * THE OFFSETS THAT ARE NOT WHOLE HOURS — the places a stepper would delete from
+ * the map. Nepal, India, Eucla, the Chathams, the Marquesas, and Newfoundland
+ * and the Chathams AGAIN, in the halves of their year nobody had counted.
+ *
+ * TWO ENTRIES JOINED THIS LIST ON 2026-09-07 (F2), AND THE SHAPE THEY RECORD IS
+ * WHY THEY ARE WORTH A DOCBLOCK. The list of offsets the editor offers was
+ * verified — programmatically, at review — "against the brief text". **The
+ * brief was the oracle, not the world**, so neither the brief nor the check
+ * could name a value neither of them knew about. What is missing is not exotic:
+ *
+ *   `-02:30` is Newfoundland DAYLIGHT Time, May to November, and `-03:30` —
+ *   the same island's standard time — was on the offered list already. Half of
+ *   St John's year was unwritable.
+ *   `+13:45` is Chatham DAYLIGHT Time, September to April, and the offered
+ *   list's own docblock names the Chathams as one of the odd ones it exists
+ *   for (`+12:45`).
+ *
+ * The consequence is silent and it is not a wall clock (§7.3's guarantee
+ * survives): the owner writing up the Chathams in January picks `+12:45`, the
+ * nearest offered, and the INSTANT is wrong by an hour — which is what any
+ * cross-trip ordering uses. `offsetOptions`' union cannot rescue it either,
+ * because on a create there is no stored value and no photo to supply one.
+ *
+ * `-03:30` AND `+12:45` STAY IN THIS LIST AS THE STANDARD-TIME TWINS, which is
+ * what makes the two new entries a gap rather than a preference: each of them
+ * is the other half of a year the form already half-covers.
+ */
+const ODD_OFFSETS = [
+  "-09:30",
+  "-03:30",
+  "-02:30",
+  "+05:30",
+  "+05:45",
+  "+08:45",
+  "+12:45",
+  "+13:45",
+];
 
 /**
  * The control, named so a failure says so — `requirePlaceControls`' reasoning
@@ -2495,15 +2749,22 @@ describe("entry editor — the offset it stamps", () => {
   });
 
   /**
-   * THE LIST, AND WHY IT IS A LIST. Five offsets that are not whole hours, and
-   * four that are — the second half is the allow-case, because "contains
-   * +05:45" is satisfied by a control offering every quarter hour from -12:00
-   * to +14:00, which is a different kind of wrong.
+   * THE LIST, AND WHY IT IS A LIST. The offsets that are not whole hours — see
+   * `ODD_OFFSETS`, which is where each of them is argued for — and five that
+   * are. The second half is the allow-case, because "contains +05:45" is
+   * satisfied by a control offering every quarter hour from -12:00 to +14:00,
+   * which is a different kind of wrong.
+   *
+   * A COUNT USED TO STAND IN THIS SENTENCE ("five … and four that are") and it
+   * is deliberately gone: the count moved the moment F2 found two offsets in
+   * real use that nobody had listed, and it was never what the test asserts.
+   * The two arrays are the durable form of this claim.
    *
    * WHAT WOULD BREAK IT: an `<input type="number">` of hours; a list generated
    * by stepping whole hours; dropping the three-quarter-hour zones as
    * curiosities, which is how Kathmandu, Eucla and the Chathams stop being
-   * writable.
+   * writable; keeping a zone's standard time and not its daylight time, which
+   * is how St John's and the Chathams become writable for half a year each.
    */
   it("offers the offsets that are not whole hours", async () => {
     const fake = fakeStudioSession();
@@ -2593,7 +2854,7 @@ describe("entry editor — the offset it stamps", () => {
    * carry it because some other tool wrote it, and this editor's job is to show
    * it and put it back unchanged, not to correct it.
    *
-   * WHAT WOULD BREAK IT: rendering only the thirty-eight, so the controlled
+   * WHAT WOULD BREAK IT: rendering only the fixed list, so the controlled
    * `<select>` finds no matching option and reads back as the first one on the
    * list (`-12:00` here) instead of `+05:15`; snapping the stored value onto
    * the nearest listed offset, which is the "helpful" version of losing it.
@@ -2636,7 +2897,7 @@ describe("entry editor — the offset it stamps", () => {
     // THE ALLOW-CASE, and the `Set` half of `Precision`'s pattern: an offset
     // that IS in the list appears once, not twice. This render uses the
     // unmodified `entry` (offset +09:00), so nothing unusual is unioned in
-    // and its rendered list IS the canonical thirty-eight — which is what
+    // and its rendered list IS the canonical one — which is what
     // makes it the right place to check that +05:15 is not among them; the
     // odd-offset render above always has +05:15 unioned in and could never
     // pass that check.
@@ -10555,6 +10816,40 @@ const TIMED_WITH_OTHER_OFFSET: ExifOptions = {
  * a no-op, and the mirror a claim about a form nothing had touched.
  */
 const OFFSET_ONLY: ExifOptions = { orientation: 1, offsetTimeOriginal: "+12:45" };
+/**
+ * A CAMERA WHOSE ZONE TAG IS NOT A ZONE — 12k's fixture (F4).
+ *
+ * `lib/media/exif.ts` validates `OffsetTimeOriginal` by SHAPE ALONE
+ * (`/^[+-]\d{2}:\d{2}$/` at exif.ts:38,105) and the editor's own
+ * `OFFSET_SHAPE` is the same loose regex, so `+99:99` is a value the whole
+ * chain accepts and only `Entry.safeParse` refuses — which is at the very end
+ * of it, after the control has been filled and the owner has pressed Save.
+ *
+ * `+99:99` RATHER THAN SOMETHING SUBTLER, so the failure cannot be mistaken for
+ * a rounding question: `offsetMinutes("+99:99")` is 6 039, seven times the
+ * ±840 that exists. Measured against this repo's zod 4.5.4, on the timestamp
+ * this fixture composes: `+99:99` FAIL, `+30:00` FAIL, `+23:59` PASS,
+ * `+05:15` PASS — so the schema's fence is not at ±840 either, and a fixture
+ * inside 24 hours would pass validation and prove nothing.
+ *
+ * BUILT ON `TIMED`, WHICH IS LOAD-BEARING TWICE. A wall clock has to reach the
+ * form for `toOffsetDateTime` to have anything to concatenate the bad offset
+ * onto — with no clock, `occurredAt` is `undefined`, the entry validates and
+ * the save succeeds, so the outcome this test is about is unreachable. And it
+ * makes the DATE half the allow-case: the photo still dates the entry.
+ */
+const OFFSET_OUT_OF_RANGE: ExifOptions = { ...TIMED, offsetTimeOriginal: "+99:99" };
+/**
+ * ONE FILE NAME, TWO PHOTOS — 12j's fixture (F1), and the whole test rests on
+ * the collision, so the name is a constant rather than typed twice.
+ *
+ * `IMG_0001.jpg` IS THE ORDINARY CASE, not a contrived one: it is what every
+ * camera in the world calls its first photo, so two cameras on one day's walk
+ * collide by default. `PhotoSlot`'s own docblock says so in as many words —
+ * "`key` IS NOT THE FILE NAME. Two files picked from two directories can share
+ * one" — and the file input is `multiple` with no dedup on name.
+ */
+const COLLIDING_NAME = "IMG_0001.jpg";
 
 const PHOTO_WALL = fromFixture(metadataOf(TIMED).dateTimeOriginal, "DateTimeOriginal");
 const PHOTO_OFFSET = fromFixture(
@@ -10569,6 +10864,17 @@ const SECOND_WALL = fromFixture(
 const SECOND_OFFSET = fromFixture(
   metadataOf(TIMED_WITH_OTHER_OFFSET).offsetTimeOriginal,
   "second OffsetTimeOriginal",
+);
+/**
+ * THE OUT-OF-RANGE TAG, THROUGH THE REAL READER — and `fromFixture` is the
+ * point rather than the plumbing here: if `lib/media/exif.ts` ever range-checks
+ * `OffsetTimeOriginal` itself, this throws at module load and says so, instead
+ * of 12k reporting a green "the editor refused it" about a value the reader had
+ * already dropped.
+ */
+const OUT_OF_RANGE_OFFSET = fromFixture(
+  metadataOf(OFFSET_OUT_OF_RANGE).offsetTimeOriginal,
+  "out-of-range OffsetTimeOriginal",
 );
 
 /** This machine's zone. Asia/Tokyo is fixed at the top of this file and checked
@@ -10773,6 +11079,35 @@ describe("controls for section 12", () => {
       wallClockShapes(PHOTO_WALL),
       "the shape list accepts a UTC-shifted wall clock",
     ).not.toContain(new Date(`${PHOTO_WALL}${MACHINE_OFFSET}`).toISOString().slice(0, 16));
+
+    /* ── 12j's AND 12k's FIXTURES, both added 2026-09-07 ──────────────────
+       12k needs a tag `lib/media/exif.ts` lets through and no real zone would
+       produce; 12j needs two files that are ONE NAME and TWO PHOTOS. Each of
+       those is a premise the test cannot restate for itself: a reader that
+       dropped the tag, or two files the media path collapsed into one, would
+       both report as a green refusal. */
+    const outOfRange = metadataOf(OFFSET_OUT_OF_RANGE);
+    expect(
+      outOfRange.offsetTimeOriginal,
+      "the out-of-range tag does not survive the reader, so 12k is about a form no photo touched",
+    ).toBe("+99:99");
+    expect(
+      outOfRange.dateTimeOriginal,
+      "12k's fixture carries no wall clock: `toOffsetDateTime` would have nothing to concatenate the bad offset onto, `occurredAt` would be undefined, and the save it is about would succeed for the wrong reason",
+    ).toBe(PHOTO_WALL);
+    expect(
+      OUT_OF_RANGE_OFFSET,
+      "the out-of-range tag is not offset-SHAPED, so it is refused before it reaches the control and 12k proves nothing about the editor",
+    ).toMatch(/^[+-]\d{2}:\d{2}$/);
+    expect(
+      Number(OUT_OF_RANGE_OFFSET.slice(1, 3)),
+      "the out-of-range tag is within the hours a real zone can have, so an editor that range-checked it correctly would still be allowed to accept it",
+    ).toBeGreaterThan(14);
+
+    expect(
+      new Uint8Array(exifBytes(TIMED_WITH_OTHER_OFFSET)),
+      "12j's two files are byte-identical: the media path is content-addressed, so they would collapse into ONE photo, the second `attach` would never run, and the collision the test is about would be out of reach",
+    ).not.toEqual(new Uint8Array(exifBytes(TIMED)));
 
     /* ── and the wording fence is not satisfied by the fixture names ────── */
     expect(
@@ -12290,5 +12625,343 @@ describe("entry editor — a second photo with a clock of its own", () => {
       payload.offset,
       "the `offset` state is not the one the first photo supplied",
     ).toBe(SECOND_OFFSET);
+  });
+});
+
+/* ───── 12j. two photos, ONE file name — ruling T4-E's defect, reopened ──── */
+
+describe("entry editor — two photos whose file names collide", () => {
+  /**
+   * THE GUARD THAT CLOSED 12h's DEFECT USES THE FILE NAME AS PHOTO IDENTITY,
+   * AND THIS FILE SAYS TWO PARAGRAPHS ABOVE IT THAT A FILE NAME IS NOT ONE.
+   *
+   * `offerTimestamp`'s two guards read `offsetTo.name === name` and
+   * `occurredTo.name === name`, where `name` is `file.name`. `PhotoSlot`'s own
+   * docblock: *"`key` IS NOT THE FILE NAME. Two files picked from two
+   * directories can share one."* `attach` computes a unique `key` on the line
+   * after it reads the name, and the guards compare the name anyway. The file
+   * input is `multiple`, with no deduplication on name.
+   *
+   * SO 12h's SEQUENCE WALKS STRAIGHT BACK THROUGH IT, and needs nothing exotic
+   * to do so — two cameras, both calling their first photo `IMG_0001.jpg`:
+   *
+   *   1. A carries a clock and no zone. The clock fills, the offset is left as
+   *      this machine's guess, and the mark and the note go on. 12c's state.
+   *   2. B carries both. Its clock is refused, correctly — `occurredAuthor` is
+   *      no longer `nobody`.
+   *   3. B's ZONE is then ACCEPTED, because the guard asks whether the clock
+   *      beside it came from a photo *with this name* and both files have this
+   *      name: `"IMG_0001.jpg" === "IMG_0001.jpg"`.
+   *   4. Which composes A's `07:05` with B's `+12:45` and, in the same motion,
+   *      clears the mark — `creditTime` derives it from "a photo dated it and
+   *      NOBODY offset it", and step 3 has just made the offset a photo's.
+   *
+   * That is ruling T4-E's defect exactly: an instant that happened at neither
+   * place, with §11.5's warning removed by the act of composing it. 12h and 12i
+   * both pass against it, because their fixtures are `tokyo.jpg` and
+   * `chathams.jpg` — the guard is correct for every pair of names that differ
+   * and degenerates on the pair that any two cameras produce.
+   *
+   * THE FIX IS THE `key` ALREADY COMPUTED: widen `TimeAuthor`'s `photo` variant
+   * to carry it, compare on it, and keep `name` for the notes.
+   * `CoordinateAuthor` needs no change — it uses `name` for display only and
+   * never compares it, which is also why nothing in section 11 moves.
+   *
+   * THE NOTE IS ASSERTED THROUGH `GUESS_WORDING` HERE, NOT THROUGH `alt(file)`,
+   * AND THAT IS THE POINT OF THE TEST RESTATED. Both files answer to the same
+   * `alt`, so 12h's fence — "the note still names the photo the clock is
+   * actually from" — cannot discriminate in this render at all: the sentence
+   * naming the RIGHT file and the sentence naming the WRONG one are the same
+   * string. What CAN be told apart is WHICH sentence is up, because the two
+   * differ in kind: the guess note says the offset is *not from* the photo, and
+   * `offsetSourceNote` says it *came from* it. 12c pins that `GUESS_WORDING`
+   * does not match the control's permanent hint, in the same render and before
+   * any pick, so a match here is that note and nothing else.
+   *
+   * `pickAndSettle` IS NOT USED FOR THE SECOND PICK, and could not be: it waits
+   * on `findByRole("img", { name: alt(file) })`, which throws "found multiple
+   * elements" on precisely the collision this test is about. The wait is spelled
+   * out instead — two rows answering to one name, four derivatives, and two
+   * containers.
+   *
+   * WHAT WOULD BREAK IT: today's code; comparing on the name after
+   * lower-casing, trimming or stripping the extension, which is the same defect
+   * with more steps; keying on the pick ORDER ("no photo has been attached
+   * before"), which breaks 12b, where one photo supplies both halves.
+   *
+   * WHAT IT MUST NOT COST: 12b and 12h. One photo carrying both tags still
+   * fills both — with a `key` comparison the clock's record names the very slot
+   * being offered — and two DIFFERENTLY named photos still behave as they do
+   * today.
+   */
+  it("refuses a second photo's offset when its file name is the first photo's", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const first = jpegWithExif(COLLIDING_NAME, TIMED);
+    const second = jpegWithExif(COLLIDING_NAME, TIMED_WITH_OTHER_OFFSET);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    /* THE COLLISION IS THE WHOLE TEST. Two distinct names here and this is 12h,
+       which passes today — the mutation would prove nothing. (The tags differ
+       and the bytes differ: both are pinned by the control above, which is what
+       stops the media path collapsing these two into one photo.) */
+    expect(
+      second.name,
+      "the two fixtures do not share a file name: this is 12h with a fresh docblock, and the guard it exercises already holds",
+    ).toBe(first.name);
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so the control could not show it even if the fill this test forbids did happen`,
+    ).toContain(SECOND_OFFSET);
+
+    /* ── THE FIRST PHOTO, AND EVERY ASSERTION BELOW RESTS ON IT ─────────── */
+    await pickAndSettle(first, media);
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the first photo's date never reached the wall clock, so nothing here is about a second photo standing beside it",
+      ).not.toBe("");
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      offsetMarkedAsGuess(),
+      "the first photo dated the form beside this machine's offset and nothing marks it: 'the mark survived' below cannot be told from 'there was never a mark'",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the marked control does not carry the guess note, so 'the warning still stands' below is not about a warning",
+    ).toMatch(GUESS_WORDING);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note names no photo at all",
+    ).toMatch(alt(first));
+
+    /* ── THE SECOND PHOTO REALLY LANDED — 11c's guard, spelled out because
+       `pickAndSettle` cannot see two rows with one name. ────────────────── */
+    pickPhoto(second);
+    await waitFor(() =>
+      expect(screen.getAllByRole("img", { name: alt(second) })).toHaveLength(2),
+    );
+    expect(rig.processed, "the second file never reached the pipeline").toHaveLength(2);
+    await waitFor(() => expect(media.puts).toHaveLength(4));
+    expect(
+      media.containers(),
+      "the two files went to ONE content-addressed container: the media path deduplicated them, so the second `attach` never ran and every refusal below is about nothing",
+    ).toHaveLength(2);
+
+    /* ── THE REFUSALS ───────────────────────────────────────────────────── */
+    expect(
+      wallClockShapes(PHOTO_WALL),
+      `the wall clock shows ${JSON.stringify(shownValue(LABEL.occurredAt))}: the second photo replaced the first photo's clock`,
+    ).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo's zone was accepted beside the FIRST photo's clock, because the guard compares FILE NAMES and both files are called IMG_0001.jpg: the two halves now describe an instant that happened at neither place",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "accepting the second photo's zone cleared the mark on the first photo's clock: §11.5's composition, with the warning removed by the act of composing it",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the guess note is gone: the offset is credited to a photo instead of being warned about, and the two sentences differ in KIND, which is the one thing that can be told apart when both files answer to one name",
+    ).toMatch(GUESS_WORDING);
+
+    /* ── AND WHAT A STRANGER CAN FETCH IS ONE PLACE'S TIME, NOT TWO ─────── */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-two-cameras");
+    setText(LABEL.headline, "Two cameras, one file name");
+    setText(LABEL.articleBody, "Both of them called it IMG_0001.jpg.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const occurred = oneObject(quadsOf(put.body, put.url), `${put.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod at all").toBeDefined();
+    expect(
+      occurred!.value,
+      "the published timestamp is the first photo's wall clock on the second photo's offset: an instant that happened at neither place, and §11.5's failure exactly",
+    ).not.toBe(`${PHOTO_WALL.slice(0, 16)}:00${SECOND_OFFSET}`);
+    expect(
+      occurred!.value.slice(-6),
+      "the published offset is not the one the control holds",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the published wall clock is not the first photo's",
+    ).toBe(PHOTO_WALL.slice(0, 16));
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(
+      pod.wire(),
+      "the second photo's zone is on the wire for an entry it did not date",
+    ).not.toContain(SECOND_OFFSET);
+    expect(
+      pod.wire(),
+      "the second photo's wall clock is on the wire",
+    ).not.toContain(SECOND_WALL.slice(0, 16));
+  });
+});
+
+/* ──── 12k. an OffsetTimeOriginal that is not an offset at all (F4) ─────── */
+
+describe("entry editor — a photo whose OffsetTimeOriginal is out of range", () => {
+  /**
+   * THE DEFECT IS THE ADVICE THE OWNER IS GIVEN, AND IT IS FALSE ON EVERY
+   * RETRY.
+   *
+   * `lib/media/exif.ts` validates tag 0x9011 by SHAPE ALONE (`:38`, `:105`) and
+   * the editor's `OFFSET_SHAPE` is the same regex, so `+99:99` — a value no
+   * zone has and no camera should write, and one this project's own fixture
+   * builder will happily put in a file — passes the whole chain:
+   * `offerTimestamp` accepts it, `offsetOptions` unions it into the select, and
+   * `toOffsetDateTime` concatenates it onto the wall clock the same photo
+   * supplied.
+   *
+   * IT THEN FAILS CLOSED, WHICH IS THE GOOD HALF. Measured against this repo's
+   * zod 4.5.4: `+99:99` FAIL, `+30:00` FAIL, `+23:59` PASS, `+05:15` PASS. So
+   * `serialiseEntry`'s `Entry.safeParse` refuses the entry, `saveEntry` reports
+   * `step: "entry"` with `recovery: "retry"`, and NOTHING reaches the Pod —
+   * no half-written resource, no wrong instant published.
+   *
+   * WHAT THE OWNER GETS IS `announce`'s retry sentence: *"The entry did not
+   * reach your Pod, and nothing there changed. Everything you typed is still on
+   * this screen — try again."* Every word of that is true except the advice.
+   * The identical request fails identically, for ever, and nothing on the form
+   * points at the offset select quietly showing `+99:99` — which the union put
+   * there, in a list of thirty-odd real zones, for a value that cannot be
+   * saved. The owner's work is intact and unsaveable, and the screen is telling
+   * them to press the button again.
+   *
+   * THE FIX IS A RANGE CHECK IN THE ZONE BRANCH — accept `zone` only when
+   * `Math.abs(offsetMinutes(zone)) <= 840`, with `offsetMinutes` already
+   * beside `OFFSET_SHAPE`. Deliberately not a tighter `OFFSET_SHAPE`: an entry
+   * some other tool wrote can carry `+05:15`, and §1c's "renders a stored
+   * offset the list does not contain" says the editor's job is to show such a
+   * value and put it back unchanged. What may not happen is ACCEPTING one from
+   * a photo.
+   *
+   * THE ALLOW-CASE IS IN THE SAME RENDER, AND THERE ARE TWO OF THEM. The
+   * photo's DATE still fills the clock — a fix that refused the whole file
+   * would be a different defect wearing this test's green — and the SAVE still
+   * lands, which is the outcome the owner was owed.
+   *
+   * "STATUS WITHOUT BODY" IS WHY THE WIRE ASSERTION IS NOT ALONE. Today nothing
+   * is PUT at all, so "`+99:99` is on no request" is satisfied vacuously by the
+   * broken build; it means something only after `pod.entryPut()` is asserted to
+   * exist. Both are here, in that order.
+   *
+   * WHAT WOULD BREAK IT: today's code; range-checking at SAVE time and
+   * publishing some other offset, which the `slice(-6)` assertion catches
+   * because it demands the one the control is holding; dropping the photo's
+   * DATE along with its zone, which the wall-clock assertions catch; leaving
+   * the mark off, which would be a clock a photo supplied beside this machine's
+   * unmarked guess — §11.5's state with no warning.
+   */
+  it("refuses an impossible zone, keeps the photo's clock, and the save reaches the Pod", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = fakePipeline();
+    const fake = fakeStudioSession();
+    const file = jpegWithExif("dashcam.jpg", OFFSET_OUT_OF_RANGE);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${OUT_OF_RANGE_OFFSET} is already one of the offsets this editor offers, so "it was not unioned into the list" cannot fail`,
+    ).not.toContain(OUT_OF_RANGE_OFFSET);
+
+    await pickAndSettle(file, media);
+
+    /* ── THE ALLOW-CASE: the DATE half is honoured ──────────────────────── */
+    await waitFor(() => {
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the photo's date never reached the wall clock, so the refusal below cannot be told from an editor that dropped the whole file",
+      ).not.toBe("");
+    });
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+
+    /* ── THE REFUSAL ────────────────────────────────────────────────────── */
+    expect(
+      shownValue(LABEL.offset),
+      "an OffsetTimeOriginal of +99:99 was accepted into the control: it is shape-valid and 6 039 minutes east of Greenwich, and it is what the timestamp will be built from",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetOptions(),
+      "the impossible offset was unioned into the select, which now offers it beside the real zones as though it were one",
+    ).not.toContain(OUT_OF_RANGE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the photo dated the form and supplied no zone this editor can use, and the offset beside the clock is this machine's — unmarked",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the marked control does not carry the guess note",
+    ).toMatch(GUESS_WORDING);
+
+    /* ── AND THE SAVE LANDS, which is what the owner was told it would not ─ */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-dashcam");
+    setText(LABEL.headline, "The clock was right, the zone was not");
+    /* THE PROSE MAY NOT QUOTE THE OFFSET, and this is not fussiness: the first
+       draft of this test wrote "Something in the camera wrote +99:99." and the
+       wire assertion below went red on the entry's own `schema:articleBody`.
+       `pod.wire()` is every byte that left the browser, which is what makes it
+       worth asserting on — and what makes a fixture that plants the needle in
+       the haystack a test that can never pass. */
+    setText(LABEL.articleBody, "The camera wrote a zone that is not a zone.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await clickSaveAndWait();
+
+    const put = pod.entryPut();
+    expect(
+      put,
+      "nothing reached the Pod: the entry was refused by its own schema for an offset a photo put in the control, and the owner is told to try again — advice that stays false on every retry",
+    ).toBeDefined();
+    const occurred = oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod").toBeDefined();
+    expect(
+      occurred!.value.slice(-6),
+      "the published offset is not the one the control holds",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the published wall clock is not the photo's",
+    ).toBe(PHOTO_WALL.slice(0, 16));
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(
+      pod.wire(),
+      "the impossible offset is on the wire",
+    ).not.toContain(OUT_OF_RANGE_OFFSET);
+
+    /* AND WHAT THE OWNER IS TOLD IS TRUE — the payload beside the status, for
+       the reason this project keeps re-learning. */
+    expect(
+      outcomeText(),
+      "the owner is told the entry did not reach their Pod and to try again, which is false advice that stays false on every retry",
+    ).not.toMatch(/did not reach|try again/i);
+    expect(outcomeText(), "the save announced nothing at all").toMatch(/saved/i);
   });
 });
