@@ -121,6 +121,55 @@ const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : 
 /* ------------------------------------------------------------------ the steps */
 
 /**
+ * `dcterms:created` is CARRIED FORWARD on an update and set on a create.
+ *
+ * This is the whole reason the field exists on `Entry`. An edit that rewrites
+ * the resource without it destroys the difference between when the record came
+ * into being and when it became public (§7.3) — silently, permanently, on the
+ * first save after publication. A caller-supplied value wins on a create too,
+ * so importing an entry with its real creation date works.
+ *
+ * Belongs to no single step: steps 1, 3 and 4 all read the stamped entry, so it
+ * happens once, before any of them, and returns a new object rather than
+ * touching the caller's.
+ */
+export function stampedEntry(opts: SaveEntryOptions, stamp: string): Entry {
+  const creating = "create" in opts.precondition;
+  return {
+    ...opts.entry,
+    created: opts.entry.created ?? (creating ? stamp : undefined),
+    creator: opts.entry.creator ?? opts.webId,
+    modified: stamp,
+  };
+}
+
+/**
+ * Step 1: PUT the entry under the precondition the caller was handed —
+ * `If-None-Match: *` to create, `If-Match: <etag>` to update, never a blind PUT
+ * (§10). A serialiser refusal — a slug that disagrees with its filename, say —
+ * comes back before anything leaves the machine, so nothing is on the Pod.
+ */
+export async function putEntry(
+  opts: SaveEntryOptions,
+  entry: Entry,
+  entryUrl: string,
+): Promise<Result<{ etag: string | null }>> {
+  const body = await serialiseEntry(entry);
+  if (!body.ok) return err(body.error);
+  return putGuarded(opts.fetch, entryUrl, body.value, opts.precondition);
+}
+
+/** Step 2: public-read if published, owner-only if draft. §5 pairs the ACL with
+ *  `dy:status` and both come off this one field, through `lib/pod/access.ts` —
+ *  the only module in the project that touches an ACL. */
+export function setEntryAccess(opts: SaveEntryOptions, entry: Entry, entryUrl: string) {
+  const accessOptions = { fetch: opts.fetch, webId: opts.webId };
+  return entry.status === "published"
+    ? makePublic(entryUrl, accessOptions)
+    : makePrivate(entryUrl, accessOptions);
+}
+
+/**
  * Step 3: read `entries.ttl`, insert this entry's row, recompute the derived
  * values, write back with `If-Match`.
  *
@@ -177,116 +226,82 @@ async function writeIndex(opts: SaveEntryOptions, entry: Entry, stamp: string): 
   return written.ok ? ok(null) : err(written.error);
 }
 
+/**
+ * Step 4: the revalidation hook, so the public site drops its cache.
+ *
+ * A hook that throws leaves the Pod consistent and only the cache stale, which
+ * heals on its own when the entry expires. Reported as a network error against
+ * `entryUrl` because that is what a failing hook is — a POST to a route handler
+ * that did not land — and because that is the resource whose new state is not
+ * visible yet.
+ */
+export async function runRevalidation(
+  opts: SaveEntryOptions,
+  entry: Entry,
+  entryUrl: string,
+): Promise<Result<null>> {
+  try {
+    await opts.revalidate([TAGS.trip(opts.tripSlug), TAGS.entry(opts.tripSlug, entry.slug)]);
+    return ok(null);
+  } catch (cause) {
+    const message = `revalidation hook failed: ${messageOf(cause)}`;
+    return err({ kind: "network", url: entryUrl, message });
+  }
+}
+
 /* -------------------------------------------------------------------- the run */
 
 export async function saveEntry(opts: SaveEntryOptions): Promise<SaveEntryReport> {
   const stamp = (opts.now ?? nowIso)();
   const entryUrl = documentUrlOf(opts.entry.iri);
   const completed: SaveStep[] = [];
-  const creating = "create" in opts.precondition;
+  const stamped = stampedEntry(opts, stamp);
 
-  /**
-   * `dcterms:created` is CARRIED FORWARD on an update and set on a create.
-   *
-   * This is the whole reason the field exists on `Entry`. An edit that rewrites
-   * the resource without it destroys the difference between when the record
-   * came into being and when it became public (§7.3) — silently, permanently,
-   * on the first save after publication. A caller-supplied value wins on a
-   * create too, so importing an entry with its real creation date works.
-   */
-  const stamped: Entry = {
-    ...opts.entry,
-    created: opts.entry.created ?? (creating ? stamp : undefined),
-    creator: opts.entry.creator ?? opts.webId,
-    modified: stamp,
-  };
+  /** The report for a sequence that stopped, with whatever completed before it.
+   *  `etag` is passed rather than captured: a step-1 failure has none, because
+   *  nothing was written to have one. */
+  const stoppedAt = (
+    step: SaveStep, error: PodError, recovery: SaveRecovery, etag?: string | null,
+  ): SaveEntryReport => ({ entryUrl, completed, failed: { step, error }, recovery, etag });
 
   /* -- step 1: the entry ---------------------------------------------------- */
 
-  const body = await serialiseEntry(stamped);
-  if (!body.ok) {
-    // Refused before anything left the machine — a slug that disagrees with its
-    // filename, or a shape the model does not allow. Nothing to rebuild.
-    return { entryUrl, completed, failed: { step: "entry", error: body.error }, recovery: "retry" };
-  }
-
-  const put = await putGuarded(opts.fetch, entryUrl, body.value, opts.precondition);
-  if (!put.ok) {
-    return {
-      entryUrl,
-      completed,
-      failed: { step: "entry", error: put.error },
-      recovery: recoveryForWrite(put.error),
-    };
-  }
+  const put = await putEntry(opts, stamped, entryUrl);
+  // Nothing reached the Pod, whether the serialiser refused or the PUT did, so
+  // there is nothing to rebuild. 412 is the one status where the identical
+  // request cannot succeed on a second attempt, and `recoveryForWrite` is what
+  // tells it from the rest; a serialiser refusal is not an `http` error at all.
+  if (!put.ok) return stoppedAt("entry", put.error, recoveryForWrite(put.error));
   completed.push("entry");
   const etag = put.value.etag;
 
   /* -- step 2: the ACL ------------------------------------------------------ */
 
-  const accessOptions = { fetch: opts.fetch, webId: opts.webId };
-  const access =
-    stamped.status === "published"
-      ? await makePublic(entryUrl, accessOptions)
-      : await makePrivate(entryUrl, accessOptions);
-
-  if (!access.ok) {
-    /**
-     * The entry IS on the Pod, so the report must say so — this is §10's
-     * "published-but-unreadable". The index is deliberately NOT written: a row
-     * pointing at a resource whose access could not be confirmed advertises a
-     * link the public may not be able to follow, and `rebuildIndex` "verifies
-     * each kept entry's ACL matches its status", which is precisely the check
-     * that just failed to complete.
-     */
-    return {
-      entryUrl,
-      completed,
-      failed: { step: "access", error: access.error },
-      recovery: "rebuildIndex",
-      etag,
-    };
-  }
+  const access = await setEntryAccess(opts, stamped, entryUrl);
+  /**
+   * The entry IS on the Pod, so the report must say so — this is §10's
+   * "published-but-unreadable". The index is deliberately NOT written: a row
+   * pointing at a resource whose access could not be confirmed advertises a
+   * link the public may not be able to follow, and `rebuildIndex` "verifies
+   * each kept entry's ACL matches its status", which is precisely the check
+   * that just failed to complete.
+   */
+  if (!access.ok) return stoppedAt("access", access.error, "rebuildIndex", etag);
   completed.push("access");
 
   /* -- step 3: the index ---------------------------------------------------- */
 
   const index = await writeIndex(opts, stamped, stamp);
-  if (!index.ok) {
-    // The entry exists and its access is right; only the index is behind.
-    return {
-      entryUrl,
-      completed,
-      failed: { step: "index", error: index.error },
-      recovery: "rebuildIndex",
-      etag,
-    };
-  }
+  // The entry exists and its access is right; only the index is behind.
+  if (!index.ok) return stoppedAt("index", index.error, "rebuildIndex", etag);
   completed.push("index");
 
   /* -- step 4: revalidation ------------------------------------------------- */
 
-  try {
-    await opts.revalidate([TAGS.trip(opts.tripSlug), TAGS.entry(opts.tripSlug, stamped.slug)]);
-  } catch (cause) {
-    /**
-     * The Pod is consistent; only the public site's cache is stale, and it will
-     * heal on its own once the cache entry expires. Reported as a network error
-     * because that is what a failing revalidation hook is — a POST to a route
-     * handler that did not land — and against `entryUrl` because that is the
-     * resource whose new state is not yet visible.
-     */
-    return {
-      entryUrl,
-      completed,
-      failed: {
-        step: "revalidate",
-        error: { kind: "network", url: entryUrl, message: `revalidation hook failed: ${messageOf(cause)}` },
-      },
-      recovery: "retry",
-      etag,
-    };
-  }
+  const revalidated = await runRevalidation(opts, stamped, entryUrl);
+  // The Pod is consistent; only the public site's cache is stale, and that
+  // heals on its own once the cache entry expires.
+  if (!revalidated.ok) return stoppedAt("revalidate", revalidated.error, "retry", etag);
   completed.push("revalidate");
 
   return { entryUrl, completed, recovery: "none", etag };

@@ -1355,3 +1355,116 @@ describe("saveEntry — a draft must not leak", () => {
     expect(report.completed).toContain("access");
   });
 });
+
+/* ======================= the §10 steps, addressed one at a time (task 3) */
+
+/**
+ * The sequence above proves the four steps in order; these prove each one on
+ * its own, which is the only place a step's precondition and its error channel
+ * are visible without the three other steps in the way.
+ */
+describe("the §10 steps, one at a time", () => {
+  const load = () => import("@/lib/pod/save-entry");
+
+  const stepOpts = (entry: Entry, over: Partial<SaveEntryOptions> = {}): SaveEntryOptions => ({
+    fetch: recordingFetch([]),
+    entry,
+    precondition: { create: true },
+    indexUrl: INDEX_URL,
+    tripIri: TRIP_IRI,
+    tripSlug: TRIP_SLUG,
+    revalidate: () => {},
+    now: () => "2026-04-20T18:02:11+02:00",
+    ...over,
+  });
+
+  /** §10: `If-None-Match: *` to create, `If-Match: <etag>` to update, and no
+   *  third option. Asserted on the outgoing request, at the step that sends it. */
+  it("step 1 carries If-None-Match: * to create and If-Match to update", async () => {
+    const { putEntry } = await load();
+    const spec = await specEntry();
+    const pod = podFake();
+
+    const created = await putEntry(stepOpts(spec), spec, ENTRY_URL);
+    expect(created.ok).toBe(true);
+    if (created.ok) expect(created.value.etag).toBe('"entry-v8"');
+    expect(pod.of("PUT", ENTRY_URL)[0].headers["if-none-match"]).toBe("*");
+    expect(pod.of("PUT", ENTRY_URL)[0].headers["if-match"]).toBeUndefined();
+
+    await putEntry(stepOpts(spec, { precondition: { etag: '"entry-v7"' } }), spec, ENTRY_URL);
+    expect(pod.of("PUT", ENTRY_URL)[1].headers["if-match"]).toBe('"entry-v7"');
+    expect(pod.of("PUT", ENTRY_URL)[1].headers["if-none-match"]).toBeUndefined();
+  });
+
+  /** A serialiser refusal must not reach the Pod at all: §11 guardrail 7 wants
+   *  the slug invariant on write, and a refused write is nothing to rebuild. */
+  it("step 1 refuses a slug that disagrees with its filename, sending nothing", async () => {
+    const { putEntry } = await load();
+    const spec = await specEntry();
+    const pod = podFake();
+    const wrong: Entry = { ...spec, slug: "not-the-filename" };
+
+    const r = await putEntry(stepOpts(wrong), wrong, ENTRY_URL);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("slugMismatch");
+    expect(pod.puts()).toEqual([]);
+  });
+
+  /** §5 pairs the ACL with dy:status, and both come off the one field. */
+  it("step 2 sends a published entry to makePublic and a draft to makePrivate", async () => {
+    const { setEntryAccess } = await load();
+    const spec = await specEntry();
+
+    const published = await setEntryAccess(stepOpts(spec), spec, ENTRY_URL);
+    expect(published.ok).toBe(true);
+    const draft: Entry = { ...spec, status: "draft" };
+    await setEntryAccess(stepOpts(draft), draft, ENTRY_URL);
+
+    expect(accessCalls).toEqual([
+      { op: "makePublic", url: ENTRY_URL },
+      { op: "makePrivate", url: ENTRY_URL },
+    ]);
+  });
+
+  it("step 4 passes both cache tags, and reports a throwing hook as a network error", async () => {
+    const { runRevalidation } = await load();
+    const spec = await specEntry();
+    const tags: string[][] = [];
+
+    const good = await runRevalidation(
+      stepOpts(spec, { revalidate: (t) => void tags.push(t) }),
+      spec,
+      ENTRY_URL,
+    );
+    expect(good.ok).toBe(true);
+    expect(tags).toEqual([[`trip:${TRIP_SLUG}`, `entry:${TRIP_SLUG}/${spec.slug}`]]);
+
+    const bad = await runRevalidation(
+      stepOpts(spec, {
+        revalidate: () => {
+          throw new Error("route handler said no");
+        },
+      }),
+      spec,
+      ENTRY_URL,
+    );
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.error.kind).toBe("network");
+    expect(bad.error).toMatchObject({ url: ENTRY_URL });
+  });
+
+  /** Pure, and the sequence tests cannot see it: three steps read `stamped`
+   *  after this runs, so a version that mutated in place would pass them all. */
+  it("the provenance stamp leaves the caller's entry untouched", async () => {
+    const { stampedEntry } = await load();
+    const spec = await specEntry();
+    const before = structuredClone(spec);
+
+    const stamped = stampedEntry(stepOpts(spec), "2026-04-20T18:02:11+02:00");
+    expect(stamped.modified).toBe("2026-04-20T18:02:11+02:00");
+    expect(stamped.created).toBe(spec.created);
+    expect(spec).toEqual(before);
+  });
+});
