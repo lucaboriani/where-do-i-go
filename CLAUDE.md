@@ -308,6 +308,90 @@ disposable. Ask before proceeding past this if it is still unset.
   exempt).
 - Fixed dark theme. Palette lives at `:root`, not under a `.dark` class. No theme toggle.
 
+## Code structure
+
+Numbers below are **tendencies, then hard bounds**. The tendency is what the code should look
+like; the hard bound is what CI refuses. Both exclude comment-only and blank lines, which is
+what makes them mean anything here: this repository runs 44% comment lines, so a 200-line span
+is routinely an 80-line function, and the prose is the comment rule's problem rather than this
+one's.
+
+| Rule | Tendency | Hard bound | Applies to |
+|---|---|---|---|
+| Render function | 130 | 200 | `components/**`, `app/**` |
+| Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
+| Inline comment block | 3 lines | 6 lines | everywhere except `components/ui/**` |
+| Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
+| Test function body | no limit | no limit | — |
+
+ESLint enforces the hard bounds and says nothing about the tendencies; `npm run check:structure`
+reports every function over a tendency and fails on none of them. That split is deliberate and
+is the maintainer's instruction: the numbers are "tend to", not a dictate, and a lint error
+cannot express that. Do not tighten the lint rules to the tendency values.
+
+Test bodies carry no length limit on purpose. A scenario test reads better whole than shredded
+into helpers whose names hide the arrangement; the file ceiling is what keeps tests navigable.
+
+**Comments say what the code cannot, in three lines or fewer.** Anything longer moves to a
+sibling `notes.md`, and the code keeps a pointer:
+
+```ts
+// First writer wins; see ./notes.md#first-writer-wins
+```
+
+`check:structure` fails if that anchor does not resolve, so a pointer cannot rot the way the
+line-number citations in the entry-editor tests did — twice in one stage, the second time within
+a single fix round, because the production commit landed after the test commit.
+
+`notes.md`, not `README.md`: README promises "how to use this", notes promises "why it is like
+this", and the second is what the prose in this repository actually is. **Notes cite
+`docs/data-model.md` by section number rather than restating it** — that file stays the single
+normative source, and a note that paraphrases a normative rule is a second opinion waiting to
+drift.
+
+One exception, deliberately. Where a comment is a trap warning **at the point of danger** —
+`vitest.config.ts`'s "`.tsx` IS LOAD-BEARING", which exists because 31 kB of test file once went
+silently uncollected — one shouted line plus a pointer stays inline. A cross-reference is worse
+than a shout for something the reader must not walk past, and a long docblock is worse than both
+because it gets skimmed.
+
+**One component, one folder**, holding the named component file, a one-line `index.ts` re-export,
+its test, and its `notes.md` if it has one:
+
+    components/studio/entry-editor/
+      entry-editor.tsx  index.ts  entry-editor.test.tsx  notes.md
+
+Named file plus a barrel, because a tab bar of twelve `index.tsx` files is the opposite of
+readable and stack traces that all say `index.tsx` are worse, while the barrel keeps imports
+short. `components/ui/**` is exempt and stays flat: it is shadcn's copied source, the CLI
+rewrites it flat on update, and it is already exempt from the arbitrary-Tailwind guardrail.
+
+**`lib/` holds no React.** A helper pulled out of a component goes to `lib/studio/<topic>/` if it
+is pure and reusable, and stays in the component folder if it is presentation. The public/studio
+import boundary is written in terms of `lib/`, so this split is what keeps that boundary
+meaningful.
+
+**Tests live beside their subject.** A `*.test.ts(x)` file sits in the same directory as the
+source file of the same base name. Three kinds have no single subject and stay in `test/`:
+
+- the shared harness — `setup.ts`, `msw.ts`, `graph.ts`, `network-guard.ts`, `child-output.ts`,
+  `fixtures/`, `support/`
+- the Pod integration suites, in `test/integration/`
+- the tests whose subject is the repository itself — `guardrails`, `check-commands`,
+  `check-structure`, `public-bundle`, `public-bundle-cli`, `vitest-collection`, `network-guard`
+
+`check:structure` carries that list and fails both on anything else left loose in `test/` **and
+on a name in the list that no longer exists**, so it cannot rot into a set of permanent excuses.
+
+**An exemption is a comment with a reason and a removal condition**, never a bare disable:
+
+```ts
+/* eslint-disable-next-line max-lines-per-function --
+   Stage B decomposes this; see the spec §5. Remove with the last field group. */
+```
+
+`check:structure` prints every active exemption on every run, so none of them hides.
+
 ## Commands
 
 **The Node version IS dictated. Select it before running anything.** `.nvmrc` pins `22.23.2`
