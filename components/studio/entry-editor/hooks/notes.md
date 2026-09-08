@@ -65,3 +65,90 @@ caught by the rule rather than by a test.
 
 `dispatch` is stable by contract, so `[]` is the honest array; the fifteen
 names are inside the factory for the same reason.
+
+---
+
+# `use-settings-gate`
+
+## the gate is read on mount and never again
+
+§9 makes every coordinate write conditional on `privacy.ttl`, so a form that
+took the input and refused it afterwards would have accepted a coordinate it was
+never going to publish and said nothing until Save. The controls are dead or
+live according to the answer, which means the answer has to arrive first — and
+that is why this is a mount effect rather than a save-time read.
+
+`gate` itself does not escape the hook. Every question the form used to ask of
+it — is it live, what does the select offer, what does the note say, what is the
+detail, what may be published — is answered by a named field of
+`SettingsGateView`. That is what let `precisionOptions` come along: two of its
+three sources are the gate's, and leaving it behind would have meant returning
+`gate` for one `kind === "ready"` test in the editor's body.
+
+`fuzzed` came for the same reason and is the one that matters: its first line is
+`gate.kind !== "ready"`, so it cannot be anywhere `gate` is not.
+
+## two bearings the move made stale, recorded rather than repaired
+
+`field/notes.md#what-travelled-here-already-wrong` is the precedent.
+
+1. `coordinateNote`'s and `precisionOptions`' docblocks both end by pointing at
+   "the select below" / "see the select below". There is no select in this file
+   — it went to `fields/where-fields/` in Task 5, and both bearings were already
+   one file out of date before this move. Every name still resolves; neither
+   file does.
+2. The read effect's own docblock says "components/studio/studio-shell/studio-shell.tsx
+   uses for `enumerateTrips`", which is still true, and "`restoreSession`'s for
+   the same reason", which is still true. Left as found.
+
+## what use-settings-gate is tested for
+
+Eighteen cases, in four groups. What each group bites:
+
+- **the three states** — `checking` holds the controls and says so *without
+  saying what*, which is a rule about vocabulary: the wait and the answer must
+  not share words, or the answer stops carrying information. `closed` carries
+  its detail as a separate field, outside the sentence. And the fourth case is
+  the one a lazy implementation fails: settings that parse but carry **no
+  `home`** are `ready`, not `closed`. Collapsing those two strips the pin from
+  every entry of everyone who never set a home region, silently and for ever.
+- **one read, however many invocations** — StrictMode invokes the effect twice
+  and `readPrivacySettings` must be called once. A `live` flag alone cancels the
+  first invocation's promise and leaves the second awaiting nothing, so the gate
+  never opens at all; holding the PROMISE is what makes both await one request.
+  The second case pins the memo's key: an unrelated prop moving is not a re-read,
+  a changed URL is.
+- **what the precision control offers** — that §7.6's own 500 m *joins* the grid
+  list rather than being rounded onto it, deduped, sorted, and that the value
+  the form is holding joins it too so a restored draft renders the number it is
+  about to publish at.
+- **`fuzzed` fails closed** — `checking` publishes nothing, an unusable grid
+  publishes nothing, a point inside the home region is a REMOVAL, and a snap
+  reports `precisionMeters` from the RESULT rather than from the select.
+
+## why this one mocks the read
+
+The component suites serve `privacy.ttl` over MSW on purpose, and the harness
+says why at length: §7.6's resource is owner-only and a mocked
+`readPrivacySettings` would prove nothing about the request that goes over the
+wire. Neither reason applies here. What is under test is this hook's own
+decisions; the read is covered by `test/privacy-settings.test.ts`; and "how many
+reads?" cannot be asked at all without holding the promise by hand.
+
+## why the seed is built outside the render callback
+
+`renderHook(() => useSettingsGate(seed()))` reads as a shorthand and is an
+infinite loop. `seed()` builds a fresh `onDefaultPrecision`, the read effect
+lists it in its dependency array, so every render re-runs the effect, which
+re-`setGate`s, which re-renders. Measured on 2026-09-08: two cases written that
+way timed out at 5 000 ms rather than failing on an assertion.
+
+That is the same loop `#why-the-setters-are-fifteen-names-and-not-one-dispatch`
+records from the other side, and it is why the seed's docblock says the callback
+MUST be stable rather than merely SHOULD. The editor passes
+`form.set.precision`, which is inside a `useMemo` with `[]`.
+
+The hook could defend itself with a ref instead, and deliberately does not: the
+dependency array is the one the effect had in `entry-editor.tsx`, and a move
+that quietly changes what re-runs an effect is the defect class this stage's
+ordering exists to prevent.
