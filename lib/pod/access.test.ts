@@ -8,6 +8,7 @@ import {
   makePrivate,
   makePublic,
   resolveContainerAcl,
+  serverListingContradiction,
 } from "@/lib/pod/access";
 import type { AccessState } from "@/lib/pod/access";
 
@@ -286,6 +287,40 @@ describe("resolveContainerAcl, the container write's first step", () => {
     const methods = fetch.mock.calls.map(([input, init]) => methodOf(input, init));
     expect(methods.length).toBeGreaterThan(0);
     expect(methods.filter((m) => m !== "GET" && m !== "HEAD")).toEqual([]);
+  });
+});
+
+describe("serverListingContradiction, the strong half of a container's evidence", () => {
+  /**
+   * WAC-Allow is the server's own evaluation and the only check on the
+   * container path that is not "what we stored". Pure, so it needs no Pod at
+   * all: the three modes are asserted one at a time, because a listing granted
+   * append is as enumerable as one granted read.
+   */
+  it.each([
+    ["read", { read: true, append: false, write: false }],
+    ["append", { read: false, append: true, write: false }],
+    ["write", { read: false, append: false, write: true }],
+  ])("names a public %s on the container itself", (_mode, server) => {
+    const error = serverListingContradiction(CONTAINER, server);
+
+    expect(error).toBeDefined();
+    expect(error?.kind).toBe("accessUnverified");
+    if (error?.kind !== "accessUnverified") return;
+    expect(error.url).toBe(CONTAINER);
+    // All three modes in the found string, not just the offending one: a
+    // deployer reading "public access" with no modes cannot tell what to fix.
+    for (const mode of ["read=", "append=", "write="]) expect(error.found).toContain(mode);
+  });
+
+  /**
+   * `undefined` is a DIFFERENT FACT from "nothing", and this is the line
+   * between them: a server that said nothing has not said no. Reporting it as
+   * a contradiction would make every ACP Pod look like a leak.
+   */
+  it("is silent when the server grants nothing, and when it says nothing at all", () => {
+    expect(serverListingContradiction(CONTAINER, { read: false, append: false, write: false })).toBeUndefined();
+    expect(serverListingContradiction(CONTAINER, undefined)).toBeUndefined();
   });
 });
 

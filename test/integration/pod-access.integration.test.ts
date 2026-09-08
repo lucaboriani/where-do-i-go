@@ -11,6 +11,7 @@ import {
   makePublic,
   putAcl,
   resolveContainerAcl,
+  storedRulesContradiction,
 } from "@/lib/pod/access";
 import type { InitReport } from "@/lib/pod/access";
 import { readPrivacySettings } from "@/lib/pod/read";
@@ -1326,6 +1327,59 @@ describe("the container write, step by step", () => {
     // the server would refuse whatever it was written under.
     const under = await putAcl(ownerFetch, container, resolved.value.aclUrl, ruled.value, resolved.value.precondition);
     expect(under.ok, under.ok ? "" : renderError(under.error)).toBe(true);
+  }, 60_000);
+
+  it("storedRulesContradiction names the §20 leak, and applyContainerRules is what fixes it", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    /**
+     * The pre-§20 shape, written by hand: public read on the container ITSELF
+     * as well as on its children. That is the enumerable listing — draft slugs
+     * via ldp:contains — and the verify step only ever sees an ACL it just
+     * wrote, so feeding it one is the only way to watch the detector detect.
+     */
+    const container = `${u.trips()}open-listing/`;
+    await createContainerWithNoAclOfItsOwn(container);
+    await putAsOwner(
+      `${container}.acl`,
+      `@prefix acl: <http://www.w3.org/ns/auth/acl#>.\n@prefix foaf: <${NS.foaf}>.\n` +
+        `<#public> a acl:Authorization; acl:agentClass foaf:Agent; acl:accessTo <./>; ` +
+        `acl:default <./>; acl:mode acl:Read.\n` +
+        `<#owner> a acl:Authorization; acl:agent <${webId}>; acl:accessTo <./>; ` +
+        `acl:default <./>; acl:mode acl:Read, acl:Write, acl:Control.\n`,
+    );
+
+    // The leak is real before the detector is asked about it: a logged-out
+    // reader can enumerate the container. Otherwise this asserts a fixture.
+    const listing = await anon(container);
+    expect(listing.status).toBe(200);
+
+    const resolved = await resolveContainerAcl(ownerFetch, container);
+    expect(resolved.ok, resolved.ok ? "" : renderError(resolved.error)).toBe(true);
+    if (!resolved.ok) return;
+
+    const leak = storedRulesContradiction(container, resolved.value.acl, true);
+    expect(leak, "the open listing went unreported").toBeDefined();
+    expect(leak?.kind).toBe("accessUnverified");
+    if (leak?.kind !== "accessUnverified") return;
+    expect(leak.url).toBe(container);
+    expect(leak.expected).toContain("closed listing");
+    expect(leak.found).toContain("public read on the container itself");
+
+    // The fix and its detector in one place, with no server in between: the
+    // rules step drops the public `acl:accessTo` and keeps the `acl:default`,
+    // and the same ACL no longer contradicts.
+    const fixed = applyContainerRules(container, resolved.value.acl, webId, true);
+    expect(fixed.ok, fixed.ok ? "" : renderError(fixed.error)).toBe(true);
+    if (!fixed.ok) return;
+    expect(storedRulesContradiction(container, fixed.value, true)).toBeUndefined();
+
+    // And the makePrivate direction, on the same dataset: asked for children
+    // that are NOT public, the §20 shape is itself the contradiction.
+    const asPrivate = storedRulesContradiction(container, fixed.value, false);
+    expect(asPrivate?.kind).toBe("accessUnverified");
+    if (asPrivate?.kind !== "accessUnverified") return;
+    expect(asPrivate.expected).toContain("removed from");
   }, 60_000);
 });
 

@@ -552,6 +552,56 @@ async function setContainerAccess(
   return verifyContainerAccess(url, fetch, publicInherit);
 }
 
+/**
+ * The "rules" evidence: the stored authorisations against what was asked for.
+ * Weak on its own — it proves the write persisted as written, and nothing about
+ * enforcement. Pure, and exported for its own tests: the verify step only ever
+ * sees an ACL it just wrote, so the leak it names is reachable no other way.
+ */
+export function storedRulesContradiction(
+  url: string,
+  acl: AclDataset,
+  publicInherit: boolean,
+): PodError | undefined {
+  const inherited = getPublicDefaultAccess(acl);
+  const direct = getPublicResourceAccess(acl);
+
+  if (inherited.read !== publicInherit) {
+    return unverified(
+      url,
+      `public read ${publicInherit ? "reaching" : "removed from"} the resources inside`,
+      `acl:default read=${inherited.read}`,
+    );
+  }
+  // "Public read, owner-only write" is the defining constraint (§5). Read
+  // granted one mode too wide is not a smaller bug.
+  if (inherited.write || inherited.append || inherited.control || direct.write || direct.append || direct.control) {
+    return unverified(url, "no public write anywhere on this container", "a public write grant");
+  }
+  if (direct.read) {
+    return unverified(url, "a closed listing (no public acl:accessTo)", "public read on the container itself");
+  }
+  return undefined;
+}
+
+/**
+ * The "server" evidence, and the only check here that is not "what we stored":
+ * an enumerable listing in spite of the rules means public draft slugs.
+ * `undefined` in means the server said nothing — a different fact from
+ * "nothing", and never a contradiction.
+ */
+export function serverListingContradiction(
+  url: string,
+  server: ReturnType<typeof serverPublicAccess>,
+): PodError | undefined {
+  if (!server || !(server.read || server.write || server.append)) return undefined;
+  return unverified(
+    url,
+    "the server to report no public access to the container itself",
+    `WAC-Allow public read=${server.read} append=${server.append} write=${server.write}`,
+  );
+}
+
 /** Read the access back. A 2xx on the write above is not evidence (phase 0). */
 async function verifyContainerAccess(
   url: string,
@@ -567,43 +617,13 @@ async function verifyContainerAccess(
   if (!hasResourceAcl(back)) {
     return err(unverified(url, "the container's own authorisations", "none, after writing them"));
   }
-  const acl = getResourceAcl(back);
-  const inherited = getPublicDefaultAccess(acl);
-  const direct = getPublicResourceAccess(acl);
 
-  if (inherited.read !== publicInherit) {
-    return err(
-      unverified(
-        url,
-        `public read ${publicInherit ? "reaching" : "removed from"} the resources inside`,
-        `acl:default read=${inherited.read}`,
-      ),
-    );
-  }
-  // "Public read, owner-only write" is the defining constraint (§5). Read
-  // granted one mode too wide is not a smaller bug.
-  if (inherited.write || inherited.append || inherited.control || direct.write || direct.append || direct.control) {
-    return err(unverified(url, "no public write anywhere on this container", "a public write grant"));
-  }
-  if (direct.read) {
-    return err(
-      unverified(url, "a closed listing (no public acl:accessTo)", "public read on the container itself"),
-    );
-  }
+  const stored = storedRulesContradiction(url, getResourceAcl(back), publicInherit);
+  if (stored) return err(stored);
 
-  // The server's own evaluation, where it offers one. This is the only check
-  // here that is not just "what we stored": if the listing is enumerable in
-  // spite of the rules, draft slugs are public and the deployer needs to know.
   const server = serverPublicAccess(back);
-  if (server && (server.read || server.write || server.append)) {
-    return err(
-      unverified(
-        url,
-        "the server to report no public access to the container itself",
-        `WAC-Allow public read=${server.read} append=${server.append} write=${server.write}`,
-      ),
-    );
-  }
+  const reported = serverListingContradiction(url, server);
+  if (reported) return err(reported);
 
   return ok({
     url,
