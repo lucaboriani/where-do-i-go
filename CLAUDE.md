@@ -138,7 +138,8 @@ npm run size:public       # what a public page actually ships
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
 integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
 skips rather than vacuous passes. But `npm test` then reports green having never run
-`test/pod-read.integration.test.ts` or `test/pod-access.integration.test.ts` at all, and the list
+`test/integration/pod-read.integration.test.ts` or
+`test/integration/pod-access.integration.test.ts` at all, and the list
 above put the Pod requirement only against `build`, six lines too late. With a Pod up they pass
 in a few seconds. They are real tests, not rot — which is precisely why a run that quietly omits
 them is the "half a check" this section warns about.

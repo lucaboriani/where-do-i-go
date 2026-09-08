@@ -199,6 +199,36 @@ function exemptionReport(): string[] {
 }
 
 /** Four rules that fail, two reports that do not: ./notes.md#two-tiers */
+/**
+ * Test files over the 600-line tendency. Reported, never failed — ESLint holds
+ * the 1000 hard bound. CLAUDE.md's table lists this tendency and nothing was
+ * printing it, so the row was decoration. See ./notes.md#two-tiers
+ */
+function testFileDrift(): string[] {
+  return walkTestFiles(ROOT)
+    .map((path) => {
+      const src = readFileSync(join(ROOT, path), "utf8").split("\n");
+      let inBlock = false;
+      const code = src.filter((raw) => {
+        const l = raw.trim();
+        if (inBlock) {
+          if (l.includes("*/")) inBlock = false;
+          return false;
+        }
+        if (l === "" || l.startsWith("//")) return false;
+        if (l.startsWith("/*")) {
+          if (!l.includes("*/")) inBlock = true;
+          return false;
+        }
+        return true;
+      }).length;
+      return [path, code] as const;
+    })
+    .filter(([, code]) => code > 600)
+    .sort((a, b) => b[1] - a[1])
+    .map(([path, code]) => `  ${path} — ${code} code lines (tendency 600)`);
+}
+
 async function main() {
   const scanned = sources(true).length;
   console.log(`scanned ${scanned} files under ${DIRS.join(", ")}`);
@@ -227,6 +257,10 @@ async function main() {
   const drift = await driftReport();
   console.log(`\nover the tendency — ${drift.length} function(s), reported, not failing:`);
   for (const line of drift) console.log(line);
+
+  const testDrift = testFileDrift();
+  console.log(`\ntest files over 600 code lines — ${testDrift.length}, reported, not failing:`);
+  for (const line of testDrift) console.log(line);
 
   const exemptions = exemptionReport();
   console.log(`\nactive exemptions — ${exemptions.length}:`);
