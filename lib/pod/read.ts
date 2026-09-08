@@ -118,6 +118,35 @@ function placeOf(quads: Quad[], placeIri: string | undefined, url: string) {
   );
 }
 
+/**
+ * §7.3's `<#photo-n>` shape. The image IRIs come from the caller — `<#it>`'s
+ * `schema:image` links — as `placeOf` takes the place IRI: the document picks
+ * the subject, the parser reads what hangs off it. Raw, not `Photo`-validated;
+ * the whole `Entry` is validated in one pass (§6.4's blur budget included).
+ */
+export function photosOf(quads: Quad[], imageIris: string[], url: string) {
+  return guard(() =>
+    imageIris
+      .map((iri) => viewOf(quads, iri))
+      .filter((p) => p.exists)
+      .map((p) => ({
+        contentUrl: p.one(SCHEMA.contentUrl),
+        thumbnailUrl: p.one(SCHEMA.thumbnailUrl),
+        caption: langText(p, SCHEMA.caption),
+        width: take(integer(p, SCHEMA.width, url)),
+        height: take(integer(p, SCHEMA.height, url)),
+        sortOrder: take(integer(p, DY.sortOrder, url)),
+        // Plain literals, both of them: a media type is a code and base64 is
+        // not prose, so neither carries a language tag and `langText` would be
+        // the wrong reader for either.
+        encodingFormat: p.typed(SCHEMA.encodingFormat)?.value,
+        dateCreated: take(offsetDateTime(p, SCHEMA.dateCreated, url)),
+        blurDataUrl: p.typed(DY.blurDataUrl)?.value,
+      }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+  );
+}
+
 /* -------------------------------------------------------------------- slugs */
 
 /** The container segment IS the slug — that is what makes /trips/[slug]
@@ -221,25 +250,7 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
 
-    const photos = v
-      .all(SCHEMA.image)
-      .map((iri) => viewOf(quads, iri))
-      .filter((p) => p.exists)
-      .map((p) => ({
-        contentUrl: p.one(SCHEMA.contentUrl),
-        thumbnailUrl: p.one(SCHEMA.thumbnailUrl),
-        caption: langText(p, SCHEMA.caption),
-        width: take(integer(p, SCHEMA.width, url)),
-        height: take(integer(p, SCHEMA.height, url)),
-        sortOrder: take(integer(p, DY.sortOrder, url)),
-        // Plain literals, both of them: a media type is a code and base64 is
-        // not prose, so neither carries a language tag and `langText` would be
-        // the wrong reader for either.
-        encodingFormat: p.typed(SCHEMA.encodingFormat)?.value,
-        dateCreated: take(offsetDateTime(p, SCHEMA.dateCreated, url)),
-        blurDataUrl: p.typed(DY.blurDataUrl)?.value,
-      }))
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const photos = take(photosOf(quads, v.all(SCHEMA.image), url));
 
     if (!v.types().includes(DY_CLASS.Entry)) {
       throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });

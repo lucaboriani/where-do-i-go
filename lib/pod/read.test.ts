@@ -220,6 +220,82 @@ describe("readEntry", () => {
   });
 });
 
+/**
+ * The §7.3 `<#photo-n>` shape, parsed on its own. `<#it>` is not involved: the
+ * image IRIs are the caller's, which is what lets these cases feed the parser an
+ * order the document does not have and a subject the document never describes.
+ */
+describe("photosOf", () => {
+  const quadsOf = (ttl: string) => new Parser({ baseIRI: URLS.entry }).parse(ttl);
+  const load = async () => (await import("@/lib/pod/read")).photosOf;
+  const photo = (n: number) => `${URLS.entry}#photo-${n}`;
+
+  /** A second ImageObject, declared after the first and sorting before it. */
+  const TWO_PHOTOS = `${ENTRY.trimEnd()}
+
+<#photo-2>
+    a schema:ImageObject ;
+    schema:contentUrl <../../../media/aaaa1111/web.webp> ;
+    schema:width      800 ;
+    schema:height     600 ;
+    dy:sortOrder      0 .
+`;
+
+  it("parses the normative photo, plain literals and all", async () => {
+    const photosOf = await load();
+    const r = photosOf(quadsOf(ENTRY), [photo(1)], URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toHaveLength(1);
+    expect(r.value[0].contentUrl).toBe(`${POD}/travel/media/6f2a1c8e/web.webp`);
+    expect(r.value[0].thumbnailUrl).toBe(`${POD}/travel/media/6f2a1c8e/thumb.webp`);
+    expect(r.value[0].caption).toEqual({ value: "Counter seating, no menu.", language: "en" });
+    expect(r.value[0].width).toBe(1600);
+    expect(r.value[0].height).toBe(1067);
+    expect(r.value[0].sortOrder).toBe(1);
+    // Neither carries a language tag, so neither is read as one (§6).
+    expect(r.value[0].encodingFormat).toBe("image/webp");
+    expect(r.value[0].blurDataUrl).toContain("data:image/webp;base64,");
+    expect(r.value[0].dateCreated).toBe("2026-03-29T21:38:02+09:00");
+  });
+
+  it("orders by dy:sortOrder, not by the order it was handed the IRIs", async () => {
+    const photosOf = await load();
+    const r = photosOf(quadsOf(TWO_PHOTOS), [photo(1), photo(2)], URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.map((p) => p.sortOrder)).toEqual([0, 1]);
+    expect(r.value[0].width).toBe(800);
+  });
+
+  /** A declared image with no triples of its own is dropped, not returned as a
+   *  photo with every field missing — the same filter the §7.4 rows get. */
+  it("skips an image IRI the document does not describe", async () => {
+    const photosOf = await load();
+    const r = photosOf(quadsOf(ENTRY), [photo(1), photo(9)], URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toHaveLength(1);
+    expect(r.value[0].sortOrder).toBe(1);
+  });
+
+  it("reports a wrongly typed dimension as a datatype error rather than throwing", async () => {
+    const photosOf = await load();
+    const ttl = ENTRY.replace("schema:width          1600 ;", 'schema:width          "1600" ;');
+    expect(ttl).not.toBe(ENTRY);
+    let threw: unknown;
+    try {
+      const r = photosOf(quadsOf(ttl), [photo(1)], URLS.entry);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.kind).toBe("datatype");
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeUndefined();
+  });
+});
+
 /** The §7.4 fixture declares two dy:entry links but only gives one of them any
  *  triples, so the reader filters the other out and every ordering assertion
  *  runs on a single row. Add a fully-populated second row, declared LAST but
