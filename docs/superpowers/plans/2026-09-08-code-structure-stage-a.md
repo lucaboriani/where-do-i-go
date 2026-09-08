@@ -1248,12 +1248,18 @@ function commentRuns(file: string): Array<[string, number]> {
 }
 
 /**
- * The ratchet. 262 blocks over six lines across 38 files when this landed, and
- * the sweep that fixes them is Stage C — so a flat failure would block every
- * merge on deferred work. Fails only when the count RISES. Lower this number
- * as the sweep proceeds; Stage C's last commit sets it to 0.
+ * The ratchet. **779** blocks over six lines across 71 files when this landed,
+ * and the sweep that fixes them is Stage C — so a flat failure would block
+ * every merge on deferred work. Fails only when the count RISES. Lower this
+ * number as the sweep proceeds; Stage C's last commit sets it to 0.
+ *
+ * MEASURE IT AGAIN BEFORE COMMITTING, and use what you measure. 779 is the
+ * parser's count over the five scanned directories INCLUDING test files. An
+ * earlier draft said 262, which was a prefix scanner over production code only
+ * — it missed every JSX-form block and never opened a test file. If your number
+ * differs from 779, the scan changed; find out why before adjusting the number.
  */
-const COMMENT_BASELINE = 262;
+const COMMENT_BASELINE = 779;
 
 function commentsOverBound(): { over: string[]; verdict: string[] } {
   const over = sources(true)
@@ -1463,7 +1469,22 @@ Expected: PASS. If "passes on this repository" fails, read *which* rule failed b
 - **notes.md pointers** — a pointer written this stage is wrong, or `slug()` disagrees with the heading. Fix whichever is actually wrong; do not loosen the matcher to make a bad anchor pass.
 - **comment ratchet** — the count rose above `COMMENT_BASELINE`. Something in this stage *added* a long comment block. That is the ratchet working; shorten the block. Do **not** raise the baseline, which is the one move that makes the ratchet meaningless.
 
-The earlier draft of this step said only "the script found a real layout violation … fix the layout, not the script", which was wrong advice for three of the four rules — the comment rule had 262 pre-existing violations and no layout fix at all.
+The earlier draft of this step said only "the script found a real layout violation … fix the layout, not the script", which was wrong advice for three of the four rules — the comment rule had 779 pre-existing violations and no layout fix at all.
+
+**Where those 779 are, because it decides how big Stage C is:**
+
+| | blocks over 6 lines |
+|---|---|
+| `test/entry-editor.test.tsx` | 207 |
+| `components/studio/entry-editor.tsx` | 115 |
+| the other 69 files | 457 |
+
+**Test files are 60% of the total, and that is a question Stage C has to answer rather than
+assume.** A test's docblock explaining which defect it catches is arguably prose that belongs
+exactly where it is, unlike a 47-line essay in a render function. CLAUDE.md's comment rule
+currently says "everywhere except `components/ui/**`", so as written it binds tests too. Raise it
+with the maintainer when Stage C is planned; the ratchet means nothing is blocked either way, and
+207 of them are in a file Stage B splits regardless.
 
 - [ ] **Step 5: Wire it into `package.json` and `CLAUDE.md` together**
 
