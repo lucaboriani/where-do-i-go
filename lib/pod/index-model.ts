@@ -7,7 +7,7 @@
  * increments, and how a new deployer imports data written by an older version
  * of the app (§10).
  */
-import { DataFactory, Writer } from "n3";
+import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
   DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE,
 } from "@/lib/vocab";
@@ -151,22 +151,26 @@ export function computeIndexFromRows(inputs: readonly IndexRowInput[]): Computed
   };
 }
 
-/** Serialise to Turtle. Byte-level formatting is not normative (§11) — compare
- *  these graphs by triple set, never by bytes. */
-export async function serialiseIndex(
-  indexUrl: string,
-  tripIri: string,
-  computed: ComputedIndex,
-  modified: string,
-): Promise<string> {
-  const it = namedNode(`${indexUrl}#it`);
-  const quads = [
+/**
+ * §7.4's two subjects, `<#it>` and one `<#e-slug>` per row, plus the derived
+ * half of `<#it>` that §7.4 names separately — count, bbox and centre are
+ * functions of the entry set, which is why they live here and not on the trip.
+ */
+export function identityQuads(it: NamedNode, tripIri: string, modified: string): Quad[] {
+  return [
     quad(it, namedNode(RDF.type), namedNode(DY_CLASS.TripIndex)),
     quad(it, namedNode(DY.indexOf), namedNode(tripIri)),
+    // Written, never echoed: §11 guardrail 3, and nothing in a ComputedIndex
+    // could supply it. The read-side gate rejects what this did not stamp.
     quad(it, namedNode(DY.schemaVersion), int(SCHEMA_VERSION)),
     quad(it, namedNode(DCTERMS.modified), dt(modified)),
-    quad(it, namedNode(DY.entryCount), int(computed.entryCount)),
   ];
+}
+
+/** The derived values, all sharing the one `dcterms:modified` above. The count
+ *  is unconditional; bbox and centre exist only once something is placed. */
+export function derivedQuads(it: NamedNode, computed: ComputedIndex): Quad[] {
+  const quads: Quad[] = [quad(it, namedNode(DY.entryCount), int(computed.entryCount))];
 
   if (computed.bbox) {
     quads.push(
@@ -182,28 +186,48 @@ export async function serialiseIndex(
       quad(it, namedNode(DY.centerLong), dec(computed.center.long)),
     );
   }
+  return quads;
+}
 
-  for (const row of computed.rows) {
-    const node = namedNode(`${indexUrl}#${row.fragment}`);
-    quads.push(
-      quad(it, namedNode(DY.entry), node),
-      quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
-      quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
-      quad(node, namedNode(DCTERMS.title), text(row.title)),
-      quad(node, namedNode(DY.slug), literal(row.slug)),
-      quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
-    );
-    if (row.occurredAt) quads.push(quad(node, namedNode(DY.occurredAt), dt(row.occurredAt)));
-    if (row.lat !== undefined) quads.push(quad(node, namedNode(DY.lat), dec(row.lat)));
-    if (row.long !== undefined) quads.push(quad(node, namedNode(DY.long), dec(row.long)));
-    if (row.precisionMeters !== undefined) {
-      quads.push(quad(node, namedNode(DY.precisionMeters), int(row.precisionMeters)));
-    }
-    if (row.thumbnail) quads.push(quad(node, namedNode(DY.thumbnail), namedNode(row.thumbnail)));
-    if (row.travelModeFrom) {
-      quads.push(quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])));
-    }
+/** One `<#e-slug>` row. Flat, and using `dy:` geo terms deliberately (§7.4):
+ *  a private read model with no interop obligations, so flat wins. */
+export function rowQuads(it: NamedNode, indexUrl: string, row: IndexRow): Quad[] {
+  const node = namedNode(`${indexUrl}#${row.fragment}`);
+  const quads: Quad[] = [
+    quad(it, namedNode(DY.entry), node),
+    quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
+    quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
+    quad(node, namedNode(DCTERMS.title), text(row.title)),
+    quad(node, namedNode(DY.slug), literal(row.slug)),
+    quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
+  ];
+  if (row.occurredAt) quads.push(quad(node, namedNode(DY.occurredAt), dt(row.occurredAt)));
+  if (row.lat !== undefined) quads.push(quad(node, namedNode(DY.lat), dec(row.lat)));
+  if (row.long !== undefined) quads.push(quad(node, namedNode(DY.long), dec(row.long)));
+  if (row.precisionMeters !== undefined) {
+    quads.push(quad(node, namedNode(DY.precisionMeters), int(row.precisionMeters)));
   }
+  if (row.thumbnail) quads.push(quad(node, namedNode(DY.thumbnail), namedNode(row.thumbnail)));
+  if (row.travelModeFrom) {
+    quads.push(quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])));
+  }
+  return quads;
+}
+
+/** Serialise to Turtle. Byte-level formatting is not normative (§11) — compare
+ *  these graphs by triple set, never by bytes. */
+export async function serialiseIndex(
+  indexUrl: string,
+  tripIri: string,
+  computed: ComputedIndex,
+  modified: string,
+): Promise<string> {
+  const it = namedNode(`${indexUrl}#it`);
+  const quads: Quad[] = [
+    ...identityQuads(it, tripIri, modified),
+    ...derivedQuads(it, computed),
+    ...computed.rows.flatMap((row) => rowQuads(it, indexUrl, row)),
+  ];
 
   const writer = new Writer({
     prefixes: { xsd: NS.xsd, dcterms: NS.dcterms, dy: NS.dy },

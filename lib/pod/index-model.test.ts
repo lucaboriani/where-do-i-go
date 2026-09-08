@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { computeIndex, serialiseIndex } from "@/lib/pod/index-model";
+import { DataFactory, Writer, type Quad } from "n3";
+import {
+  DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE, XSD,
+} from "@/lib/vocab";
+import {
+  computeIndex, derivedQuads, identityQuads, rowQuads, serialiseIndex,
+} from "@/lib/pod/index-model";
 import { readTripIndex } from "@/lib/pod/read";
 import { readFileSync } from "node:fs";
-import { triples } from "@/test/graph";
+import { graphEquals, triples } from "@/test/graph";
 import { servePod } from "@/test/msw";
 import type { Entry } from "@/lib/pod/schema";
+import type { IndexRow } from "@/lib/pod/index-model";
+
+const { literal, namedNode, quad } = DataFactory;
 
 const POD = "https://me.solidcommunity.net";
 const INDEX = `${POD}/travel/trips/2026-japan/entries.ttl`;
 const TRIP = `${POD}/travel/trips/2026-japan/trip.ttl#it`;
+const IT = namedNode(`${INDEX}#it`);
 
 const entry = (over: Partial<Entry> & Pick<Entry, "slug">): Entry => ({
   iri: `${POD}/travel/trips/2026-japan/entries/${over.slug}.ttl#it`,
@@ -147,5 +157,124 @@ describe("serialiseIndex", () => {
     const computed = computeIndex([entry({ slug: "a", place: { geo: { lat: 1, long: 2 } } })]);
     const ttl = await serialiseIndex(INDEX, TRIP, computed, "2026-04-20T18:02:11+02:00");
     expect(() => triples(ttl, INDEX)).not.toThrow();
+  });
+});
+
+/* ------------------------------------------------- the §7.4 clauses, direct */
+
+async function turtleOf(quads: Quad[]): Promise<string> {
+  const writer = new Writer({ prefixes: { xsd: NS.xsd, dcterms: NS.dcterms, dy: NS.dy } });
+  writer.addQuads(quads);
+  return new Promise<string>((resolve, reject) =>
+    writer.end((error, result) => (error ? reject(error) : resolve(result))),
+  );
+}
+
+/** Graph isomorphism, never bytes (§11 guardrail 6). The expected side uses
+ *  explicit `literal()` calls rather than `lib/pod/literals.ts`, so a wrong
+ *  datatype there cannot move both sides of the comparison together. */
+async function expectGraph(actual: Quad[], expected: Quad[]) {
+  const { missing, extra } = graphEquals(await turtleOf(expected), await turtleOf(actual), INDEX);
+  expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+}
+
+const row = (over: Partial<IndexRow> = {}): IndexRow => ({
+  fragment: "e-2026-03-29-arrival",
+  entryResource: `${POD}/travel/trips/2026-japan/entries/2026-03-29-arrival.ttl#it`,
+  title: { value: "First night in Shinjuku", language: "en" },
+  slug: "2026-03-29-arrival",
+  sortOrder: 1,
+  ...over,
+});
+
+describe("identityQuads — §7.4 <#it>, what the resource IS", () => {
+  it("names what it indexes, and stamps dy:schemaVersion from THIS code", async () => {
+    // §11 guardrail 3: the version is written, never echoed. Nothing in a
+    // ComputedIndex can supply it, and that is the point — the read-side gate
+    // rejects anything this serialiser did not stamp with its own constant.
+    await expectGraph(identityQuads(IT, TRIP, "2026-04-20T18:02:11+02:00"), [
+      quad(IT, namedNode(RDF.type), namedNode(DY_CLASS.TripIndex)),
+      quad(IT, namedNode(DY.indexOf), namedNode(TRIP)),
+      quad(IT, namedNode(DY.schemaVersion), literal(String(SCHEMA_VERSION), namedNode(XSD.integer))),
+      quad(IT, namedNode(DCTERMS.modified), literal("2026-04-20T18:02:11+02:00", namedNode(XSD.dateTime))),
+    ]);
+  });
+});
+
+describe("derivedQuads — §7.4's derived half", () => {
+  it("writes count, bbox and centre — the three functions of the entry set", async () => {
+    const computed = computeIndex([
+      entry({ slug: "a", place: { geo: { lat: 35.0, long: 139.0 } } }),
+      entry({ slug: "b", place: { geo: { lat: 31.5, long: 129.8 } } }),
+    ]);
+    await expectGraph(derivedQuads(IT, computed), [
+      quad(IT, namedNode(DY.entryCount), literal("2", namedNode(XSD.integer))),
+      quad(IT, namedNode(DY.bboxWest), literal("129.8", namedNode(XSD.decimal))),
+      quad(IT, namedNode(DY.bboxSouth), literal("31.5", namedNode(XSD.decimal))),
+      quad(IT, namedNode(DY.bboxEast), literal("139.0", namedNode(XSD.decimal))),
+      quad(IT, namedNode(DY.bboxNorth), literal("35.0", namedNode(XSD.decimal))),
+      quad(IT, namedNode(DY.centerLat), literal("33.25", namedNode(XSD.decimal))),
+      quad(IT, namedNode(DY.centerLong), literal("134.4", namedNode(XSD.decimal))),
+    ]);
+  });
+
+  it("still writes dy:entryCount when nothing is placed, and no bbox or centre", async () => {
+    // A trip with no coordinates yet is the first-entry case, not an error.
+    // The count is not optional: the archive list and the OG image read it.
+    await expectGraph(derivedQuads(IT, computeIndex([entry({ slug: "a" })])), [
+      quad(IT, namedNode(DY.entryCount), literal("1", namedNode(XSD.integer))),
+    ]);
+  });
+
+  it("writes zero as a count, not as an absence, for an emptied trip", async () => {
+    await expectGraph(derivedQuads(IT, computeIndex([])), [
+      quad(IT, namedNode(DY.entryCount), literal("0", namedNode(XSD.integer))),
+    ]);
+  });
+});
+
+describe("rowQuads — §7.4 <#e-slug>", () => {
+  it("hangs the row off <#it> and writes the whole flat shape", async () => {
+    const node = namedNode(`${INDEX}#e-2026-03-29-arrival`);
+    await expectGraph(
+      rowQuads(IT, INDEX, row({
+        occurredAt: "2026-03-29T21:40:00+09:00",
+        lat: 35.6938,
+        long: 139.7034,
+        precisionMeters: 500,
+        thumbnail: `${POD}/travel/media/6f2a1c8e/thumb.webp`,
+        travelModeFrom: "Flight",
+      })),
+      [
+        quad(IT, namedNode(DY.entry), node),
+        quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
+        quad(node, namedNode(DY.entryResource), namedNode(row().entryResource)),
+        quad(node, namedNode(DCTERMS.title), literal("First night in Shinjuku", "en")),
+        quad(node, namedNode(DY.slug), literal("2026-03-29-arrival")),
+        quad(node, namedNode(DY.sortOrder), literal("1", namedNode(XSD.integer))),
+        quad(node, namedNode(DY.occurredAt), literal("2026-03-29T21:40:00+09:00", namedNode(XSD.dateTime))),
+        quad(node, namedNode(DY.lat), literal("35.6938", namedNode(XSD.decimal))),
+        quad(node, namedNode(DY.long), literal("139.7034", namedNode(XSD.decimal))),
+        quad(node, namedNode(DY.precisionMeters), literal("500", namedNode(XSD.integer))),
+        quad(node, namedNode(DY.thumbnail), namedNode(`${POD}/travel/media/6f2a1c8e/thumb.webp`)),
+        quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE.Flight)),
+      ],
+    );
+  });
+
+  it("omits every absent optional rather than writing an empty term", async () => {
+    const written = [...triples(await turtleOf(rowQuads(IT, INDEX, row())), INDEX)]
+      .map((t) => t.split(" ")[1].slice(2));
+    for (const absent of [
+      DY.occurredAt, DY.lat, DY.long, DY.precisionMeters, DY.thumbnail, DY.travelModeFrom,
+    ])
+      expect(written, `${absent} was written for a row that has no value for it`)
+        .not.toContain(absent);
+  });
+
+  it("writes a lat of 0 — the equator is a coordinate, not a missing one", async () => {
+    const written = [...triples(await turtleOf(rowQuads(IT, INDEX, row({ lat: 0, long: 0 }))), INDEX)];
+    expect(written).toContain(`N|${INDEX}#e-2026-03-29-arrival N|${DY.lat} L|0.0|${XSD.decimal}|`);
+    expect(written).toContain(`N|${INDEX}#e-2026-03-29-arrival N|${DY.long} L|0.0|${XSD.decimal}|`);
   });
 });
