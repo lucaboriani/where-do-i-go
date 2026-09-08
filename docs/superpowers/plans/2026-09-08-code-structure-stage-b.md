@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Node 22.** `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`, then `node -v` must print `v22.x`. Everything here passes on Node 20 too, so checking is a step you take rather than one the tooling takes for you.
-- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`; **1063 / 2 / 0 / 31** once Task 1 landed; **1063 / 2 / 0 / 43** once Task 2 split the file; **1130 / 2 / 0 / 45** at Task 3 (`0438230`); **1137 / 2 / 0 / 46** once Task 4 landed. Run `npm test` before you touch anything and compare against that.
+- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`; **1063 / 2 / 0 / 31** once Task 1 landed; **1063 / 2 / 0 / 43** once Task 2 split the file; **1130 / 2 / 0 / 45** at Task 3 (`0438230`); **1137 / 2 / 0 / 46** once Task 4 landed; **1197 / 2 / 0 / 51** once Task 5's five groups did. Run `npm test` before you touch anything and compare against that.
 - **`npm run pod:dev &` before `npm test`**, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran: `npx vitest run test/integration/` must report 33 passed, and `TEST_POD=http://localhost:3999 npx vitest run test/integration/` must report 33 skipped. That control is how this stage knows a green run was not an empty one.
 - **`npm run size:public` does not build.** Run `npm run build` first or it grades a stale `.next`.
 - **Every task in this stage touches `components/studio/**`, so `npm run test:e2e` is required on every task.** Run it with `env -u CLAUDECODE -u AI_AGENT npm run test:e2e`. Expect 6 passed. **A `next dev` already on port 3000 makes it refuse to start** — `reuseExistingServer: false`, deliberately, so it cannot run against someone else's `.env.local`. Do not kill the dev server: `E2E_PORT=3007 env -u CLAUDECODE -u AI_AGENT npm run test:e2e`, measured on Task 4 with the dev server up.
@@ -494,6 +494,38 @@ The groups follow the `id="entry-*"` order the JSX already has:
 
 **Files:** five folders, each with `<name>.tsx`, `index.ts`, `<name>.test.tsx`, and a `notes.md` where the group carries prose worth keeping.
 
+**DONE 2026-09-08, five commits in the table's order. One thing was measured rather than
+assumed and it contradicts Step 3 below: the exemption does NOT come out here.**
+
+`EntryEditor` went 941 → 902 → 839 → 725 → 677 → **633 code lines**. The five groups took
+**308 code lines** of JSX with them, not nine hundred: this plan's own summary says "~990 lines
+of JSX in one `return`", and that is the RAW span — 924 lines, of which roughly two thirds are
+comment. `max-lines-per-function` counts with `skipComments`, so the number the bound sees was
+never mostly markup. The remaining 633 are the 27 `useState`, the 10 `useRef`, the effects,
+`save()`, `restore`, `discard`, `attach` and the draft debounce — which is to say Tasks 6 and 7,
+exactly as this stage ordered them, but the removal signal belongs to the LAST of those and not
+to this task. `npm run lint` stayed green at `--max-warnings 0`, `check:structure` still reports
+**three** exemptions, and `test/check-structure.test.ts` needed no amendment.
+
+Four other things worth carrying forward:
+
+- **Four groups needed no new module-level code; three needed something moved with them.** The
+  ids a group renders and the `aria-describedby` builder that composes them are one unit —
+  `OCCURRED_SOURCE_ID` beside `occurredHelp`, `COORDINATE_SOURCE_ID` beside `coordinateHelp` —
+  so leaving the builder behind would have made one string true in two files. `PhotoSlot` moved
+  for the same reason and is the one TYPE this task moved; Task 6 moves it again, to `state/`.
+- **The comments that argue about a handler stayed with the handler, and the handlers gained
+  names.** `creditTime` and `creditCoordinate` are still the editor's, so four `onChange` bodies
+  became `typeOccurred`, `chooseOffset`, `typeLatitude`, `typeLongitude` and `attachAll` in the
+  editor's body — carrying their prose verbatim. That is what keeps the composition JSX one line
+  per prop, and it is the wiring Task 6 rewrites.
+- **`check:structure`'s pointer check bit twice**, both times on a `notes.md` written after the
+  `.tsx` that pointed at it. It names the file and the anchor, so it costs one minute; it is also
+  the only check in the nine that noticed the file was missing.
+- **`WhereFields` is 161 code lines**, over the 130 tendency and under the 200 bound. Reported,
+  not failing, and left alone: splitting it would separate the two coordinate boxes from the one
+  note both of them name.
+
 - [ ] **Step 1: One group at a time, in that order, each its own commit**
 
 For each: write the group's test first against the props interface you are about to create, watch
@@ -517,6 +549,13 @@ npm run check:structure | grep 'entry-editor.tsx'
 max-lines-per-function` is an unused directive and `npm run lint` FAILS at `--max-warnings 0`.**
 Delete the exemption in that same commit — that is the designed signal, and it is why the
 directive was written with a removal condition.
+
+**IT WAS NOT. Measured 2026-09-08: 633 code lines after the fifth group** — see the DONE note at
+the top of this task for why the nine hundred was a raw count. The signal is real and it fires;
+it fires on whichever of Tasks 6 and 7 lands last, and the exemption's own comment ("Remove this
+line with the last field group") is the thing that is now wrong. Leave it as found rather than
+rewording it here: it is one line, `check:structure` prints it on every run, and the task that
+takes it out will not be able to miss it, because lint will refuse the build.
 
 - [ ] **Step 4: Full checks and commit**
 
@@ -708,6 +747,12 @@ npm run check:structure | grep -A6 'active exemptions'
 Expected: **two** — `serialiseEntry` and `check-public-bundle.ts :: main`, both Stage C's. Neither
 `entry-editor.tsx` nor any editor test file may still carry one. If one remains, the
 decomposition did not finish.
+
+**Task 5 did not remove `entry-editor.tsx`'s, and that was the plan's error rather than the
+task's**: 633 code lines after the five groups, against a 200 bound. Whichever of Tasks 6 and 7
+lands last takes it out, and `npm run lint` will refuse the build until it does — so this step is
+a confirmation, not the place the work happens. Its comment still says "Remove this line with the
+last field group", which is now false; correct that line in the commit that deletes it.
 
 - [ ] **Step 2: The comment ratchet**
 

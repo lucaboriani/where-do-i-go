@@ -142,7 +142,6 @@ import { documentUrlOf } from "@/lib/pod/entry-model";
 import { fuzzForPublication } from "@/lib/pod/fuzz";
 import { readPrivacySettings } from "@/lib/pod/read";
 import { describe } from "@/lib/pod/result";
-import { Status, TravelMode } from "@/lib/pod/schema";
 import { saveEntry } from "@/lib/pod/save-entry";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import {
@@ -164,11 +163,12 @@ import {
   wallClockOf,
 } from "@/lib/studio/time/offsets";
 import { SCHEMA_VERSION } from "@/lib/vocab";
-import Field, { BUTTON, CONTROL } from "./field";
+import { BUTTON } from "./field";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
 import WhereFields from "./fields/where-fields";
 import PhotoFields from "./fields/photo-fields";
+import ClassificationFields from "./fields/classification-fields";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type {
   Entry,
@@ -2866,60 +2866,14 @@ export default function EntryEditor({
 
           <PhotoFields slots={slots} onPicked={attachAll} />
 
-          <Field id="entry-tags" label="Tags" hint="Separated by commas.">
-            <input
-              id="entry-tags"
-              name="entry-tags"
-              type="text"
-              className={CONTROL}
-              value={tagsText}
-              aria-describedby="entry-tags-hint"
-              onChange={(event) => setTagsText(event.target.value)}
-            />
-          </Field>
-
-          {/* The leg that ARRIVED here (§7.3), which is why it is worded that
-              way rather than as "how you left". */}
-          <Field id="entry-mode" label="Travel mode you arrived by">
-            <select
-              id="entry-mode"
-              name="entry-mode"
-              className={CONTROL}
-              value={mode}
-              onChange={(event) => {
-                const chosen = TravelMode.safeParse(event.target.value);
-                setMode(chosen.success ? chosen.data : "");
-              }}
-            >
-              <option value="">{"Not recorded"}</option>
-              {TravelMode.options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          {/* §7.4: the index is the publication boundary, and §5 pairs the status
-              with the ACL. Both follow from this one control. */}
-          <Field id="entry-status" label="Status">
-            <select
-              id="entry-status"
-              name="entry-status"
-              className={CONTROL}
-              value={status}
-              onChange={(event) => {
-                const chosen = Status.safeParse(event.target.value);
-                if (chosen.success) setStatus(chosen.data);
-              }}
-            >
-              {Status.options.map((option) => (
-                <option key={option} value={option}>
-                  {option === "draft" ? "Draft" : "Published"}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <ClassificationFields
+            tagsText={tagsText}
+            onTagsTextChange={setTagsText}
+            mode={mode}
+            onModeChange={setMode}
+            status={status}
+            onStatusChange={setStatus}
+          />
 
           {/*
             THE SEVENTEENTH CONTROL, HELD WITH THE OTHER SIXTEEN AND BY THE
