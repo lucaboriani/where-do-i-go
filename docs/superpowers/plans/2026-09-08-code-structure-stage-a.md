@@ -1200,7 +1200,25 @@ And to CLAUDE.md's Commands fence — the **one untagged fence** in that section
 check:structure      # layout, comment length, notes.md pointers; reports length drift
 ```
 
-Add it to the definition-of-done block in the same file, making nine unconditional commands, and update the surrounding prose that says eight.
+Add it to the definition-of-done block in the same file, making **nine** unconditional commands.
+Two prose lines in `CLAUDE.md` then need updating, and two others must be left strictly alone:
+
+| Line | Currently | Becomes |
+|---|---|---|
+| ~150 | "**A ninth command**, path-scoped rather than unconditional" — the `test:e2e` gate | "**A tenth command**, path-scoped rather than unconditional" |
+| ~183 | "The **eight** run anywhere with a checkout and Node 22" | "The **nine** run anywhere with a checkout and Node 22" |
+
+**Do NOT touch lines ~179 and ~463.** Both read "a jsdom `Blob` arrives at MSW as the **nine
+bytes** of the string `"undefined"`". That is a measurement taken on 2026-09-06, and the word
+"nine" there counts bytes, not commands. A global replace of `eight`→`nine` or `ninth`→`tenth`
+corrupts a recorded fact into nonsense. Edit both lines by hand, verify with:
+
+```bash
+grep -nE '\b(eight|nine|ninth|tenth)\b' CLAUDE.md
+```
+
+Expected after the edit: line ~150 says "tenth", line ~183 says "nine ... run anywhere", and the
+two "nine bytes" lines are unchanged.
 
 - [ ] **Step 6: Both directions of the drift check**
 
