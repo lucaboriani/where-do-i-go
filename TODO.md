@@ -1265,6 +1265,111 @@ In progress on branch `phase-2-studio`.
       Uploading originals with metadata intact was never a third option. If archival originals
       are ever wanted, they are stripped too.
 
+## Code structure — a refactor between phases 3 and 4
+
+Asked for on 2026-09-08, before phase 4, after `components/studio/entry-editor.tsx` passed 3,000
+lines. Rules in `CLAUDE.md` `## Code structure`; reasoning in
+`docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md`. Three stages.
+
+- [x] **Stage A — conventions, enforcement, and the moves. Zero logic change.** Plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-a.md`, seven tasks. All ten checks
+      green on the merged branch, run unchained so no failure could hide behind an earlier one:
+      `npm test` **1060 passed / 2 todo / 0 skipped / 31 files**; `lint` (now
+      `--max-warnings 0`); `typecheck`; `validate:fixtures`; `check:vocab`; `check:commands`
+      (14 both directions); `check:structure` (103 files scanned, Structure OK); `build`;
+      `size:public` **176.4 kB of 190**, every studio-only dependency absent; and the gated
+      `npm run test:e2e` **6 passed**, since the diff touches `components/studio/**`.
+
+      The integration suites were proven to have RUN, not skipped, by a control rather than a
+      count: `TEST_POD=http://localhost:3999` flips the same 33 to `33 skipped`.
+
+      What landed: three studio components each in their own folder with a named file and an
+      `index.ts` barrel; 20 module tests beside their subjects; the two Pod suites in
+      `test/integration/`; `max-lines-per-function` at 200/80 and `max-lines` at 1000 for tests;
+      and `scripts/check-structure.ts` for what ESLint cannot express — folder layout, test
+      placement, `notes.md` anchor resolution, and a comment ratchet.
+
+      **Two enforcement decisions worth not re-litigating.** The bounds are two-tier because the
+      maintainer's numbers are "tend to": ESLint fails at 200/80, `check:structure` reports
+      130/50 and fails on neither. And the comment bound is a **ratchet** — 788 blocks over six
+      lines exist today and the sweep is Stage C, so it fails only when the count rises. A flat
+      bound would have blocked every merge in Stages A and B on deferred work.
+
+      **Four exemptions, each naming the stage that removes it**: `EntryEditor` (941 lines),
+      `entry-editor.test.tsx` (6,514), `serialiseEntry` (111), `check-public-bundle.ts :: main`
+      (94). `reportUnusedDisableDirectives` is active and `lint` runs at `--max-warnings 0`, so a
+      run at zero warnings is itself evidence all four still suppress a live violation, and each
+      fails the build the day its function is decomposed.
+
+      **Both review passes found defects that would have shipped**, and they are the shapes worth
+      remembering:
+
+      - **A hand-rolled line counter disagreed with the tool that enforces the rule.** It
+        reported nine long functions and `EntryEditor` at 1,275 lines; ESLint says twelve and
+        941. It over-counted by a third and missed three spans in `lib/pod/read.ts` entirely.
+        Every threshold in the spec was rewritten from the enforcing tool's output.
+      - **`check:structure` could not have exited 0 on the day it landed**, because the comment
+        rule's backlog is a Stage C job. Caught before it went into CI.
+      - **The folder rule as first written would have banned Stage B's own design** — it scanned
+        `.ts` as well as `.tsx`, failing the ten plain modules the reducer plan puts in `state/`
+        and `hooks/`.
+      - **Three separate "reports zero and looks fine" bugs.** `driftReport` without `cwd: ROOT`
+        (ESLint answers an out-of-basePath file with one `ruleId: null` message the filter drops);
+        `@typescript-eslint/parser` having no `.default` under tsx, so ESLint silently fell back
+        to espree and every file returned a parse error that was likewise dropped; and
+        `allowInlineConfig` left on, which let the 941-line `EntryEditor` hide behind its own
+        exemption — 9 reported where there are 12.
+      - **A prefix-based comment scanner had 17 false negatives, every one in
+        `entry-editor.tsx`**, including a 47-line block, because that file's house style is the
+        JSX `{/* … */}` form whose lines begin with `{`. Replaced with the parser's comment
+        ranges, which also stops a markdown list in a template literal counting as comments.
+      - **`slug()` disagreed with GitHub in both directions** on em-dash headings — the house
+        style in `docs/data-model.md` — so it would have rejected anchors copied from GitHub and
+        accepted anchors GitHub cannot resolve.
+
+- [ ] **Stage B — `EntryEditor`.** 941 lines, 27 `useState`, 10 `useRef`, ~990 lines of JSX in one
+      `return`, and a 6,514-line test. Target: a ~120-line component composing five field groups,
+      five hooks, and a reducer over the 20 interdependent values; 7 stay as `useState`. Its own
+      plan, written once Stage A merges.
+
+      **The constraint that decides whether this is a fix or a regression.** `offerTimestamp`
+      reads `occurredAuthor.current` and `offsetAuthor.current` **synchronously** inside
+      `attach`'s continuation, and the picker starts every file at once. `lib/media/pipeline.ts`
+      serialises the decodes, but photo 2's continuation is a microtask and React batches across
+      those — so what makes first-writer-wins correct today is that photo 1 assigned the ref
+      before photo 2 read it, with no re-render in between. **A reducer preserves that only if
+      the first-writer-wins decision lives inside the transition.** Read `state.occurredAuthor`
+      from a hook's return value and dispatch a plain set, and two photos both see `nobody`, both
+      fill, and §11.5's "timestamp that happened nowhere" defect is republished by the commit
+      meant to make it harder.
+
+      **No test in the 6,514 lines picks two files in one `change` event**, so the suite cannot
+      tell the two implementations apart. Stage B's first commit is that failing test.
+
+      Also recorded, because an earlier draft of the spec got it wrong: the three ref/state pairs
+      are **not** two stores of one truth kept in step by hand. There is exactly one writer per
+      pair, and `entry-editor.tsx:1409` argues the point — "what makes this pair safe is not that
+      it is small, it is that neither member has a setter of its own". The reducer is justified on
+      `restore()` becoming one action, the rules becoming pure-testable, and the transition
+      becoming the only place a value and its credit can be set.
+
+- [ ] **Stage C — the other eleven long functions, and the comment sweep.** 18,999 comment lines
+      down to under ~4,000 in code, the remainder trimmed into `notes.md` files, and the ratchet
+      driven from 788 to a hard zero.
+
+      **One question to settle before this is planned: do the conventions bind test docblocks?**
+      Test files are **60% of the 788** — `entry-editor.test.tsx` alone has 207 blocks over six
+      lines. A docblock recording which defect a case catches is arguably prose sitting exactly
+      where it belongs, unlike a 47-line essay inside a render function. `CLAUDE.md` as written
+      says "everywhere except `components/ui/**`", so it binds them. Deferred by the maintainer
+      on 2026-09-08; answering it roughly halves or doubles this stage.
+
+      **`lib/pod/access.ts` does NOT split per mechanism.** An earlier draft proposed the ACP/WAC
+      split, citing `docs/decisions.md` §4 — which is "No drafts container". §19 is "Access
+      control goes through one interface, and never branches on mechanism", so that split is the
+      one refactor this repository has already ruled out in writing. The axis actually present is
+      document versus container.
+
 ## Phase 4 — map and timeline
 
 - [ ] Dark desaturated map style built to the tokens in `docs/design-brief.md`
