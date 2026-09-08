@@ -122,12 +122,18 @@ git commit -m "The comment bound binds production code, and the ratchet splits t
 
 ### Task 2: The two serialisers, and the first exemption leaves
 
-`serialiseEntry` (111 lines, over the 80 bound, exempted) and `serialiseIndex` (57) both implement
-`docs/data-model.md` §10's clauses in sequence, which is the seam.
+`serialiseEntry` (111 lines, over the 80 bound, exempted) and `serialiseIndex` (57).
+
+**The seam is §7.3's and §7.4's normative fragment subjects, not §10.** An earlier draft of this
+task said §10 and that was wrong: §10 is the write protocol — PUT with `If-None-Match`, set ACL,
+read/insert/recompute the index, revalidate — which is `saveEntry`'s sequence in Task 3. A pure
+serialiser implements no §10 clause. The subjects are §7.3's five (`<#it>`, `<#place>`,
+`<#address>`, `<#geo>`, `<#photo-n>`) plus §7.4's two and the derived half §7.4 names separately.
+One function per normative subject.
 
 **Files:** `lib/pod/entry-model.ts`, `lib/pod/index-model.ts`, their colocated tests (`lib/pod/save-entry.test.ts` holds the `serialiseEntry` cases — 52 references to `saveEntry`, 31 to `serialiseEntry`), plus `lib/pod/notes.md`
 
-- [ ] **Step 1: Read §7 and §10 of `docs/data-model.md` first**
+- [x] **Step 1: Read §7.3 and §7.4 of `docs/data-model.md` first** (§10 is Task 3's, not this task's)
 
 The split must follow the normative clause boundaries, not convenience. Every IRI comes from
 `lib/vocab.ts` — `no-restricted-syntax` enforces that and will tell you if a helper reintroduces a
