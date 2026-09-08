@@ -1211,6 +1211,10 @@ const HOLD_REASON_ID = "entry-draft-hold";
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
+/* eslint-disable-next-line max-lines-per-function --
+   941 lines against a 200 bound. Stage B decomposes this into hooks, a reducer and
+   field groups; see docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md §5.
+   Remove this line with the last field group. */
 export default function EntryEditor({
   session,
   trips,

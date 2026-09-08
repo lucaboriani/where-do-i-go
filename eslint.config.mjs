@@ -349,6 +349,52 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+
+  // ------------------------------------------ function length, hard bounds only
+  /**
+   * CLAUDE.md's "Code structure" sets 130 for a render and 50 for a util as
+   * TENDENCIES; these are the 200/80 bounds CI refuses. The tendency is reported
+   * by `npm run check:structure`, which does not fail on it — the maintainer's
+   * numbers are "tend to", not a dictate, and a lint error cannot express that.
+   *
+   * `skipComments` is what makes the number mean anything: this repository runs
+   * 44% comment lines, so a 200-line span is routinely an 80-line function.
+   *
+   * Own blocks per rule name, because flat config REPLACES a rule's options
+   * rather than merging them — the `no-restricted-imports` blocks above carry
+   * the scar. Nothing is overwritten here, and keeping them separate is why.
+   */
+  {
+    files: ["components/**/*.{ts,tsx}", "app/**/*.{ts,tsx}"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 200, skipComments: true, skipBlankLines: true, IIFEs: true },
+      ],
+    },
+  },
+  {
+    files: ["lib/**/*.ts", "scripts/**/*.ts"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 80, skipComments: true, skipBlankLines: true, IIFEs: true },
+      ],
+    },
+  },
+  /**
+   * A test file has a ceiling; a test FUNCTION has none. A scenario test reads
+   * better whole than shredded into helpers whose names hide the arrangement,
+   * so `max-lines-per-function` is off here and `max-lines` takes its place.
+   * Last of the three: a components/ test file matches both, later block wins.
+   */
+  {
+    files: ["**/*.test.{ts,tsx}", "e2e/**/*.ts"],
+    rules: {
+      "max-lines-per-function": "off",
+      "max-lines": ["error", { max: 1000, skipComments: true, skipBlankLines: true }],
+    },
+  },
 ]);
 
 export default eslintConfig;

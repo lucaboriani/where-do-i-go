@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+/* eslint-disable max-lines --
+   6,514 code lines against a 1000 bound. Stage B splits this along its own numbered
+   sections 0-11; see docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md §8.
+   Remove this line with the split. */
 /**
  * The studio's entry editor — components/studio/entry-editor/entry-editor.tsx.
  *

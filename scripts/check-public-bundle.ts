@@ -355,6 +355,10 @@ function publicPages(): { pages: string[]; excluded: Exclusion[] } {
 const scriptsIn = (html: string) =>
   new Set([...html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+\.js)"/g)].map((m) => m[1]));
 
+/* eslint-disable-next-line max-lines-per-function --
+   94 lines against an 80 bound. Stage C splits it into the steps it already prints
+   progress for; see docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md §6.
+   Remove this line with that split. */
 function main(): void {
   if (!existsSync(APP_DIR)) {
     console.log(`\nNo public pages were prerendered — did \`next build\` run? (no ${APP_DIR})`);

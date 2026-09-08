@@ -56,6 +56,10 @@ export const documentUrlOf = (iri: string) => iri.replace(/#.*$/, "");
 const statusIri = (status: Entry["status"]) =>
   status === "published" ? STATUS.Published : STATUS.Draft;
 
+/* eslint-disable-next-line max-lines-per-function --
+   111 lines against an 80 bound. Stage C splits it along the §10 clause boundaries
+   it already implements in sequence; see docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md §6.
+   Remove this line with that split. */
 export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
   // Validate on the way OUT as well as the way in. This is the last point
   // before a resource becomes permanent in someone's Pod, and the caller is the

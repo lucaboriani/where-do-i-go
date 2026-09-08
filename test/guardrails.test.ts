@@ -14,7 +14,7 @@ import { Photo } from "@/lib/pod/schema";
  * because every guardrail here is path-scoped. Linting the right code at the
  * wrong path proves nothing.
  *
- * A SECOND describe at the foot of this file is deliberately not a lint case.
+ * THE LAST describe at the foot of this file is deliberately not a lint case.
  * It guards a constant that a lint fence forced to be duplicated; its own
  * comment says why it lives here.
  */
@@ -946,6 +946,92 @@ describe("guardrails actually fire", () => {
         `export default function NotFound() { return <Link href="/">{String(readDiary)}</Link>; }\n`,
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+});
+
+/**
+ * The two hard bounds from CLAUDE.md's "Code structure" — 200 for a render, 80
+ * for a util, and a test FILE ceiling of 1000 with no bound on a test body.
+ * Every case lints at a path where the bound is supposed to apply.
+ */
+describe("function length", () => {
+  /** 210 statements: over the 200 hard bound for a render, and over lib's 80. */
+  const longRender = `export function C() {\n${"  let x = 0;\n".repeat(210)}  return null;\n}\n`;
+  /** 90 statements: over lib's 80 hard bound, under a render's 200. */
+  const longUtil = `export function f() {\n${"  let x = 0;\n".repeat(90)}  return 1;\n}\n`;
+
+  it("rejects a render function past the hard bound", async () => {
+    const msgs = await lint("components/studio/thing/thing.tsx", longRender);
+    expect(ruleIds(msgs)).toContain("max-lines-per-function");
+    expect(msgs.map((m) => m.message).join()).toMatch(/too many lines/);
+  });
+
+  it("allows a render function that is merely long, because 130 is a tendency", async () => {
+    const merely = `export function C() {\n${"  let x = 0;\n".repeat(140)}  return null;\n}\n`;
+    const msgs = await lint("components/studio/thing/thing.tsx", merely);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  it("rejects a lib function past the hard bound", async () => {
+    const msgs = await lint("lib/pod/thing.ts", longUtil);
+    expect(ruleIds(msgs)).toContain("max-lines-per-function");
+  });
+
+  it("holds lib tighter than a render at the very same length", async () => {
+    expect(ruleIds(await lint("lib/pod/thing.ts", longUtil))).toContain("max-lines-per-function");
+    expect(ruleIds(await lint("components/studio/thing/thing.tsx", longUtil))).not.toContain(
+      "max-lines-per-function",
+    );
+  });
+
+  it("counts code and not prose: 300 comment lines change nothing", async () => {
+    const prose =
+      `export function f() {\n${"  // a line of prose\n".repeat(300)}` +
+      `${"  let x = 0;\n".repeat(40)}  return 1;\n}\n`;
+    const msgs = await lint("lib/pod/thing.ts", prose);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  it("limits a test FILE but never a test function body", async () => {
+    const bigIt = `it("x", () => {\n${"  let x = 0;\n".repeat(300)}});\n`;
+    const msgs = await lint("lib/pod/thing.test.ts", bigIt);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+    expect(ruleIds(msgs)).not.toContain("max-lines");
+  });
+
+  it("rejects a test file past its own 1000-line ceiling", async () => {
+    const huge = `${"let x = 0;\n".repeat(1010)}`;
+    expect(ruleIds(await lint("lib/pod/thing.test.ts", huge))).toContain("max-lines");
+  });
+
+  /**
+   * A multi-line `-- reason` directive is version-sensitive ESLint behaviour and
+   * is the exemption shape CLAUDE.md mandates, so it is pinned rather than
+   * assumed. Measured working on ESLint 9.39.5.
+   */
+  it("honours a multi-line disable with a reason, which is the shape CLAUDE.md mandates", async () => {
+    const exempted =
+      `/* eslint-disable-next-line max-lines-per-function --\n` +
+      `   reason on its own line, removal condition on another */\n` +
+      `export function f() {\n${"  let x = 0;\n".repeat(90)}  return 1;\n}\n`;
+    const msgs = await lint("lib/pod/thing.ts", exempted);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  /**
+   * A deliberate asymmetry: components/ui/** is exempt from the folder rule, the
+   * comment rule and the arbitrary-Tailwind fence, but NOT from this one. The
+   * answer to a vendored monolith is an exemption with a reason, not a widening.
+   */
+  it("holds components/ui to the render bound, since the shadcn CLI rewrites that directory", async () => {
+    const longUi = `export function C() {\n${"  let x = 0;\n".repeat(210)}  return null;\n}\n`;
+    expect(ruleIds(await lint("components/ui/thing.tsx", longUi))).toContain(
+      "max-lines-per-function",
+    );
   });
 });
 
