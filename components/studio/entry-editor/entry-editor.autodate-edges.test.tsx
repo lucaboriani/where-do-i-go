@@ -1213,8 +1213,14 @@ describe("entry editor — two photos picked at once", () => {
     ).toEqual(["timed.jpg", "zoned.jpg"]);
 
     /* THE ALLOW-CASE IS IN THE SAME RENDER: without it every refusal below
-       also holds for an editor in which nothing filled at all. */
-    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+       also holds for an editor in which nothing filled at all.
+       AND IT IS A WAIT, NOT A BARE ASSERT — see ./notes.md#the-allow-half-is-a-wait */
+    await waitFor(() =>
+      expect(
+        wallClockShapes(PHOTO_WALL),
+        "the first photo's clock never reached the box",
+      ).toContain(shownValue(LABEL.occurredAt)),
+    );
 
     expect(
       shownValue(LABEL.offset),
@@ -1273,10 +1279,12 @@ describe("entry editor — two photos picked at once", () => {
       "the clockless photo did not decode first, so it was never the earlier offer this case needs it to be",
     ).toEqual(["clockless.jpg", "timed.jpg"]);
 
-    expect(
-      shownValue(LABEL.occurredAt),
-      "the clockless first photo blocked the second photo's clock: the guard asks whether a photo has been offered rather than whether this half is answered, and the owner is left typing a date two photos carried",
-    ).not.toBe("");
+    await waitFor(() =>
+      expect(
+        shownValue(LABEL.occurredAt),
+        "the clockless first photo blocked the second photo's clock: the guard asks whether a photo has been offered rather than whether this half is answered, and the owner is left typing a date two photos carried",
+      ).not.toBe(""),
+    );
     expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
     expect(
       describedTextOf(LABEL.offset),
