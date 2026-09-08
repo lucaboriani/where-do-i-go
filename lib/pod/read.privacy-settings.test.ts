@@ -5,8 +5,8 @@ import { DY, NS } from "@/lib/vocab";
 // Aliased: `describe` is vitest's here. This is the one-line renderer a
 // fallback shows, so the error has to survive it.
 import { describe as podDescribe } from "@/lib/pod/result";
-import { triples } from "./graph";
-import { server, servePod } from "./msw";
+import { triples } from "@/test/graph";
+import { server, servePod } from "@/test/msw";
 
 /**
  * `readPrivacySettings` — the owner-only resource at §7.6, which §9 says every

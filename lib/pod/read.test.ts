@@ -5,7 +5,7 @@ import { readDiary, readEntry, readTrip, readTripIndex } from "@/lib/pod/read";
 // hard-coding 1200 and quietly slipping under a raised budget. A test file is
 // under neither import fence, so it may reach into studio-only lib/media.
 import { BLUR_BUDGET_BYTES } from "@/lib/media/targets";
-import { servePod } from "./msw";
+import { servePod } from "@/test/msw";
 
 /**
  * Read the §7 fixtures straight out of docs/data-model.md and run them through

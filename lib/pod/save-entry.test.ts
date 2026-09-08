@@ -6,8 +6,8 @@ import {
   DCTERMS, DY, DY_CLASS, GEO, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE, XSD,
 } from "@/lib/vocab";
 import { readEntry, readTripIndex } from "@/lib/pod/read";
-import { graphEquals, triples } from "./graph";
-import { server, servePod } from "./msw";
+import { graphEquals, triples } from "@/test/graph";
+import { server, servePod } from "@/test/msw";
 import type { Entry } from "@/lib/pod/schema";
 import type { PodError } from "@/lib/pod/result";
 import type { Precondition } from "@/lib/pod/write";

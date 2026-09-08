@@ -8,7 +8,7 @@ import { readPrivacySettings } from "@/lib/pod/read";
 import { putGuarded } from "@/lib/pod/write";
 import { mediaContainer, mediaHash, uploadPhoto } from "@/lib/media/upload";
 import { describe as renderError, type Result } from "@/lib/pod/result";
-import { graphEquals } from "./graph";
+import { graphEquals } from "@/test/graph";
 
 /**
  * lib/pod/access.ts against a real Community Solid Server 7.2.0 — the WAC half

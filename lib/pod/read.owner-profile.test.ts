@@ -5,8 +5,8 @@ import { DY, NS, PROFILE } from "@/lib/vocab";
 // Aliased: `describe` is vitest's here. This is the one-line renderer a
 // fallback shows the reader, so the error has to survive it.
 import { describe as podDescribe } from "@/lib/pod/result";
-import { graphEquals, triples } from "./graph";
-import { server, servePod } from "./msw";
+import { graphEquals, triples } from "@/test/graph";
+import { server, servePod } from "@/test/msw";
 
 /**
  * `readOwnerProfile` — the studio's thin server component reads the owner's

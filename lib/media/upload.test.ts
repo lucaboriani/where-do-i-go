@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
-import { server } from "./msw";
+import { server } from "@/test/msw";
 import { mediaContainer, mediaHash, uploadPhoto } from "@/lib/media/upload";
 import type { PodFetch } from "@/lib/pod/rdf";
 

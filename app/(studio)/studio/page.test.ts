@@ -41,7 +41,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
-import { server } from "./msw";
+import { server } from "@/test/msw";
 import StudioClient from "@/components/studio/studio-client";
 
 /* ------------------------------------------------- the one mock: next/cache */

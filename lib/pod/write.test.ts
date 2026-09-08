@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { http, HttpResponse } from "msw";
-import { server } from "./msw";
-import { graphEquals, triples } from "./graph";
+import { server } from "@/test/msw";
+import { graphEquals, triples } from "@/test/graph";
 import { LDP, NS } from "@/lib/vocab";
 import {
   listContainer,

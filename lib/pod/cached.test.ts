@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
 import { readFileSync } from "node:fs";
 import { http, HttpResponse } from "msw";
-import { graphEquals, triples } from "./graph";
-import { server, servePod } from "./msw";
+import { graphEquals, triples } from "@/test/graph";
+import { server, servePod } from "@/test/msw";
 
 /**
  * `getOwnerProfile` — the cached read layer's entry for the owner's WebID.

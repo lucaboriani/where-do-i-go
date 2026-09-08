@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { computeIndex, serialiseIndex } from "@/lib/pod/index-model";
 import { readTripIndex } from "@/lib/pod/read";
 import { readFileSync } from "node:fs";
-import { triples } from "./graph";
-import { servePod } from "./msw";
+import { triples } from "@/test/graph";
+import { servePod } from "@/test/msw";
 import type { Entry } from "@/lib/pod/schema";
 
 const POD = "https://me.solidcommunity.net";

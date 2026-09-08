@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { exifJpeg } from "./fixtures/exif-jpeg";
-import type { ExifOptions } from "./fixtures/exif-jpeg";
+import { exifJpeg } from "@/test/fixtures/exif-jpeg";
+import type { ExifOptions } from "@/test/fixtures/exif-jpeg";
 import { readMetadata } from "@/lib/media/exif";
 
 type Gps = NonNullable<ExifOptions["gps"]>;
