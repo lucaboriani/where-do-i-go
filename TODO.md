@@ -1327,31 +1327,79 @@ lines. Rules in `CLAUDE.md` `## Code structure`; reasoning in
         style in `docs/data-model.md` — so it would have rejected anchors copied from GitHub and
         accepted anchors GitHub cannot resolve.
 
-- [ ] **Stage B — `EntryEditor`.** 941 lines, 27 `useState`, 10 `useRef`, ~990 lines of JSX in one
-      `return`, and a 6,514-line test. Target: a ~120-line component composing five field groups,
-      five hooks, and a reducer over the 20 interdependent values; 7 stay as `useState`. Its own
-      plan, written once Stage A merges.
+- [x] **Stage B — `EntryEditor`.** Landed 2026-09-08, 15 commits on
+      `refactor/code-structure-conventions`, plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-b.md`. **941 code lines → 195**, and
+      one file → 63. All nine checks plus the gated e2e:
+      `npm test` **1332 passed / 2 todo / 0 skipped / 60 files** (from 1060 at Stage A's close);
+      `lint` at `--max-warnings 0`; `typecheck`; `validate:fixtures`; `check:vocab`;
+      `check:commands`; `check:structure` **Structure OK, ratchet 788, two exemptions**; `build`;
+      `size:public` **176.4 kB of 190** with every studio-only dependency absent; and
+      `E2E_PORT=3007 npm run test:e2e` **6 passed**. The integration suites were proven to have
+      RUN, not skipped, by the `TEST_POD=http://localhost:3999` control on every task.
 
-      **The constraint that decides whether this is a fix or a regression.** `offerTimestamp`
-      reads `occurredAuthor.current` and `offsetAuthor.current` **synchronously** inside
-      `attach`'s continuation, and the picker starts every file at once. `lib/media/pipeline.ts`
-      serialises the decodes, but photo 2's continuation is a microtask and React batches across
-      those — so what makes first-writer-wins correct today is that photo 1 assigned the ref
-      before photo 2 read it, with no re-render in between. **A reducer preserves that only if
-      the first-writer-wins decision lives inside the transition.** Read `state.occurredAuthor`
-      from a hook's return value and dispatch a plain set, and two photos both see `nobody`, both
-      fill, and §11.5's "timestamp that happened nowhere" defect is republished by the commit
-      meant to make it harder.
+      **`EntryEditor`'s exemption came out on its designed signal**, not by anyone remembering:
+      at 195 lines `npm run lint` reported `Unused eslint-disable directive` and failed at
+      `--max-warnings 0`. `check:structure` now lists **two** exemptions, both Stage C's.
 
-      **No test in the 6,514 lines picks two files in one `change` event**, so the suite cannot
-      tell the two implementations apart. Stage B's first commit is that failing test.
+      The order was risk-ascending and the first task was the point of it. **Task 1 wrote the test
+      the 6,514-line suite could not express**: two photos picked in ONE `change` event. Every
+      other two-photo case awaited the first photo's `<img>`, so React had fully re-rendered
+      between them — but the picker is `multiple` and runs
+      `for (const file of picked) void attach(file)`, and `offerTimestamp` reads
+      `occurredAuthor.current` **synchronously** in `attach`'s continuation. The decodes serialise;
+      the continuations do not. Proven by mutation before it was committed: moving the ref reads
+      before the `await` put the *second* photo's `2026-04-12T18:20` in the clock and accepted its
+      `+12:45` beside the first photo's time — §11.5's instant that happened nowhere, reproduced
+      on demand. The suite also had to wrap the fake pipeline to serialise, because `fakePipeline`
+      does not and the real one does.
 
-      Also recorded, because an earlier draft of the spec got it wrong: the three ref/state pairs
-      are **not** two stores of one truth kept in step by hand. There is exactly one writer per
-      pair, and `entry-editor.tsx:1409` argues the point — "what makes this pair safe is not that
-      it is small, it is that neither member has a setter of its own". The reducer is justified on
-      `restore()` becoming one action, the rules becoming pure-testable, and the transition
-      becoming the only place a value and its credit can be set.
+      **What the stage is: 63 files.** A harness plus thirteen suites split at the eighteen section
+      banners the original already carried; five presentational field groups behind 44 **named**
+      props and no spreads; four hooks holding every `useState`, `useRef` and effect; a reducer
+      over 20 of the 27 state values with the first-writer-wins guard as a branch **inside** the
+      transition; and the offset arithmetic and place logic moved to `lib/studio/time/` and
+      `lib/studio/place/`, where phase 4's timeline can reach them.
+
+      **Four things measurement corrected, all of them in the plan rather than the code:**
+
+      - **"~120 lines when the stage ends" was not reachable by moving state, and 195 says so.**
+        ~55 of it is composition and ~140 is JSX in one `return`. Relatedly, the plan predicted the
+        exemption would come out after Task 5; at that point the editor was still **633** lines,
+        because "~990 lines of JSX" was a *raw* span roughly two-thirds comment and
+        `max-lines-per-function` runs with `skipComments: true`. The bound never saw mostly markup.
+      - **A `{ kind: "slots"; slots }` action would have lost a photo.** A wholesale set must be
+        built from a list a *render* held — the stale read the guard forbids — so two photos in one
+        pick would each append to the same array and one would vanish. `slot-added` /
+        `slot-settled` instead; `applyRestore` still replaces wholesale, because it replaces rather
+        than appends.
+      - **Two of the plan's own test fixtures would have verified nothing.** `fillNewEntry()` types
+        an `occurredAt`, making the *owner* the clock's author so no photo can ever fill — the
+        control's `not.toBe("")` would have passed on the owner's own typing. And
+        `jpegWithGps("clockless.jpg", …)` is not clockless: `EXIF_BASE` carries a
+        `dateTimeOriginal`.
+      - **An exemption assertion was half a check.** `toContain("lib/pod/entry-model.ts")` over the
+        whole of stdout passes because every exemption path also appears in the drift report, so it
+        would have passed whatever the exemptions block held. It now parses the
+        `active exemptions — N:` block.
+
+      **Two stale claims found in code that predated this work**, both recorded rather than
+      silently fixed: `CONTROL`'s docblock says the arbitrary-Tailwind guardrail "does not reach
+      these two constants" — it does, re-measured, and has since the rule grew three arms
+      *because of* those constants; and `test/studio-trip-loading`'s successor still cites line
+      numbers that were already wrong at HEAD.
+
+      **Reported, not failing:** `EntryEditor` at 195 and `useEntryDraft` at 142 are over the 130
+      tendency; three suites are over the 600 test-file tendency. The unsaved-draft banner (~32
+      lines) would qualify as a sixth field group by Task 5's own argument and was deliberately
+      left — an unasked-for extraction inside the commit that removes an exemption is how a
+      reviewable diff stops being one.
+
+      **One flake to watch, not caused by this work.** Section 12m's third case
+      (`refuses an offset-only second photo beside the first photo's clock`) failed once at
+      `de7658b` **before** that task's changes, under full-suite parallel load, and has been green
+      in every run since — four full suites and five of that file in isolation at the stage's
+      close. Timing-sensitive rather than wrong; watch it rather than act on it.
 
 - [ ] **Stage C — the other eleven long functions, and the comment sweep.** 18,999 comment lines
       down to under ~4,000 in code, the remainder trimmed into `notes.md` files, and the ratchet
