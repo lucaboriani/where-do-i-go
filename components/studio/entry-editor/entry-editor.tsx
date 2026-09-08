@@ -166,6 +166,7 @@ import {
 } from "@/lib/studio/time/offsets";
 import { SCHEMA_VERSION } from "@/lib/vocab";
 import Field, { BUTTON, CONTROL } from "./field";
+import IdentityFields from "./fields/identity-fields";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type {
   Entry,
@@ -2971,62 +2972,18 @@ export default function EntryEditor({
           inside it that floor can stop the textarea shrinking.
         */}
         <fieldset disabled={offered !== null} className="grid min-w-0 gap-4">
-          <Field id="entry-trip" label="Trip">
-            <select
-              id="entry-trip"
-              name="entry-trip"
-              className={CONTROL}
-              value={tripIri}
-              disabled={addressFixed}
-              onChange={(event) => setTripIri(event.target.value)}
-            >
-              <option value="">{"Choose a trip"}</option>
-              {/* IN TEXT, NOT IN A COLOUR. An `<option>` carries no styling a
-                  screen reader announces and no styling a colour-blind reader
-                  can rely on, so the one thing that distinguishes a draft trip
-                  from a published one has to be part of its name here. */}
-              {trips.map((choice) => (
-                <option key={choice.iri} value={choice.iri}>
-                  {choice.status === "draft" ? `${choice.name} (draft)` : choice.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field id="entry-slug" label="Slug" hint="Becomes the entry's address, and is fixed once it is saved.">
-            <input
-              id="entry-slug"
-              name="entry-slug"
-              type="text"
-              className={CONTROL}
-              value={slug}
-              disabled={addressFixed}
-              aria-describedby="entry-slug-hint"
-              onChange={(event) => setSlug(event.target.value)}
-            />
-          </Field>
-
-          <Field id="entry-headline" label="Headline">
-            <input
-              id="entry-headline"
-              name="entry-headline"
-              type="text"
-              className={CONTROL}
-              value={headline}
-              onChange={(event) => setHeadline(event.target.value)}
-            />
-          </Field>
-
-          <Field id="entry-story" label="Story">
-            <textarea
-              id="entry-story"
-              name="entry-story"
-              rows={8}
-              className={CONTROL}
-              value={story}
-              onChange={(event) => setStory(event.target.value)}
-            />
-          </Field>
+          <IdentityFields
+            trips={trips}
+            tripIri={tripIri}
+            onTripChange={setTripIri}
+            addressFixed={addressFixed}
+            slug={slug}
+            onSlugChange={setSlug}
+            headline={headline}
+            onHeadlineChange={setHeadline}
+            story={story}
+            onStoryChange={setStory}
+          />
 
           <Field
             id="entry-when"
