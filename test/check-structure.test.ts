@@ -84,15 +84,19 @@ describe("check:structure, against this repository", () => {
     expect(count, run.transcript).toBeGreaterThan(5);
   });
 
-  it("lists all four exemptions by path, and exactly four", () => {
-    expect(run.stdout, run.transcript).toMatch(/active exemptions — 4/);
+  /** Three since 2026-09-08: the fourth was `max-lines` on entry-editor.test.tsx
+   *  and went with the file when Stage B split it into thirteen suites, none of
+   *  which needs one. The count is asserted too — an exemption reappearing
+   *  somewhere unlisted is the thing worth failing on. */
+  it("lists all three exemptions by path, and exactly three", () => {
+    expect(run.stdout, run.transcript).toMatch(/active exemptions — 3/);
     for (const path of [
       "entry-editor/entry-editor.tsx",
-      "entry-editor/entry-editor.test.tsx",
       "lib/pod/entry-model.ts",
       "scripts/check-public-bundle.ts",
     ])
       expect(run.stdout, run.transcript).toContain(path);
+    expect(run.stdout, run.transcript).not.toContain("entry-editor.test.tsx");
   });
 
   it("reports the comment ratchet as a count, not as a failure", () => {

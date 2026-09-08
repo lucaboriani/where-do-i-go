@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Node 22.** `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`, then `node -v` must print `v22.x`. Everything here passes on Node 20 too, so checking is a step you take rather than one the tooling takes for you.
-- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`. Run `npm test` before you touch anything and compare against that.
+- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`; **1063 / 2 / 0 / 31** once Task 1 landed; **1063 / 2 / 0 / 43** once Task 2 split the file. Run `npm test` before you touch anything and compare against that.
 - **`npm run pod:dev &` before `npm test`**, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran: `npx vitest run test/integration/` must report 33 passed, and `TEST_POD=http://localhost:3999 npx vitest run test/integration/` must report 33 skipped. That control is how this stage knows a green run was not an empty one.
 - **`npm run size:public` does not build.** Run `npm run build` first or it grades a stale `.next`.
 - **Every task in this stage touches `components/studio/**`, so `npm run test:e2e` is required on every task.** Run it with `env -u CLAUDECODE -u AI_AGENT npm run test:e2e`. Expect 6 passed.
@@ -27,8 +27,8 @@
 | File | Responsibility |
 |---|---|
 | `components/studio/entry-editor/entry-editor.tsx` | composition and page layout only, ~120 lines when the stage ends |
-| `entry-editor.harness.tsx` | the fake Pod, fake session, fake storage, loader, form plumbing and lifecycle every split test file needs |
-| `entry-editor.<topic>.test.tsx` × 12 | the split suites, one per numbered section of the original |
+| `entry-editor.harness/entry-editor.harness.tsx` + `index.ts` + `notes.md` | the fake Pod, fake session, fake storage, loader, form plumbing and lifecycle every split test file needs. A FOLDER, not a flat file — see Task 2 |
+| `entry-editor.<topic>.test.tsx` × 13 | the split suites, one per numbered section of the original |
 | `state/actions.ts` | the action union — the catalogue of legal transitions |
 | `state/entry-form-reducer.ts` | a thin switch over the `apply-*` functions |
 | `state/apply-field-edit.ts` · `apply-photo-offer.ts` · `apply-restore.ts` | one transition each, pure, each with its own colocated test |
@@ -215,58 +215,103 @@ written by the sessions that built it.
 case must land in exactly one file. `npm test` reporting fewer tests means cases were dropped;
 reporting more means a `describe` was duplicated.
 
+**DONE 2026-09-08. Four things were measured rather than assumed, and each moved the plan:**
+the harness needs a folder, the lifecycle function needs a different name, section 12 needs
+splitting in two, and fifty-four section helpers turned out to be shared. Details at each step.
+
 **Files:**
-- Create: `components/studio/entry-editor/entry-editor.harness.tsx` from the current lines 1–948
-- Create twelve `entry-editor.<topic>.test.tsx` files (below)
+- Create: `components/studio/entry-editor/entry-editor.harness/entry-editor.harness.tsx` from the
+  current lines 1–947, plus a one-line `index.ts` barrel and a `notes.md`
+- Create thirteen `entry-editor.<topic>.test.tsx` files (below)
 - Delete: `entry-editor.test.tsx`, and with it the `eslint-disable max-lines` at its top
+- Modify: `test/check-structure.test.ts` — its exemption case asserts four; three is the new truth
 
 **Interfaces:**
-- Produces: `renderEditor`, `podFake`, `fakeStudioSession`, `fakeStorage`, `loadEditor`, `setText`, `setChoice`, `saveButton`, `outcomeText`, `fillNewEntry`, `clickSaveAndWait`, `LABEL`, `specEntry`, `quadsOf`, `objectsOf`, `oneObject`, `datatypeOf`, `languageOf`, and the lifecycle hooks. Every split file imports from `./entry-editor.harness`.
+- Produces: `renderEditor`, `podFake`, `fakeStudioSession`, `fakeStorage`, `loadEditor`, `setText`, `setChoice`, `saveButton`, `outcomeText`, `fillNewEntry`, `clickSaveAndWait`, `LABEL`, `specEntry`, `quadsOf`, `objectsOf`, `oneObject`, `datatypeOf`, `languageOf`, and `registerEditorLifecycle`. Every split file imports from `./entry-editor.harness`.
+- Produces, unplanned: **fifty-four more declarations** that began inside a numbered section and
+  turn out to be referenced by another suite — section 10's photo rig (`mediaFake`, `fakePipeline`,
+  `jpegFile`, `pickPhoto`), section 8's draft rig (`fakeStorage`, `draftKeyFor`, `seededDraft`,
+  `withFakeTimers`, `DRAFT_FIELDS`), section 1/1b/1c's field readers (`coordinateControls`,
+  `placeNodeOf`, `shownValue`, `offsetOptions`) and more. The set was computed from the AST — every
+  top-level declaration referenced from a target file other than its own, transitively — not by eye.
+  It is the file's existing coupling, made visible; the harness is 781 code lines because of it.
 
 - [ ] **Step 1: Extract the harness verbatim**
 
-Lines 1–948 are fixtures, the fake Pod, the fake session, the fake storage, the component loader,
-the form plumbing and the lifecycle block. Move them **unchanged** into
-`entry-editor.harness.tsx` and add `export` to everything the sections use. It is `.tsx` because
-`renderEditor` returns JSX, and it is not a `*.test.tsx` file, so neither the collection guard nor
-`check:structure`'s placement rule applies to it.
+Lines 1–947 are fixtures, the fake Pod, the fake session, the fake storage, the component loader,
+the form plumbing and the lifecycle block. Move them **unchanged** and add `export` to everything
+the sections use. It is `.tsx` because `renderEditor` returns JSX.
 
-The lifecycle block (`beforeEach`/`afterEach`, currently around line 898) cannot be exported as a
-side effect — each split file must call it. Export it as a function:
+**IT NEEDS A FOLDER, and the sentence that used to stand here was half right.** This claimed that
+"neither the collection guard nor `check:structure`'s placement rule applies to it". The
+*collection* guard does not, and the *test* placement rule (`testsSitBesideSubjects`) does not —
+but `componentFoldersAreOwn` walks every non-test `.tsx` under `components/` and demands a folder
+of its own name. Measured 2026-09-08 with a one-line probe at the flat path: `check:structure`
+exits 1 with `entry-editor.harness.tsx is not in a folder named "entry-editor.harness"`. So it is
+`entry-editor.harness/entry-editor.harness.tsx` with an `index.ts` barrel, which leaves the import
+specifier `./entry-editor.harness` exactly as the Interfaces section above spells it. Changing the
+guard to admit the file was the other option and is the wrong one.
+
+Two more things the move cannot do unchanged, both measured:
+
+- **`vi.hoisted` has to go.** `accessCalls` and `accessOutcome` are asserted on by most suites, so
+  they must be exported, and Vitest 4 refuses: `SyntaxError: Cannot export hoisted variable`. Plain
+  module consts work because the `vi.mock` factory is lazy — it runs when `@/lib/pod/access` is
+  first imported, inside `loadEditor`'s dynamic import, long after this module has evaluated.
+- **The harness must be imported FIRST in every suite.** `vi.mock` is hoisted to the top of the
+  file that contains it, not of the importer. With the mocked module imported above the harness the
+  mock silently does not apply — measured with a two-file probe, and the failure mode is a fake
+  that reads as the real thing with nothing red.
+
+The lifecycle block (`beforeEach`/`afterEach`, currently at 898–947) cannot be exported as a
+side effect — each split file must call it. Export it as a function, and **not** under the name
+this plan first proposed: `react-hooks/rules-of-hooks` rejects `useEditorLifecycle()` in every
+suite, because the `use` prefix is a React contract and this is neither a hook nor called from a
+component. Thirteen `eslint-disable` lines is a worse answer than an accurate name.
 
 ```tsx
-/** Every split suite calls this at the top of its own file. */
-export function useEditorLifecycle() {
+/** Called by each suite itself; a side-effecting import registers against the wrong file. */
+export function registerEditorLifecycle() {
   // the body of the current lifecycle block, verbatim
 }
 ```
 
-- [ ] **Step 2: Split by section, twelve files**
+- [ ] **Step 2: Split by section, thirteen files**
 
-Each gets `// @vitest-environment jsdom` at the top, imports from `./entry-editor.harness`, and
-calls `useEditorLifecycle()`. Sections stay whole; four are large enough to split at their own
-`describe` boundaries.
+Each gets `// @vitest-environment jsdom` at the top, imports `./entry-editor.harness` **first**, and
+calls `registerEditorLifecycle()`. Sections stay whole; two are large enough to split at their own
+`describe` boundaries — section 8 three ways, section 12 two ways.
 
-| File | Sections | approx. lines |
+Code lines as measured after the split, by `check:structure`'s own counter. **These replace the
+raw-line estimates this table used to carry, which were not comparable to the bound and were wrong
+in both directions** — `coordinates` was guessed at 1000 and is 518, `draft-autosave` at 810 and is
+1562 raw / 714 code.
+
+| File | Sections | code lines |
 |---|---|---|
-| `entry-editor.controls.test.tsx` | 0, 9 | 250 |
-| `entry-editor.coordinates.test.tsx` | 1 | 1000 |
-| `entry-editor.place.test.tsx` | 1b | 570 |
-| `entry-editor.offset.test.tsx` | 1c | 420 |
-| `entry-editor.save-sequence.test.tsx` | 2, 3, 4, 5, 6 | 530 |
-| `entry-editor.report.test.tsx` | 7, 7b, 7c, 7d | 710 |
-| `entry-editor.draft-autosave.test.tsx` | 8, first 5 describes | 810 |
-| `entry-editor.draft-banner.test.tsx` | 8, next 4 describes | 800 |
-| `entry-editor.draft-fields.test.tsx` | 8, last 4 describes | 1000 |
-| `entry-editor.photos.test.tsx` | 10 | 875 |
-| `entry-editor.autofill.test.tsx` | 11 | 1900 |
-| `entry-editor.autodate.test.tsx` | 12, and 12j from Task 1 | 2800 |
+| `entry-editor.controls.test.tsx` | 0, 9 | 104 |
+| `entry-editor.coordinates.test.tsx` | 1 | 518 |
+| `entry-editor.place.test.tsx` | 1b | 319 |
+| `entry-editor.offset.test.tsx` | 1c | 185 |
+| `entry-editor.save-sequence.test.tsx` | 2, 3, 4, 5, 6 | 330 |
+| `entry-editor.report.test.tsx` | 7, 7b, 7c, 7d | 389 |
+| `entry-editor.draft-autosave.test.tsx` | 8, first 5 describes | 714 |
+| `entry-editor.draft-banner.test.tsx` | 8, next 4 describes | 291 |
+| `entry-editor.draft-fields.test.tsx` | 8, last 4 describes | 558 |
+| `entry-editor.photos.test.tsx` | 10 | 446 |
+| `entry-editor.autofill.test.tsx` | 11 | 931 |
+| `entry-editor.autodate.test.tsx` | 12.0–12g | 909 |
+| `entry-editor.autodate-edges.test.tsx` | 12h–12m, 12m being Task 1's | 765 |
 
-The three largest still exceed the 600 tendency and that is accepted for this task: they are
-`check:structure` drift lines, not failures, and splitting a coherent section further is a
-readability judgement better made once the component underneath it has been decomposed. Do not
-add an `eslint-disable max-lines` to any of them — measure first, because these are **code**
-lines against a 1000 bound and the raw-line figures above are larger than the code figures.
+**SECTION 12 HAS TO SPLIT, and that is why there are thirteen files rather than twelve.** Whole, it
+is **1,672 code lines** — not over the 600 tendency, over the **1000 hard bound**, so `npm run lint`
+fails with `File has too many lines (1672)`. Measuring first was the right instruction and it did
+not rescue this one: promoting every section-12 helper to the harness would save about a hundred
+lines of the six hundred and seventy needed. It splits at the `12h/12i` banner, which is both the
+midpoint and a real seam — one photo's two halves before it, a second photo and the malformed tags
+after. Four files still exceed the 600 tendency (autofill 931, autodate 909, autodate-edges 765,
+draft-autosave 714) and that is accepted for this task: they are `check:structure` drift lines, not
+failures, and none carries an `eslint-disable`.
 
 - [ ] **Step 3: Prove nothing was lost, by count**
 
@@ -274,15 +319,22 @@ lines against a 1000 bound and the raw-line figures above are larger than the co
 npm test 2>&1 | grep -E 'Test Files|Tests '
 ```
 
-Expected: **the same total as HEAD before this task**, across 12 more files. Then confirm every
-file is collected, since an uncollected split file is exactly the failure `test/vitest-collection.test.ts` exists for:
+Expected: **the same total as HEAD before this task**, across 12 more files (13 new, 1 deleted).
+Measured: **1063 passed / 2 todo / 0 skipped**, before and after, over 31 files then 43. Then
+confirm every file is collected, since an uncollected split file is exactly the failure
+`test/vitest-collection.test.ts` exists for:
 
 ```bash
 npx vitest list --filesOnly | grep -c 'entry-editor'
 npx vitest run test/vitest-collection.test.ts
 ```
 
-Expected: 12 entry-editor test files listed, and the guard green.
+Expected: 13 entry-editor test files listed, and the guard green.
+
+**A count is the weaker half of the invariant, and one drop plus one duplicate cancels in it.** The
+stronger check is the SET: `npx vitest list` piped through `sed 's#^[^ ]* > ##' | sort` for the
+entry-editor files, before and after, must `diff` clean. It does — 169 `describe > it` paths, byte
+for byte identical.
 
 - [ ] **Step 4: Confirm the exemption is now unused, and delete it**
 
@@ -297,6 +349,17 @@ Expected: pass, and `check:structure` now reports **three** active exemptions ra
 ```bash
 npm run check:structure | grep -A6 'active exemptions'
 ```
+
+`test/check-structure.test.ts` asserts the count and the paths, so it goes red on four-to-three and
+has to move with this commit — the exemption test is doing its job, not obstructing.
+
+**The ratchet is the thing to watch here, and it moved twice for reasons worth naming.** The split
+itself is comment-neutral: 207 runs over six lines in the one file, 207 across the fourteen. Both
+rises came from prose *this task added* — a twelve-line harness header and an eleven-line lifecycle
+docblock (+2), then a seven-line docblock on the amended exemption test (+1). All three moved to
+`entry-editor.harness/notes.md` behind pointers, or shortened to six lines. `check:structure`'s
+pointer check earned its keep in the process: it caught `#plain-consts-rather-than-vi-hoisted`
+against a heading whose GitHub slug drops the dot in `vi.hoisted`.
 
 - [ ] **Step 5: Full checks and commit**
 
