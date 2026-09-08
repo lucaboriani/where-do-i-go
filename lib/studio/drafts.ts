@@ -4,9 +4,9 @@
  * `docs/decisions.md` §10 is the whole justification — offline is deferred, and
  * "in the meantime the studio autosaves in-progress text to `localStorage`,
  * because losing a long entry in a hostel is what kills the habit." This module
- * is the storage half of that; `components/studio/entry-editor.tsx` is the
+ * is the storage half of that; `components/studio/entry-editor/entry-editor.tsx` is the
  * wiring, and the two are tested separately (test/drafts.test.ts and section 8
- * of test/entry-editor.test.tsx).
+ * of components/studio/entry-editor/entry-editor.test.tsx).
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE STORAGE IS INJECTED, NEVER REACHED FOR. `localStorage` is a global that
@@ -208,7 +208,7 @@ const Draft = z.object({
    * measured — and the save after it composes a timestamp out of a wall clock
    * and nothing, refused on the next read, which is a worse outcome than the
    * guess this control replaced. See `restore()` in
-   * components/studio/entry-editor.tsx, which falls through to the same chain a
+   * components/studio/entry-editor/entry-editor.tsx, which falls through to the same chain a
    * fresh form uses instead.
    *
    * COST IF THIS IS EVER WRONG, recorded so it is findable: should a later
@@ -291,7 +291,7 @@ const Draft = z.object({
    * A bare required `z.string()` is the other horn and is also wrong — it
    * refuses the whole older payload, losing the unsaved prose the key was left
    * at `v2` to protect. `.optional()` takes neither: the older payload restores
-   * its prose, and `components/studio/entry-editor.tsx`'s `restore()` leaves a
+   * its prose, and `components/studio/entry-editor/entry-editor.tsx`'s `restore()` leaves a
    * control alone when the field is absent rather than emptying it.
    */
   placeName: z.string().optional(),
@@ -345,7 +345,7 @@ const Draft = z.object({
    * WHAT THE BANNER DOES ABOUT IT: `readDraft` still hands the payload back
    * rather than refusing it — that is this task's whole point, a draft is
    * not discarded for lacking a label on it — and
-   * `components/studio/entry-editor.tsx` omits the `<time dateTime>` element
+   * `components/studio/entry-editor/entry-editor.tsx` omits the `<time dateTime>` element
    * entirely when this is absent, rather than rendering one with no instant
    * to point at or inventing one to fill it. The offer to restore, and the
    * Restore and Discard buttons, are unaffected: the timestamp is a nicety on

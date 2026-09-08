@@ -47,7 +47,7 @@ import { describe, expect, it } from "vitest";
 /* ══════════════════════════════════════════════════════════════════════════
  * 0. Reaching a module that is not there yet.
  *
- * Lifted from test/studio-trips.test.ts and test/entry-editor.test.tsx, for the
+ * Lifted from test/studio-trips.test.ts and components/studio/entry-editor/entry-editor.test.tsx, for the
  * reason given there: a static `import … from "@/lib/studio/drafts"` is resolved
  * by vite's import-analysis before a single test runs, so the whole FILE fails
  * to load and vitest reports one transform error instead of N failing
@@ -134,7 +134,7 @@ const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
  * segment exists to prevent. All three hold what the FORM holds: strings, empty
  * when nothing has been typed, because a half-written entry with no coordinate
  * yet is the common draft and a schema that demanded a number here would refuse
- * to back it up. test/entry-editor.test.tsx section 8h owns the decision that
+ * to back it up. components/studio/entry-editor/entry-editor.test.tsx section 8h owns the decision that
  * what is kept is the coordinate as TYPED rather than as published.
  *
  * `placeName`, `locality` AND `country` ARRIVED WITH THE EDITOR'S PLACE
@@ -425,7 +425,7 @@ describe("what a draft must never carry", () => {
    * settles the unknown-key question for the whole module — the schema STRIPS
    * what it does not know rather than rejecting the value, so a payload from a
    * slightly different build still restores its seventeen fields instead of
-   * being thrown away. test/entry-editor.test.tsx leans on that choice.
+   * being thrown away. components/studio/entry-editor/entry-editor.test.tsx leans on that choice.
    */
   it("restores none of them, and still restores the seventeen that are legitimate", async () => {
     const { draftKey, readDraft } = await loadDrafts();
@@ -778,7 +778,7 @@ describe("the place fields in a draft", () => {
    * one for a payload with no opinion made restoring an old draft onto an entry
    * that HAS a place delete `schema:name` and the whole `<#address>` on the next
    * save — the half-restore the version segment exists to prevent, reached by
-   * the operator chosen to avoid a version bump. `test/entry-editor.test.tsx`
+   * the operator chosen to avoid a version bump. `components/studio/entry-editor/entry-editor.test.tsx`
    * §1b drives that scenario end to end; this is the half in the store.
    *
    * WHAT WOULD BREAK IT: bumping the key to `v3` (every unsaved draft on every
@@ -977,7 +977,7 @@ describe("the offset in a draft", () => {
  * `.optional()`, not `.default(...)`: this module holds no clock, so an
  * absent `savedAt` must stay absent rather than being given one it never had.
  *
- * THE CONSEQUENCE IS NOT HERE — IT IS IN test/entry-editor.test.tsx. Today the
+ * THE CONSEQUENCE IS NOT HERE — IT IS IN components/studio/entry-editor/entry-editor.test.tsx. Today the
  * schema is what keeps a payload with no `savedAt` off the render path: it is
  * refused outright and `readDraft` answers `null`. Making the field optional
  * moves such a payload ONTO the render path, where the banner's
@@ -986,7 +986,7 @@ describe("the offset in a draft", () => {
  * half: a payload with no `savedAt` comes back USABLE, key genuinely absent,
  * rather than refused. The render half — that the editor survives it, and
  * still offers Restore — is `entry editor — a draft with no savedAt at all
- * (task 2.5)` in test/entry-editor.test.tsx.
+ * (task 2.5)` in components/studio/entry-editor/entry-editor.test.tsx.
  *
  * STRUCTURED ON §8's "restores a draft written before the offset control":
  * same shape, a different field, and the same three-part pin — the fixture

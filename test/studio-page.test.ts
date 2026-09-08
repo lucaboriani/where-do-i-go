@@ -152,7 +152,7 @@ describe("app/(studio)/studio/page.tsx", () => {
    * THE PROP THIS STEP IS ABOUT.
    *
    * `podRoot` reaches the client shell, because nothing below this file can
-   * read it: `components/studio/studio-client.tsx` is `ssr: false` and
+   * read it: `components/studio/studio-client/studio-client.tsx` is `ssr: false` and
    * `lib/config.ts` throws in a browser. Without it the studio can enumerate
    * nothing and the owner sees the "no trips" note on a Pod full of trips,
    * which is the state the app is in today.
@@ -209,7 +209,7 @@ describe("app/(studio)/studio/page.tsx", () => {
    * twice under two names.
    *
    * The key set is asserted exactly, in the style of the `login()` argument
-   * assertion in test/studio-shell.test.tsx: an extra prop here is a value
+   * assertion in components/studio/studio-shell/studio-shell.test.tsx: an extra prop here is a value
    * crossing the server/client boundary that nobody decided to send.
    */
   it("passes exactly the five values the browser cannot read for itself", async () => {
@@ -234,7 +234,7 @@ describe("app/(studio)/studio/page.tsx", () => {
   /**
    * IT READS CONFIG SERVER-SIDE, WHICH IS THE HALF THAT IS EASY TO LOSE.
    *
-   * The counterpart is already pinned: test/studio-shell.test.tsx's source
+   * The counterpart is already pinned: components/studio/studio-shell/studio-shell.test.tsx's source
    * section asserts the shell imports no `lib/config` and touches no
    * `process.env`, and test/studio-trips.test.ts asserts the same of
    * `lib/studio/trips.ts`. Neither of those says anyone reads it at all. This

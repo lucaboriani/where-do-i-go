@@ -5,14 +5,14 @@
  *
  * `lib/studio/trips.ts` exports `listStudioTrips({ fetch, podRoot })` and is
  * fully tested (test/studio-trips.test.ts, 37 cases).
- * `components/studio/studio-shell.tsx` renders an editor when it is handed a
+ * `components/studio/studio-shell/studio-shell.tsx` renders an editor when it is handed a
  * non-empty `trips` prop and an honest "no trips" note when it is not
- * (test/studio-shell.test.tsx). NOTHING CONNECTS THE TWO, so the running studio
+ * (components/studio/studio-shell/studio-shell.test.tsx). NOTHING CONNECTS THE TWO, so the running studio
  * shows the note on every Pod, however many trips are in it. This file is the
  * red step that closes that.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * WHY A SECOND FILE RATHER THAN MORE OF test/studio-shell.test.tsx.
+ * WHY A SECOND FILE RATHER THAN MORE OF components/studio/studio-shell/studio-shell.test.tsx.
  *
  * That file's fake session carries a `fetch` that THROWS — "the shell must not
  * fetch: nothing here goes to the Pod" — and twenty passing tests stand on it.
@@ -20,7 +20,7 @@
  * The same reasoning that file gives for writing a third fake session rather
  * than widening the two in test/session.test.ts applies one level up, so:
  *
- *   test/studio-shell.test.tsx    the shell's rendering, GIVEN its trips.
+ *   components/studio/studio-shell/studio-shell.test.tsx    the shell's rendering, GIVEN its trips.
  *   this file                     where the trips come from.
  *
  * The seam between them is the `trips` prop, whose semantics this file pins so
@@ -82,7 +82,7 @@ import { NS } from "@/lib/vocab";
 import { describe as describePodError } from "@/lib/pod/result";
 import { resetSessionRestore } from "@/lib/studio/session";
 /**
- * A STATIC import, unlike the deferred one in test/studio-shell.test.tsx. That
+ * A STATIC import, unlike the deferred one in components/studio/studio-shell/studio-shell.test.tsx. That
  * trick exists so a MISSING module does not kill the file; this module exists,
  * and every failure below is meant to be a missing BEHAVIOUR. The one
  * compile-time failure that comes with it is deliberate: `podRoot` does not
@@ -135,7 +135,7 @@ const SITE_NAME = "Luca's travel diary";
 
 /**
  * The two event names, tied to the library's own literals by their annotations,
- * exactly as test/studio-shell.test.tsx does it. `typeof EVENTS.SESSION_EXPIRED`
+ * exactly as components/studio/studio-shell/studio-shell.test.tsx does it. `typeof EVENTS.SESSION_EXPIRED`
  * is the string literal type "sessionExpired", so an upgrade that renames the
  * constant fails to COMPILE here rather than leaving this file emitting an
  * event nothing listens for. `import type` is erased: no library code loads.
@@ -338,7 +338,7 @@ type FakeInfo = { isLoggedIn: boolean; webId?: string };
 /**
  * A fake Solid session whose `fetch` WORKS.
  *
- * That is the whole difference from the fake in test/studio-shell.test.tsx, and
+ * That is the whole difference from the fake in components/studio/studio-shell/studio-shell.test.tsx, and
  * it is why this file exists: the credential is added here and nowhere else, so
  * "the shell used the session's fetch" and "the shell used the ambient one" are
  * two different HTTP conversations rather than two readings of a spy.
@@ -393,7 +393,7 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }) {
  */
 /**
  * Derived from the component's OWN signature rather than declared here, the
- * same device test/studio-shell.test.tsx uses for its trip fixture: a
+ * same device components/studio/studio-shell/studio-shell.test.tsx uses for its trip fixture: a
  * hand-written local type would compile forever against a component whose props
  * had changed, and this file would go on testing its own idea of them.
  */
@@ -433,7 +433,7 @@ const editorSaveControl = () => screen.queryAllByRole("button", { name: /save/i 
 
 /**
  * THE EMPTY-STATE NOTE, by its contract phrase — the same device
- * test/studio-shell.test.tsx uses for the not-owner message's "belongs to".
+ * components/studio/studio-shell/studio-shell.test.tsx uses for the not-owner message's "belongs to".
  *
  * It is the single most important query in this file, because three separate
  * cases turn on it being ABSENT (loading, a 403, a 404) and one on it being
@@ -701,7 +701,7 @@ describe("studio shell — listing the owner's trips", () => {
    * and this component runs in the browser.
    *
    * The decoy is what makes this precise rather than a repetition of the
-   * source scan in test/studio-shell.test.tsx: `process.env.POD_ROOT` is set,
+   * source scan in components/studio/studio-shell/studio-shell.test.tsx: `process.env.POD_ROOT` is set,
    * and set to something else, so a shell that read it would enumerate a
    * DIFFERENT host. Nothing serves that host, so test/setup.ts's guard fails
    * the test even if the assertion below somehow did not.
@@ -773,7 +773,7 @@ describe("studio shell — it lists for the owner and nobody else", () => {
 
   /**
    * The session lapsing mid-edit is the case
-   * test/studio-shell.test.tsx calls "the bug this whole increment exists for":
+   * components/studio/studio-shell/studio-shell.test.tsx calls "the bug this whole increment exists for":
    * an expiry never emits LOGOUT, and a shell that missed it goes on offering
    * to save over a session every write will 401.
    *
@@ -897,7 +897,7 @@ describe("studio shell — while the listing is in flight", () => {
   /**
    * UNMOUNT MID-FLIGHT.
    *
-   * Pair to the unsubscribe case in test/studio-shell.test.tsx. Honest about
+   * Pair to the unsubscribe case in components/studio/studio-shell/studio-shell.test.tsx. Honest about
    * what it can catch: React 19 no longer warns on a state update after
    * unmount, so this is not a "setState on an unmounted component" detector. It
    * catches what still bites — a throw inside the settled handler, and an
@@ -1102,7 +1102,7 @@ describe("studio shell — when the Pod will not answer", () => {
 /* ==========================================================================
  * 6. The `trips` prop, whose meaning this step decides.
  *
- * It is the seam every case in test/studio-shell.test.tsx uses, and once the
+ * It is the seam every case in components/studio/studio-shell/studio-shell.test.tsx uses, and once the
  * shell can fetch, "supplied" and "absent" have to mean different things or
  * those twenty cases are testing a path whose behaviour nobody stated.
  *

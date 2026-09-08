@@ -3,7 +3,7 @@
  *
  * WHY THIS MODULE EXISTS AND WHY IT MAY NOT READ THE DIARY.
  *
- * `components/studio/studio-shell.tsx` takes an optional `trips` prop and
+ * `components/studio/studio-shell/studio-shell.tsx` takes an optional `trips` prop and
  * renders the entry editor when it is non-empty. Nothing supplies it, so the
  * owner always sees the honest "no trips" note instead. This is the module that
  * supplies it.
@@ -55,7 +55,7 @@
  * `siteName`. Section 5 pins that the module reads neither.
  *
  * The trip shape is asserted STRUCTURALLY against `EditorTrip`, the prop type
- * `components/studio/entry-editor.tsx` already publishes, and not by requiring
+ * `components/studio/entry-editor/entry-editor.tsx` already publishes, and not by requiring
  * that type to be imported: a lib/ module importing a type from a component is
  * backwards layering, and the editor only cares that the object fits.
  */
@@ -75,7 +75,7 @@ import type { EditorTrip } from "@/components/studio/entry-editor";
 /* ==========================================================================
  * 0. Reaching a module that is not there yet.
  *
- * Lifted from test/studio-shell.test.tsx, for the reason given there: a static
+ * Lifted from components/studio/studio-shell/studio-shell.test.tsx, for the reason given there: a static
  * `import … from "@/lib/studio/trips"` is resolved by vite's import-analysis
  * before a single test runs, so the whole FILE fails to load and vitest reports
  * one transform error instead of nineteen failing assertions. A specifier held
@@ -912,7 +912,7 @@ describe("listStudioTrips uses the fetch it was handed", () => {
  * What only the source can show. The runtime test above covers config being
  * READ on the one path it drives; this covers it being merely IMPORTED, which
  * is enough to break the browser bundle, and covers the paths that test does
- * not take. Same justification as section 5 of test/studio-shell.test.tsx.
+ * not take. Same justification as section 5 of components/studio/studio-shell/studio-shell.test.tsx.
  */
 describe("lib/studio/trips.ts, as source", () => {
   const PATH = "lib/studio/trips.ts";

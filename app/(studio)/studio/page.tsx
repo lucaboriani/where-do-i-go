@@ -10,7 +10,7 @@ import { describe } from "@/lib/pod/result";
  * SITE_NAME and POD_ROOT are not `NEXT_PUBLIC_`, and lib/config.ts throws if it
  * is reached from the client — plus the owner's identity provider, and to hand
  * all five down as props. The `ssr: false` that keeps the Solid session out of the
- * server lives one file down, in components/studio/studio-client.tsx: Next 16
+ * server lives one file down, in components/studio/studio-client/studio-client.tsx: Next 16
  * rejects it here ("`ssr: false` is not allowed with `next/dynamic` in Server
  * Components").
  *

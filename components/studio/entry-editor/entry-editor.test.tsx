@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The studio's entry editor — components/studio/entry-editor.tsx.
+ * The studio's entry editor — components/studio/entry-editor/entry-editor.tsx.
  *
  * THE RED STEP OF THE TDD LOOP. Nothing under components/studio/ answers to
  * that name yet, and every test below is expected to fail on the missing module
@@ -17,7 +17,7 @@
  *                    seam, and it is where the preconditions are asserted — on
  *                    the real outgoing request headers, not on a spy.
  *   the session      Injected as a plain object, exactly as
- *                    test/studio-shell.test.tsx and test/session.test.ts do. A
+ *                    components/studio/studio-shell/studio-shell.test.tsx and test/session.test.ts do. A
  *                    test that mocks @inrupt/solid-client-authn-browser tests
  *                    the library's idea of a session.
  *   privacy.ttl      MSW again, and deliberately NOT a mocked
@@ -625,7 +625,7 @@ interface StorageLike {
 /**
  * At RUNTIME through a dynamic import with a specifier vite cannot analyse, and
  * at COMPILE time through a type-only reference. The reasoning is
- * test/studio-shell.test.tsx's, measured there rather than assumed: a static
+ * components/studio/studio-shell/studio-shell.test.tsx's, measured there rather than assumed: a static
  * import of a module that does not exist is a resolution error that kills the
  * whole FILE and takes the environment controls with it, so the file reports
  * `(0 test)` instead of reporting red. `typeof import(...)` is a TYPE, erased
@@ -639,14 +639,14 @@ const importModule = (specifier: string): Promise<unknown> => import(/* @vite-ig
 async function loadEditor() {
   const mod = (await importModule("@/components/studio/entry-editor").catch((cause: unknown) => {
     throw new Error(
-      "components/studio/entry-editor.tsx does not exist yet — this is the red step of the TDD loop, not a broken test.",
+      "components/studio/entry-editor/entry-editor.tsx does not exist yet — this is the red step of the TDD loop, not a broken test.",
       { cause },
     );
   })) as EditorModule;
   const Editor = mod.default;
   if (typeof Editor !== "function") {
     throw new Error(
-      "components/studio/entry-editor.tsx exists but default-exports no component — still the red step.",
+      "components/studio/entry-editor/entry-editor.tsx exists but default-exports no component — still the red step.",
     );
   }
   return Editor;
@@ -4281,7 +4281,7 @@ describe("entry editor — stale cache versus clean save, by role", () => {
  *     docblock said `aria-label` while the component said `title` for one
  *     review cycle, which is the wrong way round: the component is right and
  *     the reason is measured (see the comment above the banner in
- *     components/studio/entry-editor.tsx). @testing-library matches
+ *     components/studio/entry-editor/entry-editor.tsx). @testing-library matches
  *     `aria-label` on ANY element, not only on form controls, and this screen
  *     already has a control whose label matches the same words — the Status
  *     select, since `LABEL.status` is /status|publish|draft/i. An `aria-label`
@@ -5360,7 +5360,7 @@ describe("entry editor — clearing the draft after a save", () => {
    * instead is the mutation, run on 2026-09-05 and recorded here so it can be
    * repeated:
    *
-   *   in `settleDraft`, components/studio/entry-editor.tsx, delete
+   *   in `settleDraft`, components/studio/entry-editor/entry-editor.tsx, delete
    *
    *       if (pendingWrite.current !== null) {
    *         clearTimeout(pendingWrite.current);
@@ -6277,7 +6277,7 @@ describe("entry editor — the held Save button says why it is held", () => {
  *
  * THE DEFECT. The write effect's cleanup calls `clearTimeout(handle)`
  * unconditionally, so an unmount with a window in flight loses up to 800ms of
- * typing. That is routine rather than exotic: `components/studio/studio-shell.tsx`
+ * typing. That is routine rather than exotic: `components/studio/studio-shell/studio-shell.tsx`
  * flips `view.status` on session expiry and stops rendering the editor, so an
  * expiring Solid token takes the last sentence with it.
  *
@@ -7667,7 +7667,7 @@ describe("entry editor — a draft with no savedAt at all (task 2.5)", () => {
 /* ══════════════════════════════════════════════════════════════════════════
  * 9. What only the source can show.
  *
- * Same justification as section 5 of test/studio-shell.test.tsx and the
+ * Same justification as section 5 of components/studio/studio-shell/studio-shell.test.tsx and the
  * "use cache" checks in test/cached-owner-profile.test.ts: `"use client"` is a
  * compiler directive and an inert string expression under vitest, an import
  * never exercised on a tested path leaves no runtime trace, and a TYPE has no
@@ -7734,7 +7734,7 @@ describe("as source", () => {
   it("the editor imports no VALUE from the Solid auth library", () => {
     // The session is injected, as it is into the shell. A value import here
     // would put the library outside the `ssr: false` boundary that
-    // components/studio/studio-client.tsx draws.
+    // components/studio/studio-client/studio-client.tsx draws.
     const text = stripComments(read(EDITOR));
     const erased = new Set(typeOnlySpecifiers(text));
     const values = specifiers(text).filter((s) => !erased.has(s));
@@ -7776,7 +7776,7 @@ describe("as source", () => {
 /* ══════════════════════════════════════════════════════════════════════════
  * 10. PHOTOS — THE PICKER (task 7).
  *
- * THE RED STEP. Nothing in components/studio/entry-editor.tsx answers to a
+ * THE RED STEP. Nothing in components/studio/entry-editor/entry-editor.tsx answers to a
  * photo control today; line 61-64 of it still says photos are phase 3.
  *
  * WHAT IS FAKED, AND WHERE. Two new seams, and only two:

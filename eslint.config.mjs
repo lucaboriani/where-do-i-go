@@ -91,7 +91,7 @@ const ACL_PRIMITIVES = [
  *
  * FOUR ARMS, BECAUSE ONE ONLY SAW HALF THE CODE. Until 2026-09-05 this was the
  * `JSXAttribute` arm alone, so it read a class string written INLINE in the
- * attribute and nothing else. `components/studio/entry-editor.tsx` keeps its
+ * attribute and nothing else. `components/studio/entry-editor/entry-editor.tsx` keeps its
  * two shared class strings in module-level consts spent as `className={CONTROL}`
  * — an `Identifier`, not a `Literal` — and the rule was blind to both. Measured:
  * `disabled:bg-[#222]` inside `CONTROL` produced zero errors, the same string

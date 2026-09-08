@@ -66,7 +66,7 @@ import type { Status, Trip } from "@/lib/pod/schema";
  * One trip the owner may write into.
  *
  * Structurally a superset of `EditorTrip`, the prop type
- * components/studio/entry-editor.tsx publishes — deliberately NOT an import of
+ * components/studio/entry-editor/entry-editor.tsx publishes — deliberately NOT an import of
  * it, because a lib/ module importing a type from a component is backwards
  * layering. The editor only cares that the object fits, and `tsc` checks that
  * it does at the call site.

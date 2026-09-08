@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The studio client shell — components/studio/studio-shell.tsx.
+ * The studio client shell — components/studio/studio-shell/studio-shell.tsx.
  *
  * THE THREE-FILE SHAPE, and why this file tests the middle one directly.
  * Next 16 rejects `ssr: false` inside a server component outright ("`ssr: false`
@@ -8,10 +8,10 @@
  *
  *   app/(studio)/studio/page.tsx        server. Reads config + getOwnerProfile(),
  *                                       renders the wrapper with props.
- *   components/studio/studio-client.tsx "use client". Holds the
+ *   components/studio/studio-client/studio-client.tsx "use client". Holds the
  *                                       dynamic(() => import("./studio-shell"),
  *                                       { ssr: false }).
- *   components/studio/studio-shell.tsx  "use client". The real shell. THIS FILE.
+ *   components/studio/studio-shell/studio-shell.tsx  "use client". The real shell. THIS FILE.
  *
  * Tested directly rather than through the wrapper, because a test that rendered
  * the wrapper would be a test of next/dynamic.
@@ -120,7 +120,7 @@ const SITE_NAME = "Luca's travel diary";
  * `trips`, and a supplied list means the shell offers exactly those and
  * enumerates nothing — so every case here stays what it was, a test of the
  * shell's RENDERING given its trips, with no Pod in it. Where the trips come
- * from is test/studio-trip-loading.test.tsx's subject, and it is the file that
+ * from is components/studio/studio-shell/studio-shell.trip-loading.test.tsx's subject, and it is the file that
  * pins that seam in both directions.
  */
 const POD = "https://pod.test.example/";
@@ -191,7 +191,7 @@ function fakeStudioSession(initial: FakeInfo = { isLoggedIn: false }, gate?: Pro
      * is a shell that started listing, which the enumeration at the end of
      * section 4 catches BY URL rather than by count.
      *
-     * The listing path is test/studio-trip-loading.test.tsx's, and its fake
+     * The listing path is components/studio/studio-shell/studio-shell.trip-loading.test.tsx's, and its fake
      * session's fetch works.
      */
     fetch: (async (input: RequestInfo | URL) => {
@@ -255,14 +255,14 @@ const importModule = (specifier: string): Promise<unknown> =>
 async function loadShell() {
   const mod = (await importModule("@/components/studio/studio-shell").catch((cause: unknown) => {
     throw new Error(
-      "components/studio/studio-shell.tsx does not exist yet — this is the red step of the TDD loop, not a broken test.",
+      "components/studio/studio-shell/studio-shell.tsx does not exist yet — this is the red step of the TDD loop, not a broken test.",
       { cause },
     );
   })) as ShellModule;
   const Shell = mod.default;
   if (typeof Shell !== "function") {
     throw new Error(
-      "components/studio/studio-shell.tsx exists but default-exports no component — still the red step.",
+      "components/studio/studio-shell/studio-shell.tsx exists but default-exports no component — still the red step.",
     );
   }
   return Shell;
@@ -820,14 +820,14 @@ describe("studio shell — the session lapsing mid-edit", () => {
    *
    * It began as "makes no network request of its own", which was true of a
    * shell that could not fetch at all. When the listing landed
-   * (test/studio-trip-loading.test.tsx) that became a claim about a path this
+   * (components/studio/studio-shell/studio-shell.trip-loading.test.tsx) that became a claim about a path this
    * file never takes, so it was narrowed to "when it is handed its trips".
    *
    * Then the coordinate gate landed and the claim stopped being true for a
    * second reason: the SUBTREE is not silent. The entry editor reads §7.6's
    * privacy settings on mount, through the session's fetch, before anything is
    * typed — §9's fail-closed posture, and the reason section 1 of
-   * test/entry-editor.test.tsx can wait for the latitude control to become
+   * components/studio/entry-editor/entry-editor.test.tsx can wait for the latitude control to become
    * enabled with no interaction in front of it. That request is the editor's,
    * not the shell's.
    *
@@ -893,7 +893,7 @@ describe("studio shell — the session lapsing mid-edit", () => {
  * break the browser bundle.
  * ======================================================================== */
 
-describe("components/studio/studio-shell.tsx, as source", () => {
+describe("components/studio/studio-shell/studio-shell.tsx, as source", () => {
   const PATH = "components/studio/studio-shell/studio-shell.tsx";
 
   function source(): string {
@@ -974,7 +974,7 @@ describe("components/studio/studio-shell.tsx, as source", () => {
 
   it("imports no VALUE from the Solid auth library — the session is injected", () => {
     // The shell must stay a plain component that takes a session. The library
-    // enters at components/studio/studio-client.tsx, which is also where
+    // enters at components/studio/studio-client/studio-client.tsx, which is also where
     // `ssr: false` lives. A value import here would construct a session at
     // module scope and make this file untestable without an OIDC round-trip.
     // `import type` is exempt: it is erased, and lib/studio/session.ts relies on

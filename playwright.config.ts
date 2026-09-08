@@ -8,7 +8,7 @@ import { E2E, appEnv } from "./e2e/environment";
  * faster — never a slow duplicate of a fast test." That is the whole remit, and
  * it is a bar each flow has to clear rather than a licence to add a third. The
  * studio's states — restoring, signed-out, owner, not-owner, the expiry
- * subscription — are covered by the component tests in test/studio-shell.test.tsx,
+ * subscription — are covered by the component tests in components/studio/studio-shell/studio-shell.test.tsx,
  * which run in about a second. Re-driving them in a browser would be a slow
  * duplicate of a fast test, which is worse than no test: it costs minutes per
  * run and finds nothing the fast one does not.

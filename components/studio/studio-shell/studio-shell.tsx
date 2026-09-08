@@ -9,7 +9,7 @@
  *      arrives as a prop, which is what lets every behaviour below be tested
  *      against a plain object instead of an OIDC round-trip, and what keeps the
  *      library inside the `ssr: false` boundary that
- *      components/studio/studio-client.tsx draws.
+ *      components/studio/studio-client/studio-client.tsx draws.
  *   2. It reads NO config and NO env var. OWNER_WEBID, SITE_URL and SITE_NAME
  *      are not `NEXT_PUBLIC_`, so `lib/config.ts` throws the moment it is
  *      reached in a browser; `oidcIssuer` has no env var at all by design
@@ -87,7 +87,7 @@ export interface StudioShellProps {
    * is mounted with `ssr: false`, so nothing upstream of this component holds
    * an authenticated fetch and no server component can resolve the list. It is
    * injected here for exactly the reason the session is — twenty cases in
-   * test/studio-shell.test.tsx are about what this component RENDERS given its
+   * components/studio/studio-shell/studio-shell.test.tsx are about what this component RENDERS given its
    * trips, and none of them wants a Pod in it.
    *
    * SUPPLIED MEANS SUPPLIED: offer exactly these and ask the Pod nothing.
@@ -439,7 +439,7 @@ function Writable({
          *
          * The wording avoids the phrase "belongs to" on purpose: that is the
          * not-owner courtesy message's contract phrase, and
-         * test/studio-shell.test.tsx queries it to prove the owner is never
+         * components/studio/studio-shell/studio-shell.test.tsx queries it to prove the owner is never
          * shown it.
          */
         skipped.length === 0 && (

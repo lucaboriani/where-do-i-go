@@ -393,7 +393,7 @@ own. Giving a five-line reducer helper its own directory is the reductio, and a 
 demanded it would be weakened under deadline instead of followed.
 
 **A barrel re-exports ONE component, never a directory of them.** No `components/studio/index.ts`
-aggregating all three. `components/studio/studio-client.tsx` dynamic-imports the shell with
+aggregating all three. `components/studio/studio-client/studio-client.tsx` dynamic-imports the shell with
 `ssr: false`, and an aggregating barrel at that boundary pulls `EntryEditor` into the shell chunk
 unconditionally — the lint fence would not object, because it is a studio-to-studio import.
 

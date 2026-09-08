@@ -83,7 +83,7 @@ describe("guardrails actually fire", () => {
    *
    *     JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\[[^\]]+\]/]
    *
-   * components/studio/entry-editor.tsx does not write its classes that way. Its
+   * components/studio/entry-editor/entry-editor.tsx does not write its classes that way. Its
    * nine controls share two module-level constants, CONTROL and BUTTON, spent as
    * `className={CONTROL}` — an Identifier, not a Literal — so the rule never
    * looks at the strings at all. Measured against the real config before this was
@@ -497,7 +497,7 @@ describe("guardrails actually fire", () => {
   /**
    * And the allow-case for the components/studio half, which is the whole
    * point of it being a fence rather than a ban: app/(studio)/studio/page.tsx
-   * → the "use client" wrapper → components/studio/studio-shell.tsx IS the
+   * → the "use client" wrapper → components/studio/studio-shell/studio-shell.tsx IS the
    * three-file shape CLAUDE.md mandates. Widen the group past the public block
    * and the studio can no longer render itself.
    *

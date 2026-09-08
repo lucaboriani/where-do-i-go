@@ -14,7 +14,7 @@
  * WHAT THIS DELIBERATELY DOES NOT DO: fuzz coordinates. §9 requires fuzzing
  * BEFORE the write — "the Pod stores only the coordinate you are willing to
  * publish" — and that happens in `lib/pod/fuzz.ts`, called by
- * `components/studio/entry-editor.tsx` before the `Entry` reaches this
+ * `components/studio/entry-editor/entry-editor.tsx` before the `Entry` reaches this
  * function. Whatever coordinate this function is handed is the coordinate that
  * reaches the Pod, unrounded and unshifted, so that fuzzing is unambiguously
  * the caller's job and no test here can be misread as evidence that a

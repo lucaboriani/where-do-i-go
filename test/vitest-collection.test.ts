@@ -8,8 +8,8 @@ import { walkTestFiles } from "./support/walk";
  * Every test file on disk is actually collected.
  *
  * WHY THIS EXISTS. `vitest.config.ts` used to include only `**\/*.test.ts`, so
- * the repository's first `.tsx` test — test/studio-shell.test.tsx, 31 kB of it —
- * was silently never run. The suite reported "280 passed" both with and without
+ * the repository's first `.tsx` test — then test/studio-shell.test.tsx, 31 kB
+ * of it — was silently never run. The suite reported "280 passed" both with and without
  * it, byte for byte. That is this project's named failure mode in its purest
  * form: not a test that passes while verifying nothing, but a test file that
  * does not report at all.
@@ -69,7 +69,7 @@ describe("vitest collects every test file that exists", () => {
     expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(2);
   });
 
-  it("runs every .test.ts and .test.tsx under test/", () => {
+  it("runs every .test.ts and .test.tsx in the repository, wherever it sits", () => {
     const missing = onDisk.filter((file) => !collected.includes(file));
     expect(
       missing,

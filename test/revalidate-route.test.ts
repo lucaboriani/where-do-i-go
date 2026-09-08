@@ -127,7 +127,7 @@ type RouteModule = typeof import("@/app/(public)/api/revalidate/route");
  * with it — and a literal dynamic import fails identically, because
  * import-analysis resolves those statically too. Only a specifier vite cannot
  * read at build time defers the failure to the test that needs it. Same device
- * as test/studio-shell.test.tsx, and checked in both directions by a control.
+ * as components/studio/studio-shell/studio-shell.test.tsx, and checked in both directions by a control.
  */
 const importModule = (specifier: string): Promise<unknown> =>
   import(/* @vite-ignore */ specifier);

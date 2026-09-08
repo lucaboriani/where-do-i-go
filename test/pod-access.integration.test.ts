@@ -1479,7 +1479,7 @@ describe("the privacy settings container", () => {
  * never done anywhere in this repository.
  *
  * Every other test of the upload path fakes the Pod: MSW at the HTTP layer in
- * test/media-upload.test.ts and test/entry-editor.test.tsx, and a Playwright
+ * test/media-upload.test.ts and components/studio/entry-editor/entry-editor.test.tsx, and a Playwright
  * `route.fulfill({ status: 201 })` in e2e/media-pipeline.spec.ts. Meanwhile
  * scripts/seed-dev-pod.ts creates `travel/`, `travel/trips/` and the trip tree
  * and NOT `travel/media/`, so `.pod-data/e2e/travel/` has no media container at

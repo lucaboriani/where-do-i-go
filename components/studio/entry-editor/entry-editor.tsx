@@ -9,7 +9,7 @@
  *   1. It imports NO VALUE from @inrupt/solid-client-authn-browser. The session
  *      arrives as a prop, so every behaviour here is testable against a plain
  *      object, and the library stays inside the `ssr: false` boundary that
- *      components/studio/studio-client.tsx draws.
+ *      components/studio/studio-client/studio-client.tsx draws.
  *   2. It reads NO config and NO env var. OWNER_WEBID, SITE_URL, SITE_NAME and
  *      POD_ROOT are not `NEXT_PUBLIC_`, so `lib/config.ts` throws the moment it
  *      is reached in a browser. The trips it can write into arrive as props;
@@ -393,7 +393,7 @@ function nowWithOffset(): string {
  * programmatically *against the brief text*, so the brief was the oracle rather
  * than the world — and neither could name a value neither of them knew about.
  * The oracle is the set of offsets in real civil use, daylight ones included;
- * the durable form of the claim is `ODD_OFFSETS` in test/entry-editor.test.tsx,
+ * the durable form of the claim is `ODD_OFFSETS` in components/studio/entry-editor/entry-editor.test.tsx,
  * which lists the non-whole-hour zones and goes red if one stops being offered.
  * A COUNT IS NOT THE CLAIM, so there is none here: the length moved the moment
  * these two were added and it moves again the next time a legislature moves a
@@ -1089,7 +1089,7 @@ function preconditionFor(target: Target | null): Precondition | null {
  * A DEBOUNCE, NOT AN INTERVAL: each change restarts the window, so a minute of
  * typing is one write rather than seventy. Exported because the studio is what
  * ships this number and a value that lives only inside the closure is one nobody
- * can change on purpose — test/entry-editor.test.tsx drives the window and pins
+ * can change on purpose — components/studio/entry-editor/entry-editor.test.tsx drives the window and pins
  * it against this export so the two cannot drift.
  */
 export const DRAFT_DEBOUNCE_MS = 800;
@@ -1566,7 +1566,7 @@ export default function EntryEditor({
    * twice; a `live` flag alone would cancel the first invocation's promise and
    * a ref that merely said "already started" would leave the second with
    * nothing to await, so nothing would ever be set. Holding the PROMISE — the
-   * shape components/studio/studio-shell.tsx uses for `enumerateTrips`, and
+   * shape components/studio/studio-shell/studio-shell.tsx uses for `enumerateTrips`, and
    * `restoreSession`'s for the same reason — makes both invocations await the
    * same request.
    *
@@ -2420,7 +2420,7 @@ export default function EntryEditor({
   /**
    * AN UNMOUNT IS NOT A REASON TO THROW THE LAST 800ms AWAY.
    *
-   * Routine rather than exotic: components/studio/studio-shell.tsx flips
+   * Routine rather than exotic: components/studio/studio-shell/studio-shell.tsx flips
    * `view.status` when the Solid session expires and stops rendering the
    * editor, so an expiring token would otherwise take the sentence in progress
    * with it — the loss `docs/decisions.md` §10 names as the whole reason this
@@ -3979,7 +3979,7 @@ export default function EntryEditor({
         outcomes distinguishable BY THEIR WORDING: inside the region, a
         per-scenario URL would make any two identically worded outcomes look
         different to a test reading that region, which is exactly the
-        distinction test/entry-editor.test.tsx exists to hold. Measured, not
+        distinction components/studio/entry-editor/entry-editor.test.tsx exists to hold. Measured, not
         supposed — with the detail inside, keying the message off `recovery`
         alone still passed that test.
       */}
@@ -4066,7 +4066,7 @@ export default function EntryEditor({
  * cascade, so the only assertion available is `toHaveClass("disabled:opacity-60")`,
  * which restates the string on the next line and would pass against a variant
  * that resolves to nothing, a token absent from `@theme`, or a rule a later
- * Tailwind outranks. The reasoning is in test/entry-editor.test.tsx's 8e-bis
+ * Tailwind outranks. The reasoning is in components/studio/entry-editor/entry-editor.test.tsx's 8e-bis
  * docblock; the pin there covers the half a stylesheet cannot silently remove.
  */
 const CONTROL = "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";
