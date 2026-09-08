@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { walkTestFiles } from "./support/walk";
 
 /**
  * Every test file on disk is actually collected.
@@ -45,12 +46,10 @@ function collectedFiles(): string[] {
   return files;
 }
 
-/** Every *.test.ts / *.test.tsx sitting in test/, top level only. */
+/** Every *.test.ts / *.test.tsx anywhere in the repository. NOT just test/ —
+ *  see ./support/notes.md#why-a-walker for what a one-deep scan cost. */
 function testFilesOnDisk(): string[] {
-  return readdirSync(new URL("../test", import.meta.url))
-    .filter((name) => /\.test\.tsx?$/.test(name))
-    .map((name) => `test/${name}`)
-    .sort();
+  return walkTestFiles(repoRoot);
 }
 
 describe("vitest collects every test file that exists", () => {

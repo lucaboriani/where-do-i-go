@@ -17,18 +17,19 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["test/setup.ts"],
     /**
-     * `.tsx` IS LOAD-BEARING. This read `*.test.ts` only, and the repository's
-     * first component test was therefore collected by nothing: the suite
-     * reported "280 passed" identically with and without 31 kB of new test file
-     * on disk. An uncollected file does not report red, it does not report at
-     * all — the project's "green run that verified nothing" failure mode in its
-     * purest form. test/vitest-collection.test.ts now fails if this regresses.
+     * `.tsx` IS LOAD-BEARING — see test/support/notes.md#why-a-walker.
+     * `components/**` and `app/**` joined the list when tests moved beside
+     * their subjects; test/vitest-collection.test.ts fails if any of the four
+     * stops matching a file that exists.
      *
-     * `.spec.ts` is still deliberately excluded: test/fixtures/swallowed-stray.spec.ts
-     * is a fixture that MUST fail, and test/network-guard.test.ts spawns it
-     * through test/fixtures/vitest.config.ts. Collecting it here would make the
-     * main suite permanently red. Also pinned by test/vitest-collection.test.ts.
+     * `.spec.ts` stays deliberately excluded: test/fixtures/swallowed-stray.spec.ts
+     * is a fixture that MUST fail, and e2e/*.spec.ts belongs to Playwright.
      */
-    include: ["test/**/*.test.{ts,tsx}", "lib/**/*.test.{ts,tsx}"],
+    include: [
+      "test/**/*.test.{ts,tsx}",
+      "lib/**/*.test.{ts,tsx}",
+      "components/**/*.test.{ts,tsx}",
+      "app/**/*.test.{ts,tsx}",
+    ],
   },
 });
