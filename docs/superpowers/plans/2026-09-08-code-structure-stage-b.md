@@ -13,12 +13,13 @@
 ## Global Constraints
 
 - **Node 22.** `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`, then `node -v` must print `v22.x`. Everything here passes on Node 20 too, so checking is a step you take rather than one the tooling takes for you.
-- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`; **1063 / 2 / 0 / 31** once Task 1 landed; **1063 / 2 / 0 / 43** once Task 2 split the file. Run `npm test` before you touch anything and compare against that.
+- **Take the test count from HEAD, never from this plan.** It was **1060 passed / 2 todo / 0 skipped / 31 files** at `bb81c36`; **1063 / 2 / 0 / 31** once Task 1 landed; **1063 / 2 / 0 / 43** once Task 2 split the file; **1130 / 2 / 0 / 45** at Task 3 (`0438230`); **1137 / 2 / 0 / 46** once Task 4 landed. Run `npm test` before you touch anything and compare against that.
 - **`npm run pod:dev &` before `npm test`**, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran: `npx vitest run test/integration/` must report 33 passed, and `TEST_POD=http://localhost:3999 npx vitest run test/integration/` must report 33 skipped. That control is how this stage knows a green run was not an empty one.
 - **`npm run size:public` does not build.** Run `npm run build` first or it grades a stale `.next`.
-- **Every task in this stage touches `components/studio/**`, so `npm run test:e2e` is required on every task.** Run it with `env -u CLAUDECODE -u AI_AGENT npm run test:e2e`. Expect 6 passed.
+- **Every task in this stage touches `components/studio/**`, so `npm run test:e2e` is required on every task.** Run it with `env -u CLAUDECODE -u AI_AGENT npm run test:e2e`. Expect 6 passed. **A `next dev` already on port 3000 makes it refuse to start** — `reuseExistingServer: false`, deliberately, so it cannot run against someone else's `.env.local`. Do not kill the dev server: `E2E_PORT=3007 env -u CLAUDECODE -u AI_AGENT npm run test:e2e`, measured on Task 4 with the dev server up.
 - **`npm run lint` carries `--max-warnings 0`.** `reportUnusedDisableDirectives` is active, so the moment a decomposed function drops under its bound, its `eslint-disable` becomes an unused directive and **fails the build**. That is the designed removal signal, not a surprise: delete the exemption in the same commit that shortens the function.
 - **`npm run check:structure` must stay green.** Its comment ratchet is at **788** and fails when the count rises. Splitting a file does not create comment blocks, but *adding* prose does. If it rises, shorten the prose or move it to a `notes.md` — do not raise the baseline.
+  **The trap Task 4 hit, and Task 5 hits five times:** `// @vitest-environment jsdom` on line 1 is a comment token, and a docblock starting on line 2 is the *same run* — a blank line resets a run, a new comment does not. So a five-line docblock under that directive is a six-line run and a six-line docblock is seven, which fails. Every new `.test.tsx` in this stage starts with that directive, so its header docblock has **four lines of prose at most**, delimiters included in the count. The failure names no file; bisect your own new prose.
 - **`components/studio/entry-editor/` holds `.tsx` components in their own folders, and flat `.ts` modules under `state/` and `hooks/`.** That asymmetry is deliberate and written into `CLAUDE.md`; the folder rule binds `.tsx` only.
 - The `dy:` namespace is still `https://example.org/ns/traveldiary#`. Nothing in this stage writes to any live Pod.
 
@@ -452,6 +453,17 @@ records that a `role="status"` here would collide with the save-outcome region.
 string in a `const` — `test/guardrails.test.ts` has a case for exactly that. Moving them keeps
 them outside `components/ui/**`, so the ban still applies and they must stay free of arbitrary
 values.
+
+**Measured at the new path on 2026-09-08**, with a throwaway probe under `field/`:
+`disabled:bg-[#222]` in a `const` is one `no-restricted-syntax` error and the same string inside a
+`+` concatenation is a second. So `CONTROL`'s own docblock — "THE ARBITRARY-VALUE GUARDRAIL DOES
+NOT REACH THESE TWO CONSTANTS … keep arbitrary values out of them by hand" — has been stale since
+the rule grew its three extra arms on 2026-09-05. It travelled **verbatim** anyway, with the two
+other bearings it carries that no longer resolve ("`entry-editor.test.tsx`'s 8e-bis", split up by
+Task 2; "the Save button's `aria-describedby`, above", which stayed behind in the editor). All
+three are written up in `field/notes.md#what-travelled-here-already-wrong`. Repairing prose inside
+an extraction commit is what makes an extraction unreviewable; whoever does the Stage C sweep has
+the list.
 
 - [ ] **Step 3: Verify and commit**
 
