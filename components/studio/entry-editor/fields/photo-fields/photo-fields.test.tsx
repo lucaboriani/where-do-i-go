@@ -7,7 +7,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import PhotoFields from "./photo-fields";
-import type { PhotoFieldsProps, PhotoSlot } from "./photo-fields";
+import type { PhotoFieldsProps } from "./photo-fields";
+import type { PhotoSlot } from "../../state/actions";
 
 /** Manual: @testing-library/react registers auto-cleanup only when `afterEach`
  *  is a global, and this project runs vitest without `globals: true`. */
@@ -100,9 +101,7 @@ describe("the photo group announces what each picked file is doing", () => {
   });
 
   it("says a file is being prepared while it decodes, with no image yet", () => {
-    render(
-      <PhotoFields {...props({ slots: [{ key: "k", name: "a.jpg", state: "decoding" }] })} />,
-    );
+    render(<PhotoFields {...props({ slots: [{ key: "k", name: "a.jpg", state: "decoding" }] })} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Preparing a.jpg…");
     expect(screen.queryByRole("img")).toBeNull();

@@ -1055,17 +1055,17 @@ async function settleBoth(media: ReturnType<typeof mediaFake>) {
 
 describe("entry editor — two photos picked at once", () => {
   /**
-   * `offerTimestamp` seeds both halves from the REFS at entry-editor.tsx:1992
-   * -1993, inside `attach`'s continuation — after a decode and two PUTs. The
-   * picker starts every file at once (`for (const file of picked) void
-   * attach(file)`, :3726), so both resume as microtasks with no render between.
+   * Both offers resume as microtasks inside `attach`'s continuation, with no
+   * render between them. What made that safe was two synchronous REF reads
+   * until 2026-09-08, and is now the reducer folding queued actions in order:
+   * ./state/notes.md#guard-inside-the-transition
    */
 
   /**
    * A reducer reading its own state from a hook's return value would see
-   * `nobody` twice. MEASURED, by moving those two reads before the `await`:
-   * this case went red with the box holding the SECOND photo's clock — last
-   * writer wins, not first — and the case after it composed §11.5's instant.
+   * `nobody` twice. MEASURED, on the refs, by moving those two reads before
+   * the `await`: this case went red with the box holding the SECOND photo's
+   * clock — last writer wins, not first — and the next one composed §11.5's.
    */
 
   /**

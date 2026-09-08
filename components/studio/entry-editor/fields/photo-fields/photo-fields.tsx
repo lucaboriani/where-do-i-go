@@ -4,8 +4,8 @@
  * are the editor's. ./notes.md#props-only
  */
 
-import type { Photo } from "@/lib/pod/schema";
 import Field, { CONTROL } from "../../field";
+import type { PhotoSlot } from "../../state/actions";
 
 export interface PhotoFieldsProps {
   /** One row each, in the order they were picked. */
@@ -17,27 +17,6 @@ export interface PhotoFieldsProps {
    */
   onPicked: (files: readonly File[]) => void;
 }
-
-/**
- * ONE PICKED FILE, IN THE FOUR STATES IT PASSES THROUGH.
- *
- * A STATE MACHINE RATHER THAN A `Photo | null` PLUS A FLAG, because the owner
- * has to be able to tell three different waits apart from a failure — and
- * because only `ready` may be saved. Every slot the entry is allowed to
- * reference carries its `Photo`, so there is no branch anywhere in which a
- * half-finished upload can be serialised: the shape refuses it rather than a
- * condition remembering to.
- *
- * `key` IS NOT THE FILE NAME. Two files picked from two directories can share
- * one, and the same file can be picked twice while the first is still decoding;
- * a name-keyed list would then update the wrong row. React's reconciler needs a
- * stable identity here too, since a slot moves through three renders.
- */
-export type PhotoSlot =
-  | { key: string; name: string; state: "decoding" }
-  | { key: string; name: string; state: "uploading" }
-  | { key: string; name: string; state: "ready"; photo: Photo }
-  | { key: string; name: string; state: "failed"; message: string };
 
 export default function PhotoFields({ slots, onPicked }: PhotoFieldsProps) {
   return (
