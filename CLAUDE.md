@@ -320,7 +320,7 @@ one's.
 |---|---|---|---|
 | Render function | 130 | 200 | `components/**`, `app/**` |
 | Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
-| Inline comment block | 3 lines | 6 lines | everywhere except `components/ui/**` |
+| Inline comment block | 3 lines | 6 lines (ratchet, see below) | everywhere except `components/ui/**` |
 | Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
 | Test function body | no limit | no limit | — |
 
@@ -328,6 +328,21 @@ ESLint enforces the hard bounds and says nothing about the tendencies; `npm run 
 reports every function over a tendency and fails on none of them. That split is deliberate and
 is the maintainer's instruction: the numbers are "tend to", not a dictate, and a lint error
 cannot express that. Do not tighten the lint rules to the tendency values.
+
+**`npm run lint` carries `--max-warnings 0`**, so a stale `eslint-disable` whose code has since
+been fixed fails the build rather than printing a severity-1 warning nobody reads. The repository
+had zero warnings when that was added, on 2026-09-08.
+
+**The comment bound is a RATCHET, not a flat failure, until the Stage C sweep lands.** There were
+**262 blocks over six lines across 38 files** when these rules were written — 98 in the entry
+editor alone — and fixing them is Stage C. So `check:structure` stores the count and fails only
+when it **rises**. The number can only go down; when it reaches zero the ratchet becomes a hard
+zero. A failing build is the only kind of "report" the doctrine above concedes cannot be
+rationalised past, and a hard bound that blocks every merge on deferred work is worse than none.
+
+**Delimiter lines count toward the bound**, so a `/** … */` docblock's real budget is four lines
+of prose, not six. Two comment blocks with no blank line between them are one run: a blank line
+resets it.
 
 Test bodies carry no length limit on purpose. A scenario test reads better whole than shredded
 into helpers whose names hide the arrangement; the file ceiling is what keeps tests navigable.
@@ -342,6 +357,11 @@ sibling `notes.md`, and the code keeps a pointer:
 `check:structure` fails if that anchor does not resolve, so a pointer cannot rot the way the
 line-number citations in the entry-editor tests did — twice in one stage, the second time within
 a single fix round, because the production commit landed after the test commit.
+
+> **`check:structure` does not exist yet.** It arrives in Task 6 of
+> `docs/superpowers/plans/2026-09-08-code-structure-stage-a.md`. Until then the three promises
+> this section makes about it — dead pointers, orphan tests, a rotted allowlist — are the design,
+> not the current behaviour. Delete this note when the script lands.
 
 `notes.md`, not `README.md`: README promises "how to use this", notes promises "why it is like
 this", and the second is what the prose in this repository actually is. **Notes cite
@@ -365,6 +385,17 @@ Named file plus a barrel, because a tab bar of twelve `index.tsx` files is the o
 readable and stack traces that all say `index.tsx` are worse, while the barrel keeps imports
 short. `components/ui/**` is exempt and stays flat: it is shadcn's copied source, the CLI
 rewrites it flat on update, and it is already exempt from the arbitrary-Tailwind guardrail.
+
+**The rule binds `.tsx` files — components — and not the `.ts` files beside them.** A component
+folder may hold flat `state/` and `hooks/` subdirectories of plain modules
+(`hooks/use-entry-form.ts`, `state/apply-photo-offer.ts`) without each earning a folder of its
+own. Giving a five-line reducer helper its own directory is the reductio, and a rule that
+demanded it would be weakened under deadline instead of followed.
+
+**A barrel re-exports ONE component, never a directory of them.** No `components/studio/index.ts`
+aggregating all three. `components/studio/studio-client.tsx` dynamic-imports the shell with
+`ssr: false`, and an aggregating barrel at that boundary pulls `EntryEditor` into the shell chunk
+unconditionally — the lint fence would not object, because it is a studio-to-studio import.
 
 **`lib/` holds no React.** A helper pulled out of a component goes to `lib/studio/<topic>/` if it
 is pure and reusable, and stays in the component folder if it is presentation. The public/studio
