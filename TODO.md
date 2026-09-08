@@ -167,20 +167,28 @@ cached-and-invalidated model expects.
       `npm run`** — a script ran happily on v20.20.0 with the flag set — so `node -v` before
       the definition-of-done commands stays a manual step. CI is already safe: the workflow
       pins via `node-version-file: .nvmrc`.
-- [x] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
-      for everything in this checkout and commit its lockfile; never mix two. The commands below
-      are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
-      `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
+- [x] **A package manager of your choice** — npm, pnpm, yarn or bun. Whichever you pick, use it
+      for everything in this checkout and commit its lockfile; never mix two.
+
+      **The commands below are written with npm, because `package-lock.json` is the lockfile
+      this tree actually commits** — `.npmrc` is npm's file, and CI runs `npm ci`. They were
+      written with pnpm until 2026-09-08, which made every one of them a paste-and-edit for
+      everybody working in this checkout, for no gain: `docs/decisions.md` §21's reason for the
+      pnpm dialect was "something has to be written down". Something did; it should be the one
+      in the tree.
+
+      Substitute freely if your checkout picked differently — `pnpm <script>`, `yarn <script>`,
+      `bun run <script>`, and `pnpm dlx` or `bunx` for `npx`.
 - [ ] Docker is optional. The local Pod runs fine without it (see below).
 
 ### Scaffold
 
 - [x] Create the app:
 
-      pnpm create next-app@16.3.4 . --ts --app --tailwind --eslint \
-        --use-pnpm --no-src-dir --import-alias "@/*" --no-agents-md
+      npx create-next-app@16.3.4 . --ts --app --tailwind --eslint \
+        --use-npm --no-src-dir --import-alias "@/*" --no-agents-md
 
-      Swap `--use-pnpm` for `--use-npm`, `--use-yarn` or `--use-bun` to match your choice —
+      Swap `--use-npm` for `--use-pnpm`, `--use-yarn` or `--use-bun` to match your choice —
       the flag decides which lockfile the scaffold generates.
 
 - [x] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
@@ -189,7 +197,7 @@ cached-and-invalidated model expects.
       `typescript-eslint@8.69.0`'s peer range (`>=4.8.4 <6.1.0`), so nothing is broken on
       arrival and nothing is urgent here:
 
-      pnpm add -D typescript@6.0.3
+      npm install -D typescript@6.0.3
 
       TypeScript's `latest` is 7.0.2, but nothing in this scaffold reaches for it. Do not
       install it — it falls outside the typescript-eslint peer range. See `docs/versions.md`.
@@ -200,7 +208,7 @@ cached-and-invalidated model expects.
 
 - [x] Install, exact versions:
 
-      pnpm add maplibre-gl@6.6.0 react-map-gl@8.1.2 \
+      npm install maplibre-gl@6.6.0 react-map-gl@8.1.2 \
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
@@ -213,7 +221,7 @@ cached-and-invalidated model expects.
 
 - [x] Install:
 
-      pnpm add -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
+      npm install -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
         @testing-library/react@16.3.3 @testing-library/jest-dom@7.0.1 jsdom@30.0.1 \
         @playwright/test@1.62.1 msw@2.15.0 \
         typescript-eslint@8.69.0 prettier@3.9.6 tsx@4.23.13 \
@@ -223,7 +231,7 @@ cached-and-invalidated model expects.
       bundle-budget item below. Left in this command as the historical record of what phase 0.5
       installed; do not reinstall them.
 
-- [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
+- [x] `npx playwright install chromium` — only Chromium is needed, for the login flow.
 
       **The earlier "verified installed (`chromium-1223`)" here was wrong, and it is the
       reason this looked done for two days.** A browser in the Playwright cache is only
@@ -238,14 +246,14 @@ cached-and-invalidated model expects.
 
 - [x] Initialise:
 
-      pnpm dlx shadcn@latest init
+      npx --yes shadcn@latest init
 
       Template `next`, base colour `neutral`. **Not** `npx shadcn-ui` — that package name is
       dead.
 
 - [x] Add only what the studio needs. Resist adding the whole registry:
 
-      pnpm dlx shadcn@latest add button input textarea select dialog drawer \
+      npx --yes shadcn@latest add button input textarea select dialog drawer \
         tabs popover command switch tooltip sonner
 
 - [x] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
@@ -490,7 +498,7 @@ cached-and-invalidated model expects.
 
 - [x] Run Community Solid Server pinned, no Docker needed:
 
-      pnpm dlx @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
+      npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
 
 - [x] Add `.pod-data/` to `.gitignore`.
 - [x] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against

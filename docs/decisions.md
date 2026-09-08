@@ -303,9 +303,16 @@ untested, so until it is, a hosted deployment should assume draft slugs are disc
 
 ## 21. The package manager is not dictated
 
-pnpm, npm, yarn and bun are all fine. Pick one per checkout, commit its lockfile, never mix two
-in the same tree. Documentation examples are written with pnpm because something has to be
-written down; that is a convention, not a requirement.
+npm, pnpm, yarn and bun are all fine. Pick one per checkout, commit its lockfile, never mix two
+in the same tree. That is the decision, and it has not changed.
+
+**The documentation dialect has.** Examples were written with pnpm until 2026-09-08, on the
+stated grounds that "something has to be written down". They are npm now, because this tree
+commits `package-lock.json` and nothing else: `.npmrc` is npm's file, CI runs `npm ci`, and every
+command in the definition of done has been run here as `npm run`. An example in a dialect the
+checkout does not use is a paste-and-edit for every reader, and it silently contradicts the very
+rule above — "pick one per checkout" was answered, and the docs did not follow the answer. Still
+a convention, not a requirement: substitute your own.
 
 Earlier revisions asserted pnpm and told contributors to "never mix in `npm install`", without
 ever recording why — this file had eighteen entries and none of them was about the package

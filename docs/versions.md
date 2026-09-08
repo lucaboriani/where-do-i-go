@@ -36,7 +36,7 @@ than a few weeks stale — record what you actually installed by committing the 
 
 | Package | Version | Notes |
 |---|---|---|
-| `shadcn` (CLI) | 4.19.1 | run via `pnpm dlx shadcn@latest`; the old package name `shadcn-ui` is dead |
+| `shadcn` (CLI) | 4.19.1 | run via `npx --yes shadcn@latest`; the old package name `shadcn-ui` is dead |
 | `eslint` | **9.39.5** | not latest — see the ESLint conflict below |
 | `eslint-config-next` | 16.3.4 | tracks the `next` version |
 | `typescript-eslint` | 8.69.0 | **peer-declares `typescript >=4.8.4 <6.1.0`** |
@@ -55,9 +55,9 @@ than a few weeks stale — record what you actually installed by committing the 
 
 - **Node 22 LTS — 22.23.2 or later, and below 23.** Pin it in `.nvmrc` and in the Netlify
   build image. See the engine conflict below; this is not interchangeable with Node 24.
-- **Package manager: the deployer's choice** — pnpm, npm, yarn or bun. Pick one per checkout,
+- **Package manager: the deployer's choice** — npm, pnpm, yarn or bun. Pick one per checkout,
   commit its lockfile, and never mix two in the same tree. Examples throughout these docs are
-  written with pnpm; substitute the equivalent. Rationale in `docs/decisions.md` §21.
+  written with npm, which is the lockfile this tree commits; substitute the equivalent. Rationale in `docs/decisions.md` §21.
 
 ### The Node engine conflict — this is why it is 22, not 24
 
