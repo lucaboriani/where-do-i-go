@@ -485,14 +485,14 @@ Twenty-six test files remain in `test/`. Fourteen have a single module as their 
   `read.test.ts` → `lib/pod/read.test.ts`;
   `fuzz.test.ts` → `lib/pod/fuzz.test.ts`;
   `index-model.test.ts` → `lib/pod/index-model.test.ts`;
-  `entry-write.test.ts` → `lib/pod/entry-model.test.ts`;
+  `entry-write.test.ts` → `lib/pod/save-entry.test.ts`;
   `write-primitives.test.ts` → `lib/pod/write.test.ts`;
   `drafts.test.ts` → `lib/studio/drafts.test.ts`;
   `session.test.ts` → `lib/studio/session.test.ts`;
   `studio-trips.test.ts` → `lib/studio/trips.test.ts`;
-  `owner-profile.test.ts` → `lib/pod/owner-profile.test.ts`;
+  `owner-profile.test.ts` → `lib/pod/read.owner-profile.test.ts`;
   `cached-owner-profile.test.ts` → `lib/pod/cached.test.ts`;
-  `privacy-settings.test.ts` → `lib/pod/privacy-settings.test.ts`;
+  `privacy-settings.test.ts` → `lib/pod/read.privacy-settings.test.ts`;
   `media-exif.test.ts` → `lib/media/exif.test.ts`;
   `media-pipeline.test.ts` → `lib/media/pipeline.test.ts`;
   `media-targets.test.ts` → `lib/media/targets.test.ts`;
@@ -505,19 +505,39 @@ Twenty-six test files remain in `test/`. Fourteen have a single module as their 
 - Consumes: the widened `include` and guard from Task 2.
 - Produces: the final layout `check:structure` validates in Task 6, and the allowlist it carries.
 
-- [ ] **Step 1: Confirm each subject before moving, one grep**
+- [ ] **Step 1: The subjects, already confirmed — read this instead of re-deriving it**
 
-The mapping above pairs a test with a module by name, and three of those pairings rename the test (`entry-write` → `entry-model`, `studio-trips` → `trips`, `cached-owner-profile` → `cached`). Verify each by reading the test's own imports:
+This survey was run before the plan was finalised, and it corrected three of the mappings. The
+results, from each test file's own imports:
 
-```bash
-for t in access read fuzz index-model entry-write write-primitives drafts session \
-         studio-trips owner-profile cached-owner-profile privacy-settings \
-         media-exif media-pipeline media-targets media-upload revalidate-route studio-page; do
-  echo "--- $t"; grep -m3 -E '^import .*from "(@/|\.)' "test/$t.test.ts" 2>/dev/null | head -3
-done
-```
+| Test file | Subject, as its imports name it | Moves to |
+|---|---|---|
+| `access` | `@/lib/pod/access` | `lib/pod/access.test.ts` |
+| `read` | `@/lib/pod/read` | `lib/pod/read.test.ts` |
+| `fuzz` | `@/lib/pod/fuzz` | `lib/pod/fuzz.test.ts` |
+| `index-model` | `@/lib/pod/index-model` | `lib/pod/index-model.test.ts` |
+| `write-primitives` | `putGuarded`, `listContainer`, `rebuildIndex` from `@/lib/pod/write` | `lib/pod/write.test.ts` |
+| `entry-write` | **`saveEntry` (52 references), `serialiseEntry` (31)** | `lib/pod/save-entry.test.ts` |
+| `drafts` | `@/lib/studio/drafts` | `lib/studio/drafts.test.ts` |
+| `session` | `@/lib/studio/session` | `lib/studio/session.test.ts` |
+| `studio-trips` | `@/lib/studio/trips` | `lib/studio/trips.test.ts` |
+| `owner-profile` | **`import("@/lib/pod/read")`, dynamically** | `lib/pod/read.owner-profile.test.ts` |
+| `privacy-settings` | **`import("@/lib/pod/read")`, dynamically** | `lib/pod/read.privacy-settings.test.ts` |
+| `cached-owner-profile` | `import("@/lib/pod/cached")` | `lib/pod/cached.test.ts` |
+| `media-exif` / `-pipeline` / `-targets` / `-upload` | the matching `@/lib/media/*` | `lib/media/<name>.test.ts` |
+| `revalidate-route` | the route it exercises | `app/(public)/api/revalidate/route.test.ts` |
+| `studio-page` | `import("@/app/(studio)/studio/page")` | `app/(studio)/studio/page.test.ts` |
 
-Where the imports name a different module than the mapping does, follow the imports and note the correction in the commit message. `owner-profile` and `privacy-settings` in particular may be functions inside `lib/pod/read.ts` rather than modules of their own — if so, they colocate as `lib/pod/owner-profile.test.ts` next to nothing, which `check:structure` will reject in Task 6. In that case put them at `lib/pod/read.owner-profile.test.ts` and `lib/pod/read.privacy-settings.test.ts`, so the base name before the first dot matches `read.ts`.
+**Three of these were wrong in an earlier draft and are the reason this table exists.**
+`entry-write` was mapped to `entry-model.test.ts` on the strength of its name; its imports say
+it is overwhelmingly a `saveEntry` test — the §10 write sequence — so it colocates with
+`save-entry.ts`. `owner-profile` and `privacy-settings` have no module of their own at all: both
+dynamically import `lib/pod/read.ts`, so they take the `read.` prefix, which keeps the base name
+before the first dot matching `read.ts` and satisfies the placement rule in Task 6.
+
+`lib/pod/entry-model.ts` is consequently left with no colocated test, and that is correct:
+`serialiseEntry` is exercised inside the `saveEntry` suite. The placement rule is "a test has a
+source beside it", never "a source has a test beside it".
 
 - [ ] **Step 2: Move them**
 
