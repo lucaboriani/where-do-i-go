@@ -84,19 +84,19 @@ describe("check:structure, against this repository", () => {
     expect(count, run.transcript).toBeGreaterThan(5);
   });
 
-  /** Three since 2026-09-08: the fourth was `max-lines` on entry-editor.test.tsx
-   *  and went with the file when Stage B split it into thirteen suites, none of
-   *  which needs one. The count is asserted too — an exemption reappearing
-   *  somewhere unlisted is the thing worth failing on. */
-  it("lists all three exemptions by path, and exactly three", () => {
-    expect(run.stdout, run.transcript).toMatch(/active exemptions — 3/);
-    for (const path of [
-      "entry-editor/entry-editor.tsx",
-      "lib/pod/entry-model.ts",
-      "scripts/check-public-bundle.ts",
-    ])
-      expect(run.stdout, run.transcript).toContain(path);
-    expect(run.stdout, run.transcript).not.toContain("entry-editor.test.tsx");
+  /** Two since 2026-09-08, both Stage C's; Stage B's last hook took out
+   *  `EntryEditor`'s. Asserted against THE EXEMPTIONS BLOCK and not the whole of
+   *  stdout, because every one of these paths also appears in the drift report —
+   *  so a `toContain` over stdout passed whatever the block actually held. */
+  it("lists both exemptions by path, and exactly two", () => {
+    const block = /active exemptions — (\d+):\n((?:  .*\n)*)/.exec(run.stdout);
+    expect(block?.[1], run.transcript).toBe("2");
+    const listed = (block?.[2] ?? "").trim().split("\n");
+    expect(listed, run.transcript).toHaveLength(2);
+    expect(listed.join("\n"), run.transcript).toContain("lib/pod/entry-model.ts");
+    expect(listed.join("\n"), run.transcript).toContain("scripts/check-public-bundle.ts");
+    for (const gone of ["entry-editor", "entry-editor.test.tsx"])
+      expect(listed.join("\n"), run.transcript).not.toContain(gone);
   });
 
   it("reports the comment ratchet as a count, not as a failure", () => {
@@ -171,14 +171,20 @@ describe("check:structure, on fixtures that each break one rule", () => {
 
   it("skips test/integration/, which has no single subject by design", () => {
     const root = compliant();
-    writeFileSync(join(root, "test", "integration", "pod.integration.test.ts"), 'import "vitest";\n');
+    writeFileSync(
+      join(root, "test", "integration", "pod.integration.test.ts"),
+      'import "vitest";\n',
+    );
     expect(runCli(root).status).toBe(0);
   });
 
   it("fails on a notes pointer whose anchor does not resolve", () => {
     const root = compliant();
     const dir = join(root, "components", "studio", "widget");
-    writeFileSync(join(dir, "widget.tsx"), "// see ./notes.md#no-such-heading\nexport const W = 1;\n");
+    writeFileSync(
+      join(dir, "widget.tsx"),
+      "// see ./notes.md#no-such-heading\nexport const W = 1;\n",
+    );
     writeFileSync(join(dir, "notes.md"), "# widget\n\n## a-real-heading\n\nprose\n");
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
@@ -194,7 +200,9 @@ describe("check:structure, on fixtures that each break one rule", () => {
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
     // NOT just "notes.md" — that substring is in other messages too.
-    expect(run.stdout, run.transcript).toMatch(/points at \.\/notes\.md#anything, which does not exist/);
+    expect(run.stdout, run.transcript).toMatch(
+      /points at \.\/notes\.md#anything, which does not exist/,
+    );
   });
 
   it("resolves an em-dash heading the way GitHub does", () => {
@@ -227,7 +235,10 @@ describe("check:structure, on fixtures that each break one rule", () => {
     const root = compliant();
     mkdirSync(join(root, "lib", "pod", "support"), { recursive: true });
     writeFileSync(join(root, "lib", "pod", "support", "notes.md"), "# s\n\n## why\n");
-    writeFileSync(join(root, "lib", "pod", "thing.ts"), "// see ./support/notes.md#why\nexport const t = 1;\n");
+    writeFileSync(
+      join(root, "lib", "pod", "thing.ts"),
+      "// see ./support/notes.md#why\nexport const t = 1;\n",
+    );
     expect(runCli(root).status).toBe(0);
   });
 
@@ -251,11 +262,17 @@ describe("check:structure, on fixtures that each break one rule", () => {
 
   it("allows a six-line block and fails a seven-line one, so the bound is a bound", () => {
     const six = compliant();
-    writeFileSync(join(six, "lib", "pod", "thing.ts"), `${"// prose\n".repeat(6)}export const t = 1;\n`);
+    writeFileSync(
+      join(six, "lib", "pod", "thing.ts"),
+      `${"// prose\n".repeat(6)}export const t = 1;\n`,
+    );
     expect(runCli(six).status, "six lines is at the bound, not over it").toBe(0);
 
     const seven = compliant();
-    writeFileSync(join(seven, "lib", "pod", "thing.ts"), `${"// prose\n".repeat(7)}export const t = 1;\n`);
+    writeFileSync(
+      join(seven, "lib", "pod", "thing.ts"),
+      `${"// prose\n".repeat(7)}export const t = 1;\n`,
+    );
     const run = runCli(seven);
     expect(run.status, run.transcript).toBe(1);
     expect(run.stdout, run.transcript).toContain("lib/pod/thing.ts");

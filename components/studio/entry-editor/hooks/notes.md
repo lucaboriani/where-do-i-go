@@ -317,3 +317,131 @@ They are kept because arming on a fill is the honest statement of what happened,
 and because the mechanism that makes them redundant is one line in `move` that a
 future edit could move. The redundancy is belt and braces, and it is now written
 down as redundancy rather than as a load-bearing line.
+
+---
+
+# `use-entry-save`
+
+## the save and the draft meet at the submit handler
+
+`settle` is a PARAMETER of `save`, not an option of `useEntrySave`, and that is
+a cycle broken rather than a style choice.
+
+The draft's key follows `target`, which this hook owns, so `useEntryDraft` has
+to be called after `useEntrySave`; and §10 step 1 completing is the one moment
+the local copy stops being a backup and becomes a trap, so the save has to be
+what settles it. Both edges cannot be hook arguments. The one that gives way is
+the callback, because by the time the JSX is evaluated both hooks have run:
+
+```tsx
+onSubmit={() => void save(settleDraft)}
+```
+
+The alternative spellings were both worse. An `onSaved` option closing over a
+`const` declared below it works — the arrow is only invoked later — and reads
+like a temporal-dead-zone bug to everyone who meets it. Giving the draft hook
+its own `scope` state would duplicate the entry URL in two places, and a
+divergence between them is exactly the silent defect the `scope` docblock spends
+twelve lines arguing against.
+
+The parameter also makes the coupling testable: the hook's own suite passes a
+spy and asserts that it is called with `(text, report.entryUrl)` when step 1
+completed, and NOT called when step 1 itself failed.
+
+## what use-entry-save is tested for
+
+Twenty-two cases. The two pure functions first:
+
+- **`preconditionFor`** — `{ create: true }`, `{ etag }`, and `null` for an
+  existing resource whose server sent no ETag. There is no third option, and
+  both wrong answers are silent.
+- **`announce`** — SIX outcomes keyed on which STEP failed, never on `recovery`,
+  which has four values and therefore collapses two pairs. The cases pin that
+  the two `rebuildIndex` outcomes differ (readable versus listed) and that the
+  two `retry` outcomes differ (nothing written versus everything written), and
+  that a clean save says nothing about the public site — the wording trap that
+  once let a hook which never read the revalidate body pass the test meant to
+  catch it.
+
+Then the hook, in three groups: what it refuses before sending anything (every
+missing field named, and no ETag rather than a blind PUT); what it assembles
+(the address from the container and the slug, ONE shared instant, `created`
+invented only on a create and never given to an older entry, `datePublished`
+only once published, the timestamp concatenated from the two controls, ruling
+F-A's half-pair, the stored geometry carried through untouched, the photos
+appended, the tags parsed, the creator carried); and what it remembers
+afterwards (the settle, the target, the provenance that makes a second save an
+update, and `saving` cleared in a `finally` even when `saveEntry` throws).
+
+---
+
+# what came back to `entry-editor.tsx`, and why it is still 195 lines
+
+## the seventeen names came back together
+
+Task 6 destructured `form.values` into seventeen consts "so that `save()`, the
+draft text and the effects below read exactly as they did". All three of those
+readers are now in hooks, and the only consumer left is the JSX, where each name
+appears once or twice. Seventeen lines of re-binding for that is worse than
+`values.slug` at the point of use, so the destructure is one line —
+`const values = form.values` — and the field groups name where their values come
+from.
+
+It is also the change that took the component under its bound: 203 → 195, with
+the 200 hard bound in `eslint.config.mjs` and `--max-warnings 0` on the lint
+script. The exemption went out in the same commit, because at 195 it is an
+UNUSED disable directive and ESLint fails the build for that.
+
+## the offset option list is the form's own
+
+`precisionOptions` went to `use-settings-gate` because two of its three sources
+are the gate's. `offsetOptions` has exactly one source — `values.offset` — so it
+belongs where that value lives, beside `sources`, which is the same shape of
+derived read. Its whole docblock travelled with it, including the measurement
+that gives the union its unconditional form: with the `add` deleted and an entry
+stored at `+05:15`, the control showed `-12:00`, the FIRST option, because React
+marks no option as selected when the value matches none and a single `<select>`
+with nothing selected reports its first one.
+
+## what the 195 are, and what they are not
+
+Roughly 55 lines of composition — the props, the reducer, five hook calls,
+`attached`, `text`, `restore` — and roughly 140 of JSX in one `return`.
+
+**The plan's "~120 lines when the stage ends" was never reachable by moving
+state**, and this is the number that says so: the four hooks took every
+`useState`, every remaining `useRef`, every effect and every async function out
+of the component, and the JSX alone is still 140 code lines. Task 5's own note
+made the same discovery from the other side — the "~990 lines of JSX" in the
+plan's summary was a RAW span, two thirds comment.
+
+One block in there would qualify as a sixth presentational group by Task 5's own
+argument: the **unsaved-draft banner**, about 32 code lines, which renders
+`offered`, `savedAtText` and the two buttons and shares `HOLD_REASON_ID` with
+the Save button exactly as `OCCURRED_SOURCE_ID` is shared in
+`fields/when-fields/`. It is left where it is. Task 7's remit is four hooks, the
+bound is met without it, and an extraction nobody asked for inside the commit
+that removes the exemption is how a reviewable diff stops being reviewable.
+
+## the file header's bearings, after four hooks
+
+`entry-editor.tsx`'s own header docblock is 136 lines and still names, as
+though they were in that file: `offerCoordinate`, `offerTimestamp`, `fuzzed()`,
+`readPrivacySettings`, `saveEntry`, `coordinateAuthor`, `TimeAuthor`,
+`COORDINATE_SOURCE_ID` and `OFFSET_GUESS_ID`. Every name resolves; not one of
+the files does. The trail as of 2026-09-08:
+
+| name | now in |
+|---|---|
+| `offerCoordinate` · `offerTimestamp` | `hooks/use-photo-pipeline.ts` |
+| `fuzzed()` · `readPrivacySettings` | `hooks/use-settings-gate.ts` |
+| `saveEntry`'s caller · `announce` | `hooks/use-entry-save.ts` |
+| `coordinateAuthor` · `TimeAuthor` | `state/actions.ts` |
+| `COORDINATE_SOURCE_ID` · `OFFSET_GUESS_ID` | `fields/where-fields/`, `fields/when-fields/` |
+
+Recorded rather than repaired, on `field/notes.md#what-travelled-here-already-wrong`'s
+precedent, and the header is one of the eleven blocks Stage C's comment sweep
+owns. What it says about the DESIGN — the five ordering decisions, §9's
+fail-closed posture, why a value that appeared without being typed has to name
+where it came from — is all still true, and is the reason it was not shortened
+here.

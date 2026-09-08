@@ -5,7 +5,14 @@
  */
 
 import { useMemo, useReducer } from "react";
-import { offsetHere, offsetOf, wallClockNow, wallClockOf } from "@/lib/studio/time/offsets";
+import {
+  OFFSETS,
+  offsetHere,
+  offsetMinutes,
+  offsetOf,
+  wallClockNow,
+  wallClockOf,
+} from "@/lib/studio/time/offsets";
 import { sourceOf } from "../state/actions";
 import { entryFormReducer } from "../state/entry-form-reducer";
 import type { EntryFormState, PhotoSlot, RestoreContext, TextField } from "../state/actions";
@@ -234,6 +241,9 @@ export interface EntryForm {
   /** Which photo supplied each of the three, or `null`. Derived rather than
    *  stored: ../state/notes.md#what-is-derived-and-what-had-to-stay-stored */
   sources: { coordinate: string | null; occurred: string | null; offset: string | null };
+  /** What the offset control offers. Derived from one field, exactly as
+   *  `sources` is from three: ./notes.md#the-offset-option-list-is-the-forms-own */
+  offsetOptions: string[];
   set: EntryFormSetters;
   addSlot: (slot: PhotoSlot) => void;
   settleSlot: (key: string, slot: PhotoSlot) => void;
@@ -270,8 +280,50 @@ export function useEntryForm(seed: EntryFormSeed): EntryForm {
     };
   }, []);
 
+  /**
+   * What the offset control offers: `OFFSETS`, plus whatever it is
+   * currently holding.
+   *
+   * `precisionOptions`' SHAPE EXACTLY, including why it is a `Set`. It does not
+   * special-case the value it cannot offer — it unions the held value into the
+   * list, and the `Set` is what stops an offset that IS on the list appearing
+   * twice. That single shape covers all three things this control has to do
+   * with `+05:15`: render it rather than blanking, survive an edit that never
+   * touched it, and not duplicate `+09:00`.
+   *
+   * SILENT SUBSTITUTION IS THE FAILURE THIS PREVENTS, AND IT IS NOT THE BLANK
+   * CONTROL EVERYONE EXPECTS — measured, on this file's own tests, by deleting
+   * the `add` above and rendering an entry stored with `+05:15`: the control
+   * showed **`-12:00`**, the FIRST option, not an empty box. React marks no
+   * option as selected when the value matches none of them, and a single
+   * `<select>` with nothing selected displays and reports its first option. So
+   * the failure mode is an offset the owner never chose, in a control that
+   * looks answered.
+   *
+   * THE UNION IS THEREFORE UNCONDITIONAL, which is where this parts company
+   * with `precisionOptions`: that one adds `gridOf(precision)` only when it is
+   * a usable grid, because §9 step 3 refuses a precision the select cannot show
+   * and the value is validated again at save time. Here what the control shows
+   * has to equal what `toOffsetDateTime` concatenates for EVERY state it can be
+   * in, including one no code path can produce — a shape check on this line
+   * would buy a tidier option list at the price of a control disagreeing with
+   * the timestamp it is about to write.
+   *
+   * SORTED BY MINUTES, because `OFFSETS` is already in order and the one value
+   * that may not be on it has to land WHERE A READER WILL LOOK: `+05:15`
+   * belongs between `+05:00` and `+05:30`, and appending it after `+14:00`
+   * looks like a bug in the list. A string sort is not available — see
+   * `offsetMinutes`.
+   */
+  const offsetOptions = useMemo(() => {
+    const all = new Set<string>(OFFSETS);
+    all.add(values.offset);
+    return [...all].sort((a, b) => offsetMinutes(a) - offsetMinutes(b));
+  }, [values.offset]);
+
   return {
     values,
+    offsetOptions,
     sources: {
       coordinate: sourceOf(values.coordinateAuthor),
       occurred: sourceOf(values.occurredAuthor),
