@@ -255,3 +255,65 @@ Then the four things only this hook can be asked:
 - **the unmount flush** — the last window's typing kept, nothing written when no
   window was outstanding, and the flush reading `live.current` rather than the
   closure it mounted with.
+
+---
+
+# `use-photo-pipeline`
+
+## what use-photo-pipeline is tested for
+
+Seventeen cases. Two pure functions first, because `save()` and the draft both
+spend them:
+
+- **`photosFor`** — picking APPENDS and never replaces (an edit that rewrites
+  the resource without the photos it arrived with destroys the binaries' only
+  reference); a photo taken ONCE however many times it is picked, because the
+  media path is content-addressed and a re-pick returns the same URL; and
+  `sortOrder` seeded from **what the serialiser will write** rather than from
+  `carried.length`. That last one is the case the obvious spelling gets wrong:
+  `entry-model.ts` writes `photo.sortOrder ?? i + 1`, so one unnumbered carried
+  photo is stored as `1` and `carried.length` is `1` too — a collision in the
+  very case the fallback exists for.
+- **`attachedOf`** — `ready` only, in pick order. It is the fence between a slot
+  and a `Photo`, and it is what the component now spends in a one-line `useMemo`.
+
+Then `attach`, which is worth testing as a sequence rather than as outcomes:
+
+- **the order** — `decoding` → `uploading` → `ready`, and only then the two
+  offers, asserted as one array so a reordering fails on the order rather than
+  on a count. The coordinate goes in at FULL precision and as a string; the
+  timestamp offer carries the slot `key` and the coordinate offer carries only
+  the name, which is ruling T4-E's shape at the call site.
+- **what it refuses** — a failed upload makes NO offer at all (a coordinate from
+  a photo that is not on the entry has nothing on screen to explain it); a
+  pipeline REJECTION becomes a `failed` slot rather than a slot decoding for
+  ever; §9's gate shut refuses the coordinate and still offers the clock,
+  because the two offers are independent; and a file with no GPS tag offers no
+  coordinate rather than `String(undefined)`.
+- **the worker** — nothing created until the first pick, ONE created however
+  many files are picked, disposed on unmount, and an injected pipeline NEVER
+  disposed. That last is the one with a cost attached: `dispose()` is not a
+  cancel, so disposing a caller's instance breaks a photo it is still
+  processing.
+
+## the two unconditional `markTouched()` calls, verified rather than inherited
+
+Task 6 made the arming in `offerCoordinate` and `offerTimestamp` unconditional
+— they used to fire only when something actually filled — and argued that this
+is unobservable because `move({ state: "ready" })` arms it one line earlier and
+the pick's own `change` event armed it before that.
+
+**Checked both ways on 2026-09-08, before the extraction.**
+
+1. *Mechanism.* Both offers are called from `attach` and nowhere else, after
+   `move({ …, state: "ready" })`, with no `await` between them — so `move`'s
+   `if (next.state === "ready") markTouched()` has already run, in the same
+   synchronous continuation, and no `settleDraft` can interleave.
+2. *Measurement.* With both calls deleted, `npm test` is **1289 passed / 2 todo
+   / 58 files** — identical to the run with them. No test observes them, which
+   is what the docblocks already claimed.
+
+They are kept because arming on a fill is the honest statement of what happened,
+and because the mechanism that makes them redundant is one line in `move` that a
+future edit could move. The redundancy is belt and braces, and it is now written
+down as redundancy rather than as a load-bearing line.
