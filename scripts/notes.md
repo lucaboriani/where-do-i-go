@@ -74,6 +74,27 @@ Where the 788 are, because it sizes Stage C:
 | `entry-editor.tsx` | 115 |
 | the other 88 files | 466 |
 
+### The split, 2026-09-08: 279 production and 509 test-side
+
+The 788 is now two ratchets, on the maintainer's decision that day: the comment conventions bind
+production code and test docblocks are exempt. Measured from HEAD at `0b2d99e` rather than taken
+from the Stage C plan, and the two agreed — 279 + 509 = 788.
+
+The partition is `isTestSide`: a `*.test.ts(x)` file, anything under `test/`, and
+`components/studio/entry-editor/entry-editor.harness/`. The third clause is not decoration. The rig
+holds **54** of the 509 and is no `*.test.tsx`, so without it the production half reads 333 and the
+exempt half 455 — a 54-block hole in the number Stage C is driving to zero.
+
+| | blocks over 6 lines |
+|---|---|
+| production, `PROD_COMMENT_BASELINE` | 279 |
+| test-side, `TEST_COMMENT_BASELINE` | 509 |
+
+Both fail on a rise. Only the production half is also a flat six outside this repository, and that
+asymmetry *is* the exemption: "exempt" means "not rewritten", never "unbounded". Proved by control
+on 2026-09-08 rather than by reading the branch — dropping each baseline by one in turn makes
+`check:structure` exit 1 naming that half, and only that half.
+
 ## github-heading-slugs
 
 `slug()` lowercases, drops non-word characters, then hyphenates **each space individually**.

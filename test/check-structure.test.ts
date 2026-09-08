@@ -63,6 +63,20 @@ function compliant(): string {
   return root;
 }
 
+/**
+ * The count printed under one of the two ratchet headers. Parsed, not
+ * eyeballed: a partition that classified nothing as test-side would print 0
+ * here, and every exit-code assertion below would still be green.
+ */
+function ratchetCount(stdout: string, half: "production" | "test"): number {
+  const line = new RegExp(`^${half} comment blocks over 6 lines[^\\n]*:\\n {2}(\\d+)`, "m");
+  return Number(line.exec(stdout)?.[1] ?? NaN);
+}
+
+/** One block, 8 lines counting its delimiters, so neither side of the
+ *  decision can be exercising a different fixture from the other. */
+const OVER_BOUND_BLOCK = `/**\n${" * prose\n".repeat(6)} */\n`;
+
 describe("check:structure, against this repository", () => {
   const run = runRepo();
 
@@ -102,6 +116,18 @@ describe("check:structure, against this repository", () => {
   it("reports the comment ratchet as a count, not as a failure", () => {
     expect(run.stdout, run.transcript).toMatch(/comment blocks over 6 lines \(ratchet, reported\)/);
     expect(run.status, "the ratchet must not fail at or below baseline").toBe(0);
+  });
+
+  it("reports the two comment ratchets separately", () => {
+    expect(run.stdout, run.transcript).toMatch(/production comment blocks over 6 lines/);
+    expect(run.stdout, run.transcript).toMatch(/test comment blocks over 6 lines/);
+    const production = ratchetCount(run.stdout, "production");
+    const tests = ratchetCount(run.stdout, "test");
+    expect(Number.isInteger(production), run.transcript).toBe(true);
+    // 279 and 509 on 2026-09-08, and the split is the point: 54 of the test
+    // half are the editor harness, which is not a *.test.tsx at all.
+    expect(tests, run.transcript).toBeGreaterThan(400);
+    expect(production, run.transcript).toBeLessThan(tests);
   });
 });
 
@@ -292,6 +318,63 @@ describe("check:structure, on fixtures that each break one rule", () => {
     const split = "/** a\n * b\n * c */\n\n/** d\n * e\n * f */\nexport const t = 1;\n";
     writeFileSync(join(root, "lib", "pod", "thing.ts"), split);
     expect(runCli(root).status).toBe(0);
+  });
+
+  it("fails when the production count rises, and not when a test file's does", () => {
+    // The whole 2026-09-08 decision in one tree: the same block, two files.
+    const root = compliant();
+    writeFileSync(join(root, "lib", "pod", "thing.ts"), `${OVER_BOUND_BLOCK}export const t = 1;\n`);
+    writeFileSync(join(root, "lib", "pod", "thing.test.ts"), `${OVER_BOUND_BLOCK}import "./thing";\n`);
+    expect(OVER_BOUND_BLOCK.trimEnd().split("\n"), "the fixture block must be over 6").toHaveLength(8);
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toMatch(/lib\/pod\/thing\.ts:1 — 8 lines/);
+    expect(ratchetCount(run.stdout, "production"), run.transcript).toBe(1);
+    expect(ratchetCount(run.stdout, "test"), run.transcript).toBe(1);
+    const failed = /production comment ratchet — \d+ problem\(s\):\n((?:  .*\n)*)/.exec(run.stdout);
+    expect(failed?.[1] ?? "", run.transcript).not.toContain("thing.test.ts");
+  });
+
+  it("accepts that same block in a test file alone, which is the exemption", () => {
+    const root = compliant();
+    writeFileSync(join(root, "lib", "pod", "thing.test.ts"), `${OVER_BOUND_BLOCK}import "./thing";\n`);
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(0);
+    expect(ratchetCount(run.stdout, "test"), "the block must be COUNTED, not missed").toBe(1);
+    expect(ratchetCount(run.stdout, "production"), run.transcript).toBe(0);
+  });
+
+  it("counts a shared module under test/ on the test side", () => {
+    const root = compliant();
+    writeFileSync(join(root, "test", "graph.ts"), `${OVER_BOUND_BLOCK}export const g = 1;\n`);
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(0);
+    expect(ratchetCount(run.stdout, "test"), run.transcript).toBe(1);
+  });
+
+  it("counts the editor harness on the test side, though it is no *.test.tsx", () => {
+    const root = compliant();
+    const dir = join(root, "components", "studio", "entry-editor", "entry-editor.harness");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "index.ts"), 'export * from "./entry-editor.harness";\n');
+    writeFileSync(join(dir, "entry-editor.harness.tsx"), `${OVER_BOUND_BLOCK}export const H = 1;\n`);
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(0);
+    expect(ratchetCount(run.stdout, "test"), run.transcript).toBe(1);
+  });
+
+  it("counts the harness's sibling component on the production side", () => {
+    // The narrow clause, tested at the path next door: exempting the rig must
+    // not exempt the editor it fakes for. A rule that exempts everything is
+    // indistinguishable from a deleted rule by the case above alone.
+    const root = compliant();
+    const dir = join(root, "components", "studio", "entry-editor");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "index.ts"), 'export * from "./entry-editor";\n');
+    writeFileSync(join(dir, "entry-editor.tsx"), `${OVER_BOUND_BLOCK}export const E = 1;\n`);
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(1);
+    expect(ratchetCount(run.stdout, "production"), run.transcript).toBe(1);
   });
 
   it("reports drift under --root too, which is what cwd: ROOT buys", () => {

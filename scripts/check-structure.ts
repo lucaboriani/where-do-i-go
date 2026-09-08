@@ -58,27 +58,55 @@ function commentRuns(file: string): Array<[string, number]> {
 }
 
 /**
- * The ratchet: fails only when the count RISES, because the sweep that fixes
- * these is Stage C. Measured, never adjusted arithmetically — and never
- * raised, which is the one move that makes a ratchet meaningless.
- * Why 788 and not the plan's 780: ./notes.md#the-comment-ratchet
+ * Two ratchets, because the bound binds PRODUCTION code and test docblocks are
+ * exempt — the 2026-09-08 decision. Both fail on a rise, so "exempt" means
+ * "not rewritten" and never "unbounded". Measured, never arithmetic, never
+ * raised. Why 788 splits 279/509: ./notes.md#the-comment-ratchet
  */
-const COMMENT_BASELINE = 788;
+const PROD_COMMENT_BASELINE = 279;
+const TEST_COMMENT_BASELINE = 509;
 
-/** Allowance is this repository's own debt, so a fixture tree gets none:
- *  the same IS_REPO gate REPO_TESTS needs. ./notes.md#the-comment-ratchet */
-function commentsOverBound(): { over: string[]; verdict: string[] } {
-  const allowed = IS_REPO ? COMMENT_BASELINE : 0;
-  const over = sources(true)
-    .filter((f) => !rel(f).startsWith("components/ui/"))
-    .flatMap((f) => commentRuns(f).filter(([, n]) => n > 6).map(([at, n]) => `${at} — ${n} lines`));
+/** The test side, on the predicate the placement rule already reads — plus the
+ *  editor rig, which is 54 of the test half and no `*.test.tsx`. */
+const EDITOR_HARNESS = "components/studio/entry-editor/entry-editor.harness/";
+const isTestSide = (path: string) =>
+  /\.test\.tsx?$/.test(path) || path.startsWith("test/") || path.startsWith(EDITOR_HARNESS);
+
+type Ratchet = { over: string[]; verdict: string[] };
+
+/**
+ * The allowance is this repository's own debt, so a fixture tree gets none —
+ * the same IS_REPO gate REPO_TESTS needs. The exempt half is not a bound
+ * anywhere else, so outside this repository it counts and never fails.
+ */
+function ratchetOn(over: string[], baseline: number, name: string, exempt = false): Ratchet {
+  if (!IS_REPO && exempt)
+    return { over: [], verdict: [`  ${over.length}, exempt outside this repository`] };
+  const allowed = IS_REPO ? baseline : 0;
   if (over.length > allowed)
-    return { over, verdict: [`  ROSE to ${over.length}, allowance ${allowed}`] };
+    return { over, verdict: [`  ${over.length} — ROSE above the allowance of ${allowed}`] };
   const note =
     over.length < allowed
-      ? `  ${over.length} now, baseline ${allowed} — lower COMMENT_BASELINE to ${over.length}`
+      ? `  ${over.length} now, allowance ${allowed} — lower ${name} to ${over.length}`
       : `  ${over.length}, at the allowance`;
   return { over: [], verdict: [note] };
+}
+
+function commentsOverBound(): { prod: Ratchet; test: Ratchet } {
+  const listed = sources(true)
+    .map((f) => rel(f))
+    .filter((path) => !path.startsWith("components/ui/"))
+    .flatMap((path) =>
+      commentRuns(join(ROOT, path))
+        .filter(([, n]) => n > 6)
+        .map(([at, n]) => [path, `${at} — ${n} lines`] as const),
+    );
+  const half = (wantTest: boolean) =>
+    listed.filter(([path]) => isTestSide(path) === wantTest).map(([, line]) => line);
+  return {
+    prod: ratchetOn(half(false), PROD_COMMENT_BASELINE, "PROD_COMMENT_BASELINE"),
+    test: ratchetOn(half(true), TEST_COMMENT_BASELINE, "TEST_COMMENT_BASELINE", true),
+  };
 }
 
 function componentFoldersAreOwn(): string[] {
@@ -242,7 +270,8 @@ async function main() {
     ["component folders", componentFoldersAreOwn()],
     ["test placement", testsSitBesideSubjects()],
     ["notes.md pointers", notesPointersResolve()],
-    ["comment ratchet", comments.over],
+    ["production comment ratchet", comments.prod.over],
+    ["test comment ratchet", comments.test.over],
   ] as const;
 
   for (const [label, list] of failures)
@@ -251,8 +280,10 @@ async function main() {
       for (const item of list.slice(0, 40)) console.log(`  ${item}`);
     }
 
-  console.log("\ncomment blocks over 6 lines (ratchet, reported):");
-  for (const line of comments.verdict) console.log(line);
+  console.log("\nproduction comment blocks over 6 lines (ratchet, reported):");
+  for (const line of comments.prod.verdict) console.log(line);
+  console.log("\ntest comment blocks over 6 lines (exempt, ratcheted):");
+  for (const line of comments.test.verdict) console.log(line);
 
   const drift = await driftReport();
   console.log(`\nover the tendency — ${drift.length} function(s), reported, not failing:`);
