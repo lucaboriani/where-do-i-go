@@ -430,6 +430,140 @@ describe("parseTripIndex", () => {
   });
 });
 
+/**
+ * §7.4's `<#e-slug>` row shape. The row IRIs are the caller's, as `photosOf`
+ * takes the image IRIs: `<#it>`'s `dy:entry` links pick the subjects, and this
+ * reads what hangs off each one.
+ */
+describe("indexRowsOf", () => {
+  const quadsOf = (ttl: string) => new Parser({ baseIRI: URLS.index }).parse(ttl);
+  const load = async () => (await import("@/lib/pod/read")).indexRowsOf;
+  const row = (slug: string) => `${URLS.index}#e-${slug}`;
+
+  it("parses the normative row, flat dy: geo terms and all", async () => {
+    const indexRowsOf = await load();
+    const r = indexRowsOf(quadsOf(INDEX), [row("2026-03-29-arrival")], URLS.index);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toHaveLength(1);
+    expect(r.value[0].iri).toBe(row("2026-03-29-arrival"));
+    expect(r.value[0].entryResource).toBe(
+      `${POD}/travel/trips/2026-japan/entries/2026-03-29-arrival.ttl#it`,
+    );
+    expect(r.value[0].title).toEqual({ value: "First night in Shinjuku", language: "en" });
+    expect(r.value[0].slug).toBe("2026-03-29-arrival");
+    expect(r.value[0].occurredAt).toBe("2026-03-29T21:40:00+09:00");
+    expect(r.value[0].lat).toBeCloseTo(35.6938);
+    expect(r.value[0].long).toBeCloseTo(139.7034);
+    expect(r.value[0].precisionMeters).toBe(500);
+    expect(r.value[0].thumbnail).toBe(`${POD}/travel/media/6f2a1c8e/thumb.webp`);
+    expect(r.value[0].travelModeFrom).toBe("Flight");
+    expect(r.value[0].sortOrder).toBe(1);
+  });
+
+  /** The §7.4 fixture declares `<#e-2026-03-31-nara>` and gives it no triples.
+   *  A row with every field missing would fail the schema and take the whole
+   *  index down with it, so it is dropped instead. */
+  it("skips a dy:entry link the document does not describe", async () => {
+    const indexRowsOf = await load();
+    const iris = [row("2026-03-29-arrival"), row("2026-03-31-nara")];
+    const r = indexRowsOf(quadsOf(INDEX), iris, URLS.index);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.map((e) => e.slug)).toEqual(["2026-03-29-arrival"]);
+  });
+
+  it("orders by dy:sortOrder, not by the order it was handed the IRIs", async () => {
+    const indexRowsOf = await load();
+    const iris = [row("2026-03-29-arrival"), row("2026-03-28-departure")];
+    const r = indexRowsOf(quadsOf(TWO_ROW_INDEX), iris, URLS.index);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.map((e) => e.sortOrder)).toEqual([0, 1]);
+    expect(r.value[0].slug).toBe("2026-03-28-departure");
+  });
+
+  /** §6: ordering is always explicit, so an absent dy:sortOrder is an error and
+   *  never a silent 0 — the rule belongs to this shape, so it is pinned here. */
+  it("rejects a row with no dy:sortOrder, and does not throw", async () => {
+    const indexRowsOf = await load();
+    const ttl = INDEX.replace("dy:sortOrder       1 .", ".");
+    expect(ttl).not.toBe(INDEX);
+    let threw: unknown;
+    try {
+      const r = indexRowsOf(quadsOf(ttl), [row("2026-03-29-arrival")], URLS.index);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.kind).toBe("shape");
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeUndefined();
+  });
+});
+
+/**
+ * §7.4's derived half — "bounding box, center and entry count are all functions
+ * of the entry set" — minus the count, which is one `dy:entryCount` read on
+ * `<#it>` rather than a shape.
+ */
+describe("boundsOf", () => {
+  const load = async () => {
+    const [read, rdf] = await Promise.all([import("@/lib/pod/read"), import("@/lib/pod/rdf")]);
+    return (ttl: string) => {
+      const quads = new Parser({ baseIRI: URLS.index }).parse(ttl);
+      return read.boundsOf(rdf.viewOf(quads, rdf.itOf(URLS.index)), URLS.index);
+    };
+  };
+
+  it("reads the fixture's bbox and centre", async () => {
+    const boundsOf = await load();
+    const r = boundsOf(INDEX);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.bbox).toEqual({ west: 129.8721, south: 31.5904, east: 139.8107, north: 35.7148 });
+    expect(r.value.center).toEqual({ lat: 33.6526, long: 134.8414 });
+  });
+
+  /**
+   * ALL FOUR OR NONE, and a partial bbox is dropped SILENTLY rather than
+   * reported — unlike readPrivacySettings, which makes a missing sibling a
+   * shape error. Pinned as it stands: derived data has a documented recovery
+   * (`rebuildIndex`), and a half bbox would fit the map to a lie.
+   */
+  it("drops a half-written bbox and keeps the centre", async () => {
+    const boundsOf = await load();
+    const ttl = INDEX.replace("dy:bboxNorth     35.7148 ;", "");
+    expect(ttl).not.toBe(INDEX);
+    const r = boundsOf(ttl);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.bbox).toBeUndefined();
+    expect(r.value.center).toEqual({ lat: 33.6526, long: 134.8414 });
+  });
+
+  it("drops a centre missing its longitude, and keeps the bbox", async () => {
+    const boundsOf = await load();
+    const ttl = INDEX.replace("dy:centerLong    134.8414 ;", "");
+    expect(ttl).not.toBe(INDEX);
+    const r = boundsOf(ttl);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.center).toBeUndefined();
+    expect(r.value.bbox?.north).toBeCloseTo(35.7148);
+  });
+
+  it("refuses a bbox corner typed as xsd:float", async () => {
+    const boundsOf = await load();
+    const ttl = INDEX.replace("dy:bboxWest      129.8721 ;", 'dy:bboxWest      "129.8721"^^xsd:float ;');
+    expect(ttl).toContain("xsd:float");
+    const r = boundsOf(ttl);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("datatype");
+  });
+});
+
 describe("URL construction", () => {
   it("percent-encodes slugs so a crafted one cannot address another resource", async () => {
     // new URL("travel/trips/a#b/trip.ttl", root) silently fetches the container
