@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { describe as renderError } from "@/lib/pod/result";
 import type { Result } from "@/lib/pod/result";
-import { createContainer, getAccess, initialiseContainers, makePrivate, makePublic } from "@/lib/pod/access";
+import {
+  createContainer,
+  getAccess,
+  initialiseContainers,
+  makePrivate,
+  makePublic,
+  resolveContainerAcl,
+} from "@/lib/pod/access";
 import type { AccessState } from "@/lib/pod/access";
 
 /**
@@ -242,6 +249,43 @@ describe("createContainer refuses a URL that is not a container", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("http");
+  });
+});
+
+describe("resolveContainerAcl, the container write's first step", () => {
+  /**
+   * The step IS the refusal: a container's shape is a WAC ACL document, so it
+   * is written only on positive evidence that the target is one. This fake
+   * advertises no ACL — an ACP server (§19), or no access control at all, and
+   * neither is evidence.
+   */
+  it("refuses a server with no readable WAC ACL, naming both sides", async () => {
+    const r = await resolveContainerAcl(yesMan(), CONTAINER);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("accessUnverified");
+    if (r.error.kind !== "accessUnverified") return;
+    expect(r.error.url).toBe(CONTAINER);
+    // Both halves of the refusal, because "could not verify" with neither is
+    // nothing a deployer can act on. The found side has to name the ACP case:
+    // that is the one a reader will otherwise diagnose as a bug.
+    expect(r.error.expected).toContain("WAC authorisations");
+    expect(r.error.found).toContain("ACP control resource");
+  });
+
+  /**
+   * Per-step, and invisible in the sequence: `createContainer` PUTs the
+   * container before this runs, so a mutation seen there proves nothing. A
+   * resolve that wrote would be writing before it knew what it was writing to.
+   */
+  it("sends no mutation while deciding — it only reads", async () => {
+    const fetch = yesMan();
+    await resolveContainerAcl(fetch, CONTAINER);
+
+    const methods = fetch.mock.calls.map(([input, init]) => methodOf(input, init));
+    expect(methods.length).toBeGreaterThan(0);
+    expect(methods.filter((m) => m !== "GET" && m !== "HEAD")).toEqual([]);
   });
 });
 

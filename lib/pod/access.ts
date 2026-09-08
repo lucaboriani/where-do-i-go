@@ -1,11 +1,16 @@
 /**
  * The ONLY module in this codebase that touches access control.
  *
- * Five exported operations: makePublic, makePrivate, getAccess,
+ * Five operations are the interface: makePublic, makePrivate, getAccess,
  * createContainer, initialiseContainers. The first four of those are §5's
  * interface; createContainer is there because a container created without an
  * ACL of its own is publicly enumerable (see below). Enforced by
  * no-restricted-imports, which bans the ACL primitives everywhere else.
+ *
+ * The container write's three steps and the document write's apply half are
+ * also exported, for their own tests and for nothing else. That does not widen
+ * the fence: an AclDataset is inert without the primitives above, which stay
+ * banned outside this file, so no caller elsewhere can do anything with one.
  *
  * Do not detect the mechanism and branch on it. Phase 0 showed CSS uses WAC and
  * Inrupt ESS uses ACP, but ESS advertises `rel="acl"` pointing at a separate
@@ -368,23 +373,15 @@ async function readAcl(
 }
 
 /**
- * Write the container shape: public read that reaches the children, and a
- * listing that stays shut.
- *
- * `publicInherit: false` is the same shape with the public grant removed, which
- * is what makePrivate on a container has to do — universalAccess would clear
- * the resource rule and leave the `acl:default` rule standing, i.e. report
- * success while every child stayed public. Verified in a spike against CSS
- * 7.2.0: after `setPublicAccess(doc, { read: false })` the resulting ACL still
- * contained `acl:agentClass foaf:Agent; acl:mode acl:Read; acl:default …`.
+ * Step 1 of the container write: the ACL to edit, and the precondition to write
+ * it under. The three answers are "its own", "an ancestor's, copied" and a
+ * refusal — see the module docblock, which is where the argument for refusing
+ * rather than guessing lives. Exported for its own tests.
  */
-async function setContainerAccess(
+export async function resolveContainerAcl(
+  fetch: PodFetch,
   url: string,
-  opts: AccessOptions,
-  publicInherit: boolean,
-): Promise<Result<AccessState>> {
-  const { fetch } = opts;
-
+): Promise<Result<{ acl: AclDataset; aclUrl: string; precondition: Precondition }>> {
   let withAcl: Awaited<ReturnType<typeof getResourceInfoWithAcl>>;
   try {
     withAcl = await getResourceInfoWithAcl(url, { fetch });
@@ -440,14 +437,30 @@ async function setContainerAccess(
     );
   }
 
+  return ok({ acl, aclUrl, precondition });
+}
+
+/**
+ * Step 2: the rules themselves, on the dataset step 1 resolved. Pure — it
+ * neither reads nor writes, so what it refuses it refuses before anything
+ * leaves the machine. Exported for its own tests.
+ */
+export function applyContainerRules(
+  url: string,
+  resolved: AclDataset,
+  webId: string | undefined,
+  publicInherit: boolean,
+): Result<AclDataset> {
+  let acl = resolved;
+
   // The owner, if the caller named one. Nothing else is carried over by hand:
-  // in the branch above either the ACL already holds every existing rule, or
+  // in step 1 either the ACL already holds every existing rule, or
   // createAclFromFallbackAcl copied them — including the agent-class and group
   // rules an agent-by-agent carry-over would have dropped, and without the
   // widening that comes of turning an accessTo-only rule into a default one.
-  if (opts.webId) {
-    acl = setAgentResourceAccess(acl, opts.webId, OWNER_FULL);
-    acl = setAgentDefaultAccess(acl, opts.webId, OWNER_FULL);
+  if (webId) {
+    acl = setAgentResourceAccess(acl, webId, OWNER_FULL);
+    acl = setAgentDefaultAccess(acl, webId, OWNER_FULL);
   }
 
   // The two halves of §20's fix. `default` without `accessTo`: children stay
@@ -477,6 +490,22 @@ async function setContainerAccess(
     );
   }
 
+  return ok(acl);
+}
+
+/**
+ * Step 3. The control document is a resource, so §10's write protocol applies
+ * to it too: `If-Match: <etag>` to update, `If-None-Match: *` to create. There
+ * is no third case, and no degrading to `*`. Failures are reported ABOUT the
+ * container, never about `{container}.acl`. Exported for its own tests.
+ */
+export async function putAcl(
+  fetch: PodFetch,
+  url: string,
+  aclUrl: string,
+  acl: AclDataset,
+  precondition: Precondition,
+): Promise<Result<{ etag: string | null }>> {
   let body: string;
   try {
     body = await solidDatasetAsTurtle(acl);
@@ -488,11 +517,37 @@ async function setContainerAccess(
     });
   }
 
-  // The control document is a resource, so §10's write protocol applies to it
-  // too: `If-Match: <etag>` to update, `If-None-Match: *` to create. There is
-  // no third case, and no degrading to `*`.
   const written = await putGuarded(fetch, aclUrl, body, precondition);
-  if (!written.ok) return err(about(url, written.error));
+  return written.ok ? written : err(about(url, written.error));
+}
+
+/**
+ * Write the container shape: public read that reaches the children, and a
+ * listing that stays shut.
+ *
+ * `publicInherit: false` is the same shape with the public grant removed, which
+ * is what makePrivate on a container has to do — universalAccess would clear
+ * the resource rule and leave the `acl:default` rule standing, i.e. report
+ * success while every child stayed public. Verified in a spike against CSS
+ * 7.2.0: after `setPublicAccess(doc, { read: false })` the resulting ACL still
+ * contained `acl:agentClass foaf:Agent; acl:mode acl:Read; acl:default …`.
+ */
+async function setContainerAccess(
+  url: string,
+  opts: AccessOptions,
+  publicInherit: boolean,
+): Promise<Result<AccessState>> {
+  const { fetch } = opts;
+
+  const resolved = await resolveContainerAcl(fetch, url);
+  if (!resolved.ok) return err(resolved.error);
+  const { aclUrl, precondition } = resolved.value;
+
+  const ruled = applyContainerRules(url, resolved.value.acl, opts.webId, publicInherit);
+  if (!ruled.ok) return err(ruled.error);
+
+  const written = await putAcl(fetch, url, aclUrl, ruled.value, precondition);
+  if (!written.ok) return err(written.error);
 
   return verifyContainerAccess(url, fetch, publicInherit);
 }

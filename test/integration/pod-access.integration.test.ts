@@ -2,7 +2,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { Parser } from "n3";
 import { DY, LDP, NS, SCHEMA } from "@/lib/vocab";
-import { createContainer, getAccess, initialiseContainers, makePrivate, makePublic } from "@/lib/pod/access";
+import {
+  applyContainerRules,
+  createContainer,
+  getAccess,
+  initialiseContainers,
+  makePrivate,
+  makePublic,
+  putAcl,
+  resolveContainerAcl,
+} from "@/lib/pod/access";
 import type { InitReport } from "@/lib/pod/access";
 import { readPrivacySettings } from "@/lib/pod/read";
 import { putGuarded } from "@/lib/pod/write";
@@ -1223,6 +1232,100 @@ describe("the precondition on the control document", () => {
     // The allow-case, again on the same container: with ETags present it works.
     const withEtag = await makePublic(container, { fetch: ownerFetch, webId });
     expect(withEtag.ok, withEtag.ok ? "" : renderError(withEtag.error)).toBe(true);
+  }, 60_000);
+});
+
+/* ============================================ the container write, per step */
+
+describe("the container write, step by step", () => {
+  /**
+   * Resolve, apply, PUT. Each step is tested for a branch the sequence cannot
+   * reach — every production caller passes a webId, and none writes a create
+   * precondition over an existing ACL. Both need a real ACL, which is why they
+   * are here and not in `lib/pod/access.test.ts`.
+   */
+  it("applyContainerRules refuses an ACL where only an agent CLASS keeps Control", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    /**
+     * Control held by `foaf:Agent` and no named agent. The owner reads it back
+     * because the owner is an agent too, so the step gets a real WAC ACL to
+     * refuse. Its own scratch container: this leaves anonymous Control standing
+     * on it, which is the state the guard exists to refuse to write.
+     */
+    const container = `${u.trips()}class-control/`;
+    await createContainerWithNoAclOfItsOwn(container);
+    await putAsOwner(
+      `${container}.acl`,
+      `@prefix acl: <http://www.w3.org/ns/auth/acl#>.\n@prefix foaf: <${NS.foaf}>.\n` +
+        `<#everyone> a acl:Authorization; acl:agentClass foaf:Agent; acl:accessTo <./>; ` +
+        `acl:default <./>; acl:mode acl:Read, acl:Control.\n`,
+    );
+
+    const resolved = await resolveContainerAcl(ownerFetch, container);
+    expect(resolved.ok, resolved.ok ? "" : renderError(resolved.error)).toBe(true);
+    if (!resolved.ok) return;
+    // The precondition came off the same GET as the body, and it is an ETag:
+    // this container has an ACL of its own, so there is nothing to create.
+    expect(resolved.value.aclUrl).toBe(`${container}.acl`);
+    expect(resolved.value.precondition).toMatchObject({ etag: expect.stringMatching(/./) });
+
+    const ruled = applyContainerRules(container, resolved.value.acl, undefined, true);
+    expect(ruled.ok, ruled.ok ? "wrote an ACL nobody named can repair" : "").toBe(false);
+    if (ruled.ok) return;
+    expect(ruled.error.kind).toBe("accessUnverified");
+    if (ruled.error.kind !== "accessUnverified") return;
+    expect(ruled.error.url).toBe(container);
+    expect(ruled.error.expected).toContain("agent keeping Control");
+
+    // The allow-case, on the same ACL: naming the owner is what the refusal
+    // asks for, and it is what every caller in this project already does. So
+    // the guard is about a missing webId and not about this fixture.
+    const named = applyContainerRules(container, resolved.value.acl, webId, true);
+    expect(named.ok, named.ok ? "" : renderError(named.error)).toBe(true);
+  }, 60_000);
+
+  it("putAcl reports a 412 about the container, never about its control document", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const container = `${u.trips()}put-acl/`;
+    const made = await createContainer(container, { fetch: ownerFetch, webId });
+    expect(made.ok, made.ok ? "" : renderError(made.error)).toBe(true);
+
+    const resolved = await resolveContainerAcl(ownerFetch, container);
+    expect(resolved.ok, resolved.ok ? "" : renderError(resolved.error)).toBe(true);
+    if (!resolved.ok) return;
+    const ruled = applyContainerRules(container, resolved.value.acl, webId, true);
+    expect(ruled.ok, ruled.ok ? "" : renderError(ruled.error)).toBe(true);
+    if (!ruled.ok) return;
+
+    // A create precondition over an ACL that is already there. The sequence
+    // never does this — it is the fallback branch's precondition, spent on the
+    // resource branch's ACL — and it is the cheapest way to make the write fail
+    // at the server rather than in the body.
+    const rec = recording(ownerFetch);
+    const clash = await putAcl(rec.fetch, container, resolved.value.aclUrl, ruled.value, { create: true });
+
+    expect(clash.ok, clash.ok ? "If-None-Match: * overwrote an existing ACL" : "").toBe(false);
+    if (clash.ok) return;
+    expect(clash.error.kind).toBe("http");
+    if (clash.error.kind !== "http") return;
+    expect(clash.error.status).toBe(412);
+    // The container, not `{container}.acl`: the caller never asked about a
+    // control document and on another server it is somewhere else entirely.
+    expect(clash.error.url).toBe(container);
+
+    const puts = rec.log.filter((r) => r.method === "PUT");
+    expect(puts.length, summarise(rec.log)).toBe(1);
+    expect(puts[0].url).toBe(`${container}.acl`);
+    expect(puts[0].ifNoneMatch).toBe("*");
+    expect(puts[0].ifMatch).toBeNull();
+
+    // The allow-case: the same body under the ETag the resolve step returned
+    // lands. So the 412 is attributable to the precondition and not to an ACL
+    // the server would refuse whatever it was written under.
+    const under = await putAcl(ownerFetch, container, resolved.value.aclUrl, ruled.value, resolved.value.precondition);
+    expect(under.ok, under.ok ? "" : renderError(under.error)).toBe(true);
   }, 60_000);
 });
 
