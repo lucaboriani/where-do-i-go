@@ -152,3 +152,106 @@ The hook could defend itself with a ref instead, and deliberately does not: the
 dependency array is the one the effect had in `entry-editor.tsx`, and a move
 that quietly changes what re-runs an effect is the defect class this stage's
 ordering exists to prevent.
+
+---
+
+# `use-entry-draft`
+
+## the scope follows the target and that was once argued backwards
+
+The key a draft is written under is the shared `new` until a resource exists,
+and the entry's own document URL from the moment one does. The hook takes it as
+`entryUrl` — `target?.url` — rather than as `target`, so that nothing here
+imports the save's types; `scope = entryUrl ?? NEW_DRAFT_SCOPE` is the whole
+derivation and the argument for it is the docblock's, verbatim.
+
+That argument is worth repeating because the comment used to say the opposite.
+It claimed keying on `target` "would clear a key nothing was ever stored under
+and leave the real draft behind", which on an EDIT is false: `target.url` starts
+life as `documentUrlOf(initial.entry.iri)`, the expression the line used to be.
+The one place the two derivations differ is the one that mattered — after a
+successful CREATE, `target` moves and the scope has to move with it, or
+everything typed afterwards is autosaved under the create key while carrying the
+created entry's slug, and tomorrow's fresh create form offers it back for a
+`If-None-Match: *` against a URL that now exists.
+
+## the `touched` ref moved into the hook that reads it
+
+Task 6 left it in the component with a note saying it was Task 7's. It is now
+`useEntryDraft`'s, and the pipeline arms it through `markTouched()` rather than
+by writing `.current` itself.
+
+**That ordering is the reason, and it is a cycle avoided rather than a
+preference.** `useEntryDraft` needs `text`, which needs the READY photos, which
+come from the slots the pipeline settles; `usePhotoPipeline` needs whatever arms
+the autosave. One of the two edges has to be a plain function call, and the ref
+belongs to the effect that READS it — the autosave — not to the code that
+happens to arm it. `attachedOf(slots)` is a pure helper the component spends, so
+the draft hook is called first and hands `markTouched` down.
+
+The ref's own docblock still says "DECLARED HERE, ABOVE `attach`, AND NOT DOWN
+IN THE DRAFT SECTION WHERE THE REST OF ITS MACHINERY LIVES", and argues from
+`react-hooks/immutability` refusing a `.current` write inside a function closing
+over a `useRef` declared below it. **It travelled verbatim and it is now false
+in both halves**: the ref IS in the draft section, and `attach` no longer writes
+it. The rule it names is real and still holds — it is why `markTouched` and
+`settleDraft` sit below the declaration in this file — but the conclusion it
+draws is about a layout that no longer exists. Recorded rather than repaired,
+on `field/notes.md#what-travelled-here-already-wrong`'s precedent.
+
+## `markTouched` alone arms nothing
+
+Measured while writing the test, and it changed how every debounce case is
+written: `touched` is a GUARD the autosave effect reads when its dependencies
+change, not a trigger. Calling `markTouched()` on its own arms no window at all,
+because nothing re-runs the effect.
+
+In the editor the pair always happens together — the `<form onChange>` handler
+and the state update are one event, and a photo settling is a slot change and a
+`markTouched()` in the same batch. So the test helper does both, and the first
+five cases written with `markTouched()` alone failed for that reason rather than
+for anything about the hook.
+
+The one case that is deliberately the other way round is "writes nothing until
+the form has been touched": there the form MOVES and the ref stays down, which
+is an editor being read rather than typed into.
+
+## why the autosave still depends on sixteen values
+
+`text` is a fresh object on every render, so it cannot be the dependency: the
+effect would re-run every render, restart the window, and never fire. The hook
+therefore destructures `text` into its sixteen fields and lists those, which is
+the dependency array the effect had in `entry-editor.tsx`, value for value.
+
+The shorter spelling was tried on paper and declined. Memoising `text` on
+`[form.values, attached]` gives one dependency, and reducer-state identity is
+*almost* the same signal — but `applyPhotoTimestamp` returns a new object even
+when both of its branches refuse, so a refused offer would restart a window
+today's array leaves alone. It happens to be batched with a slot change every
+time it can occur, which makes the two equivalent by an argument about
+scheduling rather than by construction. The sixteen names need no argument.
+
+## what use-entry-draft is tested for
+
+Twenty cases. `draftTextOf` first, because it is the projection everything else
+spends: the sixteen fields and *not* `slots`, the three credits or `offsetGuess`
+— a slot holds no URL until it settles, and a `File` in a draft serialises to
+`{}` without throwing.
+
+Then the four things only this hook can be asked:
+
+- **the debounce** — nothing before the window closes and exactly one write
+  after it (either half alone passes against a broken implementation), the key
+  it writes under on a create and on an edit, an offset on `savedAt`, that a
+  refusal keeps trying on later windows, and that nobody signed in writes
+  nothing.
+- **the offer** — one look per editor, including under StrictMode, which is what
+  the `draftRead` ref buys; that a discard is GONE from storage rather than
+  hidden; and that a RESTORE clears the banner and leaves storage alone.
+- **the settle** — the pending window cancelled first, so no timer writes the
+  draft straight back; the old key cleared and not the new one; and what was
+  typed WHILE the Pod was answering re-kept under the key this editor owns from
+  here on, photos included.
+- **the unmount flush** — the last window's typing kept, nothing written when no
+  window was outstanding, and the flush reading `live.current` rather than the
+  closure it mounted with.
