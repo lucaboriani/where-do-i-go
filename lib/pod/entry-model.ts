@@ -29,14 +29,14 @@
  * double-fuzz the paragraph exists to prevent — or ships the raw coordinate on
  * the assumption that someone downstream will handle it.
  */
-import { DataFactory, Writer, type Quad } from "n3";
+import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
   DCTERMS, DY, DY_CLASS, GEO, NS, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
 } from "@/lib/vocab";
 import { dec, dt, int, text } from "./literals";
 import { assertEntrySlug } from "./read";
 import { err, ok, type Result } from "./result";
-import { Entry } from "./schema";
+import { Entry, type GeoPoint } from "./schema";
 
 const { namedNode, literal, quad } = DataFactory;
 
@@ -56,38 +56,20 @@ export const documentUrlOf = (iri: string) => iri.replace(/#.*$/, "");
 const statusIri = (status: Entry["status"]) =>
   status === "published" ? STATUS.Published : STATUS.Draft;
 
-/* eslint-disable-next-line max-lines-per-function --
-   111 lines against an 80 bound. Stage C splits it along the §10 clause boundaries
-   it already implements in sequence; see docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md §6.
-   Remove this line with that split. */
-export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
-  // Validate on the way OUT as well as the way in. This is the last point
-  // before a resource becomes permanent in someone's Pod, and the caller is the
-  // studio's form state — typed, but assembled from user input.
-  const parsed = Entry.safeParse(entry);
-  if (!parsed.success) {
-    return err({
-      kind: "shape",
-      url: documentUrlOf(entry?.iri ?? ""),
-      issues: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
-    });
-  }
-  const e = parsed.data;
-  const doc = documentUrlOf(e.iri);
+/** A place as `Entry` holds it. Spelled from `Entry` rather than imported from
+ *  `lib/studio/place`, which sits ABOVE this module and imports it. */
+type EntryPlace = NonNullable<Entry["place"]>;
 
-  /**
-   * §11 guardrail 7 asks for the slug invariant on write as well as on read.
-   * Writing the mismatch instead produces a resource that `readEntry` then
-   * refuses: an entry intact in the Pod and dead on every link built from it.
-   * Refusing here is what stops it reaching the Pod at all.
-   */
-  const slug = assertEntrySlug(doc, e.slug);
-  if (!slug.ok) return slug;
+/** Builds the document's fragment subjects. Passed down rather than rebuilt per
+ *  clause, so `#place` here and `#place` there are the same term by construction. */
+type Frag = (name: string) => NamedNode;
 
-  // Fragments, never blank nodes (§6). Every subject below is one of these.
-  const frag = (name: string) => namedNode(`${doc}#${name}`);
-  const it = frag("it");
-
+/**
+ * §7.3's five subjects, one exported helper each — `<#it>`, `<#place>`,
+ * `<#address>`, `<#geo>`, `<#photo-n>`. The boundary is the fixture's and not
+ * convenience's, so a clause that changes in §7.3 changes in one function here.
+ */
+export function itQuads(it: NamedNode, e: Entry): Quad[] {
   const quads: Quad[] = [
     // Both classes: schema:BlogPosting is the interop surface Google reads,
     // dy:Entry is what this app's reader gates on.
@@ -119,64 +101,89 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
   if (e.creator) quads.push(quad(it, namedNode(DCTERMS.creator), namedNode(e.creator)));
   // A tag is a code, not prose: untagged, like the slug.
   for (const tag of e.tags) quads.push(quad(it, namedNode(DY.tag), literal(tag)));
+  return quads;
+}
 
-  if (e.place) {
-    const place = frag("place");
-    quads.push(
-      quad(it, namedNode(SCHEMA.contentLocation), place),
-      quad(place, namedNode(RDF.type), namedNode(SCHEMA.Place)),
-    );
-    if (e.place.name) quads.push(quad(place, namedNode(SCHEMA.name), text(e.place.name)));
+/** §7.3 `<#place>`. The two sub-subjects below it are conditional on there
+ *  being something to say, so an emptied place is a typed node and no more. */
+export function placeQuads(frag: Frag, it: NamedNode, place: EntryPlace, language?: string): Quad[] {
+  const node = frag("place");
+  const quads: Quad[] = [
+    quad(it, namedNode(SCHEMA.contentLocation), node),
+    quad(node, namedNode(RDF.type), namedNode(SCHEMA.Place)),
+  ];
+  if (place.name) quads.push(quad(node, namedNode(SCHEMA.name), text(place.name)));
 
-    if (e.place.locality !== undefined || e.place.country !== undefined) {
-      const address = frag("address");
-      quads.push(
-        quad(place, namedNode(SCHEMA.address), address),
-        quad(address, namedNode(RDF.type), namedNode(SCHEMA.PostalAddress)),
-      );
-      if (e.place.locality !== undefined) {
-        // The entry's own language, not the deployment's — every write happens
-        // in the browser (invariant 4), where `config.defaultLanguage` is
-        // always `SITE_LANGUAGE`'s fallback because `SITE_LANGUAGE` is not
-        // `NEXT_PUBLIC_`. Passed through `text()`, not spelled as a bare
-        // `literal()`, so an entry with no language of its own still falls
-        // back to the deployment default instead of publishing an untagged
-        // literal — the same fallback `schema:name` above relies on.
-        quads.push(
-          quad(
-            address,
-            namedNode(SCHEMA.addressLocality),
-            text({ value: e.place.locality, language: e.headline.language }),
-          ),
-        );
-      }
-      // A country CODE, not a country name — untagged for the same reason the
-      // slug is. "JP"@en would be a different term from "JP".
-      if (e.place.country !== undefined) {
-        quads.push(quad(address, namedNode(SCHEMA.addressCountry), literal(e.place.country)));
-      }
-    }
-
-    if (e.place.geo) {
-      const geo = frag("geo");
-      const { lat, long, precisionMeters } = e.place.geo;
-      quads.push(
-        quad(place, namedNode(SCHEMA.geo), geo),
-        quad(geo, namedNode(RDF.type), namedNode(SCHEMA.GeoCoordinates)),
-        quad(geo, namedNode(SCHEMA.latitude), dec(lat)),
-        quad(geo, namedNode(SCHEMA.longitude), dec(long)),
-        // Mirrored into geo: because extra triples are nearly free and any
-        // generic Linked Data tool understands WGS84 (§7.3).
-        quad(geo, namedNode(GEO.lat), dec(lat)),
-        quad(geo, namedNode(GEO.long), dec(long)),
-      );
-      if (precisionMeters !== undefined) {
-        quads.push(quad(geo, namedNode(DY.precisionMeters), int(precisionMeters)));
-      }
-    }
+  if (place.locality !== undefined || place.country !== undefined) {
+    quads.push(...addressQuads(frag, node, place, language));
   }
 
-  e.photos.forEach((photo, i) => {
+  if (place.geo) quads.push(...geoQuads(frag, node, place.geo));
+  return quads;
+}
+
+/** §7.3 `<#address>` — a locality in the entry's own language, and a country
+ *  CODE, which is untagged for the same reason the slug is. */
+export function addressQuads(
+  frag: Frag,
+  place: NamedNode,
+  fields: Pick<EntryPlace, "locality" | "country">,
+  language?: string,
+): Quad[] {
+  const address = frag("address");
+  const quads: Quad[] = [
+    quad(place, namedNode(SCHEMA.address), address),
+    quad(address, namedNode(RDF.type), namedNode(SCHEMA.PostalAddress)),
+  ];
+  if (fields.locality !== undefined) {
+    // The entry's own language, not the deployment's — every write happens
+    // in the browser (invariant 4), where `config.defaultLanguage` is
+    // always `SITE_LANGUAGE`'s fallback because `SITE_LANGUAGE` is not
+    // `NEXT_PUBLIC_`. Passed through `text()`, not spelled as a bare
+    // `literal()`, so an entry with no language of its own still falls
+    // back to the deployment default instead of publishing an untagged
+    // literal — the same fallback `placeQuads`' `schema:name` relies on.
+    quads.push(
+      quad(
+        address,
+        namedNode(SCHEMA.addressLocality),
+        text({ value: fields.locality, language }),
+      ),
+    );
+  }
+  // A country CODE, not a country name — untagged for the same reason the
+  // slug is. "JP"@en would be a different term from "JP".
+  if (fields.country !== undefined) {
+    quads.push(quad(address, namedNode(SCHEMA.addressCountry), literal(fields.country)));
+  }
+  return quads;
+}
+
+/** §7.3 `<#geo>` — coordinates as xsd:decimal, never float (§6), and handed
+ *  through unaltered: §9 fuzzing happened before this module saw them. */
+export function geoQuads(frag: Frag, place: NamedNode, point: GeoPoint): Quad[] {
+  const geo = frag("geo");
+  const { lat, long, precisionMeters } = point;
+  const quads: Quad[] = [
+    quad(place, namedNode(SCHEMA.geo), geo),
+    quad(geo, namedNode(RDF.type), namedNode(SCHEMA.GeoCoordinates)),
+    quad(geo, namedNode(SCHEMA.latitude), dec(lat)),
+    quad(geo, namedNode(SCHEMA.longitude), dec(long)),
+    // Mirrored into geo: because extra triples are nearly free and any
+    // generic Linked Data tool understands WGS84 (§7.3).
+    quad(geo, namedNode(GEO.lat), dec(lat)),
+    quad(geo, namedNode(GEO.long), dec(long)),
+  ];
+  if (precisionMeters !== undefined) {
+    quads.push(quad(geo, namedNode(DY.precisionMeters), int(precisionMeters)));
+  }
+  return quads;
+}
+
+/** §7.3 `<#photo-n>` — one schema:ImageObject per photo, numbered from 1. */
+export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): Quad[] {
+  const quads: Quad[] = [];
+  photos.forEach((photo, i) => {
     const node = frag(`photo-${i + 1}`);
     quads.push(
       quad(it, namedNode(SCHEMA.image), node),
@@ -225,6 +232,43 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
       quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
     }
   });
+  return quads;
+}
+
+export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
+  // Validate on the way OUT as well as the way in. This is the last point
+  // before a resource becomes permanent in someone's Pod, and the caller is the
+  // studio's form state — typed, but assembled from user input.
+  const parsed = Entry.safeParse(entry);
+  if (!parsed.success) {
+    return err({
+      kind: "shape",
+      url: documentUrlOf(entry?.iri ?? ""),
+      issues: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
+    });
+  }
+  const e = parsed.data;
+  const doc = documentUrlOf(e.iri);
+
+  /**
+   * §11 guardrail 7 asks for the slug invariant on write as well as on read.
+   * Writing the mismatch instead produces a resource that `readEntry` then
+   * refuses: an entry intact in the Pod and dead on every link built from it.
+   * Refusing here is what stops it reaching the Pod at all.
+   */
+  const slug = assertEntrySlug(doc, e.slug);
+  if (!slug.ok) return slug;
+
+  // Fragments, never blank nodes (§6). Every subject in the document is one of
+  // these, and every clause helper above builds its own through this.
+  const frag = (name: string) => namedNode(`${doc}#${name}`);
+  const it = frag("it");
+
+  const quads: Quad[] = [
+    ...itQuads(it, e),
+    ...(e.place ? placeQuads(frag, it, e.place, e.headline.language) : []),
+    ...photoQuads(frag, it, e.photos),
+  ];
 
   const writer = new Writer({
     prefixes: { xsd: NS.xsd, schema: NS.schema, dcterms: NS.dcterms, geo: NS.geo, dy: NS.dy },

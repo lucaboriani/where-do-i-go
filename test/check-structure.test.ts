@@ -98,18 +98,18 @@ describe("check:structure, against this repository", () => {
     expect(count, run.transcript).toBeGreaterThan(5);
   });
 
-  /** Two since 2026-09-08, both Stage C's; Stage B's last hook took out
-   *  `EntryEditor`'s. Asserted against THE EXEMPTIONS BLOCK and not the whole of
-   *  stdout, because every one of these paths also appears in the drift report —
-   *  so a `toContain` over stdout passed whatever the block actually held. */
-  it("lists both exemptions by path, and exactly two", () => {
+  /** ONE since 2026-09-08: `serialiseEntry`'s left with the §7.3 clause split
+   *  that took it from 111 lines to 29, and lint reported the directive unused
+   *  before it was deleted. Asserted against THE EXEMPTIONS BLOCK and not the
+   *  whole of stdout, because every one of these paths also appears in the drift
+   *  report — so a `toContain` over stdout passed whatever the block held. */
+  it("lists the one surviving exemption by path, and exactly one", () => {
     const block = /active exemptions — (\d+):\n((?:  .*\n)*)/.exec(run.stdout);
-    expect(block?.[1], run.transcript).toBe("2");
+    expect(block?.[1], run.transcript).toBe("1");
     const listed = (block?.[2] ?? "").trim().split("\n");
-    expect(listed, run.transcript).toHaveLength(2);
-    expect(listed.join("\n"), run.transcript).toContain("lib/pod/entry-model.ts");
+    expect(listed, run.transcript).toHaveLength(1);
     expect(listed.join("\n"), run.transcript).toContain("scripts/check-public-bundle.ts");
-    for (const gone of ["entry-editor", "entry-editor.test.tsx"])
+    for (const gone of ["entry-model", "entry-editor", "entry-editor.test.tsx"])
       expect(listed.join("\n"), run.transcript).not.toContain(gone);
   });
 
