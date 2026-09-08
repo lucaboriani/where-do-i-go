@@ -373,10 +373,10 @@ async function readAcl(
 }
 
 /**
- * Step 1 of the container write: the ACL to edit, and the precondition to write
- * it under. The three answers are "its own", "an ancestor's, copied" and a
- * refusal — see the module docblock, which is where the argument for refusing
- * rather than guessing lives. Exported for its own tests.
+ * Step 1 of the container write: the ACL to edit and the precondition to write
+ * it under. Three answers — its own, an ancestor's copied, or a refusal; the
+ * module docblock argues for refusing rather than guessing, and an ACL that
+ * could not be READ is not one of the three: ./notes.md#an-unreadable-acl-looks-exactly-like-no-acl
  */
 export async function resolveContainerAcl(
   fetch: PodFetch,
@@ -638,14 +638,17 @@ async function verifyContainerAccess(
 
 /* -------------------------------------------------- documents, access control */
 
-/** Documents go through universalAccess, which phase 0 exercised on both WAC
- *  and ACP unchanged (§19). Publishing an entry is exactly this plus the
- *  dy:status flip — two operations, one transaction (§10). */
-async function setDocumentPublicRead(
+/**
+ * The apply half of the document write, and the "rules" evidence with it: what
+ * universalAccess reports back is the authorisations it stored, which is not
+ * enforcement. Every refusal on this path is decided here, before the caller's
+ * cross-check runs. Exported for its own tests.
+ */
+export async function applyDocumentPublicRead(
   url: string,
   fetch: PodFetch,
   read: boolean,
-): Promise<Result<AccessState>> {
+): Promise<Result<null>> {
   let applied: Awaited<ReturnType<typeof universalAccess.setPublicAccess>>;
   try {
     applied = await universalAccess.setPublicAccess(
@@ -683,6 +686,19 @@ async function setDocumentPublicRead(
       ),
     );
   }
+  return ok(null);
+}
+
+/** Documents go through universalAccess, which phase 0 exercised on both WAC
+ *  and ACP unchanged (§19). Publishing an entry is exactly this plus the
+ *  dy:status flip — two operations, one transaction (§10). */
+async function setDocumentPublicRead(
+  url: string,
+  fetch: PodFetch,
+  read: boolean,
+): Promise<Result<AccessState>> {
+  const applied = await applyDocumentPublicRead(url, fetch, read);
+  if (!applied.ok) return err(applied.error);
 
   // Cross-check against the server's own evaluation where it offers one, since
   // the above is still only the rules we just wrote, read back.

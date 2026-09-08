@@ -94,8 +94,17 @@ describe("check:structure, against this repository", () => {
     // /tendency/i, which the header line satisfies at a count of zero — I neutered
     // driftReport to `return []` and that assertion still passed.
     expect(run.stdout, run.transcript).toMatch(/entry-editor\.tsx:\d+ .*\(tendency 130\)/);
-    const count = Number(/over the tendency — (\d+) function/.exec(run.stdout)?.[1] ?? 0);
-    expect(count, run.transcript).toBeGreaterThan(5);
+
+    /** THE COUNT IS CHECKED AGAINST THE ROWS, never against a number. It read
+     *  `> 5` until 2026-09-08, when task 4 took lib/pod/access.ts's three
+     *  functions off the list and left exactly 5 — the same shape as the "23
+     *  integration tests" pin CLAUDE.md warns about. The hole this closes is a
+     *  header with no rows under it, and rows are what closes it. */
+    const block = /over the tendency — (\d+) function\(s\), reported, not failing:\n((?:  .*\n)*)/.exec(run.stdout);
+    const rows = (block?.[2] ?? "").split("\n").filter((line) => line.trim() !== "");
+    expect(rows.length, run.transcript).toBeGreaterThan(0);
+    expect(Number(block?.[1]), run.transcript).toBe(rows.length);
+    for (const row of rows) expect(row, run.transcript).toMatch(/:\d+ — .*\(tendency \d+\)$/);
   });
 
   /** ONE since 2026-09-08: `serialiseEntry`'s left with the §7.3 clause split

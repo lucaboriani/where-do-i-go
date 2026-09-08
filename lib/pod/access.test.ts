@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { describe as renderError } from "@/lib/pod/result";
 import type { Result } from "@/lib/pod/result";
 import {
+  applyDocumentPublicRead,
   createContainer,
   getAccess,
   initialiseContainers,
@@ -287,6 +288,41 @@ describe("resolveContainerAcl, the container write's first step", () => {
     const methods = fetch.mock.calls.map(([input, init]) => methodOf(input, init));
     expect(methods.length).toBeGreaterThan(0);
     expect(methods.filter((m) => m !== "GET" && m !== "HEAD")).toEqual([]);
+  });
+});
+
+describe("applyDocumentPublicRead, the document write's apply half", () => {
+  /**
+   * Documents go through universalAccess, which phase 0 exercised on both WAC
+   * and ACP unchanged (§19). What is asserted per-step is that the refusal
+   * carries what was ASKED FOR rather than a constant — makePrivate's half
+   * must not report "expected public read=true".
+   */
+  it.each([[true], [false]])("refuses a server that reports no resulting access, read=%s", async (read) => {
+    const r = await applyDocumentPublicRead(DOC, yesMan(), read);
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("accessUnverified");
+    if (r.error.kind !== "accessUnverified") return;
+    expect(r.error.url).toBe(DOC);
+    expect(r.error.expected).toContain(`public read=${read}`);
+  });
+
+  /**
+   * WHERE the refusal comes from, which the sequence cannot show: identical
+   * errors mean the apply half refused and the WAC-Allow cross-check below it
+   * never ran. An apply half that went quietly tolerant, leaving the
+   * cross-check to catch it, would report a different error here.
+   */
+  it("is where makePublic's refusal against that server is decided", async () => {
+    const half = await applyDocumentPublicRead(DOC, yesMan(), true);
+    const whole = await makePublic(DOC, { fetch: yesMan() });
+
+    expect(half.ok).toBe(false);
+    expect(whole.ok).toBe(false);
+    if (half.ok || whole.ok) return;
+    expect(whole.error).toEqual(half.error);
   });
 });
 
