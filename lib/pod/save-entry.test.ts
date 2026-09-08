@@ -53,7 +53,7 @@ import type { Precondition } from "@/lib/pod/write";
  *                    already makes at length, and the reason its own tests fake
  *                    at the injected fetch rather than driving a fake ACL
  *                    engine. What access.ts really does is covered there and in
- *                    test/pod-access.integration.test.ts against a real
+ *                    test/integration/pod-access.integration.test.ts against a real
  *                    Community Solid Server. What is uncovered, and what these
  *                    tests are for, is the SEQUENCE around it.
  *

@@ -38,7 +38,7 @@ import type { AccessState } from "@/lib/pod/access";
  * The real access semantics — inheritance to children, the closed container
  * listing, the per-resource draft override — are not assertable against a fake
  * that has no access-control engine in it. They live in
- * test/pod-access.integration.test.ts, against a real Community Solid Server,
+ * test/integration/pod-access.integration.test.ts, against a real Community Solid Server,
  * where the only evidence that counts is a failed read from a logged-out
  * context.
  *
@@ -363,7 +363,7 @@ describe("serverListingContradiction, the strong half of a container's evidence"
 /**
  * A COMPILE-TIME assertion, checked by `npm run typecheck` rather than at run
  * time — there is no ok-path against these fakes, so the runtime half of this
- * invariant lives in test/pod-access.integration.test.ts against a real server.
+ * invariant lives in test/integration/pod-access.integration.test.ts against a real server.
  *
  * `inheritsVerifiedBy` can never be "server". The reason is not stylistic: no
  * HTTP header answers "what would an anonymous request to a CHILD of this

@@ -75,7 +75,7 @@
  * logged-out context, which needs a fetch this module deliberately does not
  * have — the caller's fetch is the only fetch, so that a studio session can
  * never be silently downgraded to anonymous. That evidence lives in
- * test/pod-access.integration.test.ts against a real Community Solid Server.
+ * test/integration/pod-access.integration.test.ts against a real Community Solid Server.
  */
 import {
   createAclFromFallbackAcl,
@@ -207,7 +207,7 @@ const OWNER_FULL: Access = { read: true, append: true, write: true, control: tru
  * suite's anonymous GET of `travel/settings/privacy.ttl` returned **200 with
  * the home latitude in the body**, and `readPrivacySettings` with a plain
  * unauthenticated fetch returned `ok` carrying the full home region. Both are
- * 401 now. See test/pod-access.integration.test.ts, "the privacy settings
+ * 401 now. See test/integration/pod-access.integration.test.ts, "the privacy settings
  * container".
  */
 const CONTAINERS: ReadonlyArray<{ segment: string; publicChildren: boolean }> = [
