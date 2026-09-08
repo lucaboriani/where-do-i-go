@@ -15,6 +15,8 @@
 - **Node 22.** Run `nvm use` then confirm `node -v` prints `v22.x` before anything. If `nvm` is absent: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Every command in this plan passes on Node 20 too, which is why checking is a step you do rather than one the tooling does.
 - **Zero behaviour change in this entire stage.** The invariant that proves it: **no test file is edited for content.** Import paths change; assertions, fixtures and test names do not. If a move requires an assertion change, the move changed behaviour — stop and report.
 - **One carve-out from that, named in advance so nobody halts on it.** `test/vitest-collection.test.ts` asserts on test-file *paths* — `expect(onDisk).toContain("test/studio-shell.test.tsx")` is a control against the `.tsx` include being reverted. Task 3 moves that file, so that literal must change. It is a path, not a behaviour, and Task 3 Step 4a replaces it with a count so it cannot go stale again. No other assertion in any test file may be touched in Stage A.
+- **Take the test count from HEAD, never from this plan.** Counts written into prose go stale — `vitest.config.ts` carried "282 tests" until the suite was 1024. Run `npm test` before you touch anything, and compare against that.
+- **`npm run size:public` does not build.** It will silently grade a stale `.next`. Run `npm run build` first.
 - **`npm test` needs a Pod.** Run `npm run pod:dev &` first, or the two integration suites skip themselves and the run is green having never executed them.
 - Prettier is not in the definition of done and this stage does not reformat. Touch only what the task names.
 - Limits, all excluding comment-only and blank lines: render 130 tendency / 200 hard; lib and scripts 50 / 80; comment block 3 / 6; test file 600 / 1000; test function bodies unlimited.
@@ -611,7 +613,7 @@ Expected: PASS with a real count, **not "skipped"**. Those suites skip themselve
 npm test
 ```
 
-Expected: 1024 passed / 2 todo / 0 skipped, same as Task 3, across 30 files. The collection guard now walks the whole repository, so a file that landed somewhere `include` does not cover fails here by name.
+Expected: **1026** passed / 2 todo / 0 skipped, across 30 files — the count at the end of Task 3, which added two barrel probes to the 1024 Task 2 left. Do not trust a count written in this plan over one you measured: re-run and compare against HEAD before you move anything. The collection guard now walks the whole repository, so a file that landed somewhere `include` does not cover fails here by name.
 
 - [ ] **Step 6: Lint, typecheck, and what a public page ships**
 

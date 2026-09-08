@@ -156,6 +156,11 @@ lib/media/**   lib/pod/write.ts
 
 then `npm run test:e2e` must pass too. **Two seams, not one.**
 
+Since tests moved beside their subjects on 2026-09-08, those globs also match a diff that only
+adds or edits a **test** file under `lib/media/**` or `lib/studio/**`. That over-fires, and
+deliberately so: the gate is a path match rather than an intent match, and an extra 21-second run
+is cheaper than the reasoning needed to decide a media test is harmless. Do not narrow it.
+
 The first line is the auth seam, and it is where this test's failures live: it drives a real
 Solid login round trip through the local Community Solid Server — redirect, consent,
 authorization code, `handleIncomingRedirect`, owner studio.
