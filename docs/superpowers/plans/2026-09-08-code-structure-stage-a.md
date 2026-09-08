@@ -14,6 +14,7 @@
 
 - **Node 22.** Run `nvm use` then confirm `node -v` prints `v22.x` before anything. If `nvm` is absent: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Every command in this plan passes on Node 20 too, which is why checking is a step you do rather than one the tooling does.
 - **Zero behaviour change in this entire stage.** The invariant that proves it: **no test file is edited for content.** Import paths change; assertions, fixtures and test names do not. If a move requires an assertion change, the move changed behaviour — stop and report.
+- **One carve-out from that, named in advance so nobody halts on it.** `test/vitest-collection.test.ts` asserts on test-file *paths* — `expect(onDisk).toContain("test/studio-shell.test.tsx")` is a control against the `.tsx` include being reverted. Task 3 moves that file, so that literal must change. It is a path, not a behaviour, and Task 3 Step 4a replaces it with a count so it cannot go stale again. No other assertion in any test file may be touched in Stage A.
 - **`npm test` needs a Pod.** Run `npm run pod:dev &` first, or the two integration suites skip themselves and the run is green having never executed them.
 - Prettier is not in the definition of done and this stage does not reformat. Touch only what the task names.
 - Limits, all excluding comment-only and blank lines: render 130 tendency / 200 hard; lib and scripts 50 / 80; comment block 3 / 6; test file 600 / 1000; test function bodies unlimited.
@@ -368,7 +369,7 @@ Mechanical. Three components, each into its own folder with a barrel and its col
 - Move: `components/studio/studio-client.tsx` → `components/studio/studio-client/studio-client.tsx`
 - Move: `test/entry-editor.test.tsx` → `components/studio/entry-editor/entry-editor.test.tsx`
 - Move: `test/studio-shell.test.tsx` → `components/studio/studio-shell/studio-shell.test.tsx`
-- Move: `test/studio-trip-loading.test.tsx` → `components/studio/studio-shell/studio-trip-loading.test.tsx`
+- Move: `test/studio-trip-loading.test.tsx` → `components/studio/studio-shell/studio-shell.trip-loading.test.tsx` — **renamed, and the rename is required.** Task 6's placement rule compares the base name before the first dot against a source file beside it; `studio-trip-loading.ts` does not exist, so the original name fails the check this very plan installs. The `studio-shell.` prefix is the same device Task 4 uses for `read.owner-profile.test.ts`, applied here rather than discovered in Task 6.
 - Create: an `index.ts` in each of the three folders
 - Modify: importers of the three components; `CLAUDE.md`; `test/guardrails.test.ts`
 
@@ -394,10 +395,10 @@ git mv components/studio/studio-shell.tsx  components/studio/studio-shell/studio
 git mv components/studio/studio-client.tsx components/studio/studio-client/studio-client.tsx
 git mv test/entry-editor.test.tsx          components/studio/entry-editor/entry-editor.test.tsx
 git mv test/studio-shell.test.tsx          components/studio/studio-shell/studio-shell.test.tsx
-git mv test/studio-trip-loading.test.tsx   components/studio/studio-shell/studio-trip-loading.test.tsx
+git mv test/studio-trip-loading.test.tsx   components/studio/studio-shell/studio-shell.trip-loading.test.tsx
 ```
 
-`studio-trip-loading.test.tsx` goes with `studio-shell` because that is its subject — confirm by reading its imports before moving, and if it imports a different component, put it with that one instead and say so in the commit message.
+`studio-shell.trip-loading.test.tsx` goes with `studio-shell` because that is its subject: it imports `StudioShell from "@/components/studio/studio-shell"` and its docblock names that file. Confirmed by survey before this plan was written.
 
 - [ ] **Step 3: Add the three barrels**
 
@@ -420,6 +421,41 @@ npm run typecheck
 ```
 
 Expected: errors naming exactly the unresolved relative imports. Fix each, re-run until clean. **Do not touch an assertion.** If typecheck reports anything that is not an import path, stop and report it.
+
+- [ ] **Step 4a: Replace the collection guard's path literal with a count**
+
+`test/vitest-collection.test.ts` has, as a control against the `.tsx` include being silently
+reverted:
+
+```ts
+expect(onDisk).toContain("test/studio-shell.test.tsx");
+```
+
+Task 3 deletes that path. This is the one assertion edit Stage A permits (see Global
+Constraints). Replace it with a count, so it protects the same thing without naming a file that
+can move:
+
+```ts
+    // Control, by COUNT not by path. This named test/studio-shell.test.tsx until
+    // it moved beside its subject on 2026-09-08; a path here goes stale on every
+    // move, and the thing being guarded is "the .tsx include still matches
+    // something", which a count says directly.
+    expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(2);
+```
+
+Three `.tsx` test files exist after this task (`entry-editor`, `studio-shell`,
+`studio-shell.trip-loading`), so `> 2` is satisfied and would fail if the include regressed.
+**Do not simply delete the line** — the two remaining assertions are `.length > 10` and
+`.length > 0`, and `> 0` is satisfied by any single `.tsx` file anywhere, which is weaker than
+what this control was for.
+
+- [ ] **Step 4b: Fix the one relative import in production code**
+
+`components/studio/studio-client.tsx` has `dynamic(() => import("./studio-shell"), …)`. After the
+move both files are in sibling folders, so that becomes `import("../studio-shell")` — or better,
+`import("@/components/studio/studio-shell")`, matching how every other importer names it.
+`typecheck` catches this either way; it is listed so the failure is expected rather than
+confusing.
 
 - [ ] **Step 5: Rewrite the e2e diff-gate globs in `CLAUDE.md`**
 
@@ -477,7 +513,7 @@ git commit -m "Each studio component has a folder, and its test sits beside it"
 
 ### Task 4: The remaining tests move beside their subjects
 
-Twenty-six test files remain in `test/`. Fourteen have a single module as their subject and colocate. The rest have no single subject and stay, two of them relocated into `test/integration/`.
+Twenty-six test files remain in `test/`. **Eighteen** have a single subject and colocate — the sixteen `lib/` moves plus `revalidate-route` and `studio-page`. The rest have no single subject and stay, two of them relocated into `test/integration/`.
 
 **Files:**
 - Move, each `test/<name>.test.ts` → beside its subject:
@@ -633,6 +669,7 @@ describe("function length", () => {
   it("allows a render function that is merely long, because 130 is a tendency", async () => {
     const merely = `export function C() {\n${"  let x = 0;\n".repeat(140)}  return null;\n}\n`;
     const msgs = await lint("components/studio/thing/thing.tsx", merely);
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
   });
 
@@ -652,12 +689,14 @@ describe("function length", () => {
       `export function f() {\n${"  // a line of prose\n".repeat(300)}` +
       `${"  let x = 0;\n".repeat(40)}  return 1;\n}\n`;
     const msgs = await lint("lib/pod/thing.ts", prose);
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
   });
 
   it("limits a test FILE but never a test function body", async () => {
     const bigIt = `it("x", () => {\n${"  let x = 0;\n".repeat(300)}});\n`;
     const msgs = await lint("lib/pod/thing.test.ts", bigIt);
+    expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
     expect(ruleIds(msgs)).not.toContain("max-lines");
   });
@@ -672,10 +711,46 @@ describe("function length", () => {
 Note the last two cases together: the file ceiling must fire while the function limit stays
 silent, or "no limit on a test body" has been implemented as "no limit on a test file".
 
+**`fatals()` on every allow-case is not optional.** That helper exists in this very file with a
+docblock saying why: a snippet ESLint cannot parse yields ONE message with `fatal: true` and
+`ruleId: null` and no rule messages at all, so *every* `not.toContain` case would pass on a
+snippet that was never linted. Six existing allow-cases already call it. The three new ones now
+do too.
+
+Two more cases, both pinning things Stage A depends on:
+
+```ts
+  it("honours a multi-line disable with a reason, which is the shape CLAUDE.md mandates", async () => {
+    const exempted =
+      `/* eslint-disable-next-line max-lines-per-function --\n` +
+      `   reason on its own line, removal condition on another */\n` +
+      `export function f() {\n${"  let x = 0;\n".repeat(90)}  return 1;\n}\n`;
+    const msgs = await lint("lib/pod/thing.ts", exempted);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  it("holds components/ui to the render bound, since the shadcn CLI rewrites that directory", async () => {
+    const longUi = `export function C() {\n${"  let x = 0;\n".repeat(210)}  return null;\n}\n`;
+    expect(ruleIds(await lint("components/ui/thing.tsx", longUi))).toContain("max-lines-per-function");
+  });
+```
+
+The first matters because Step 6's four exemptions are the only thing between Step 7 and a red
+`npm run lint`, and a multi-line `-- reason` directive is version-sensitive ESLint behaviour that
+CLAUDE.md is about to mandate. Measured working on ESLint 9.39.5; pinned so an upgrade says so.
+
+The second records a deliberate asymmetry: `components/ui/**` is exempt from the folder rule, the
+comment rule and the arbitrary-Tailwind guardrail, but **not** from the 200-line render bound.
+Largest file there today is 40 lines, so nothing is affected — but the shadcn CLI rewrites that
+directory on update, and a vendored `sidebar.tsx` or `chart.tsx` could fail a bound on source the
+project does not own. If that happens, the answer is an exemption with a reason, not a silent
+widening.
+
 - [ ] **Step 2: Run the probes and watch them fail**
 
 Run: `npx vitest run test/guardrails.test.ts`
-Expected: FAIL — the three "refuses" cases get no `max-lines-per-function` message, because the rule does not exist yet. The three "allows" cases pass vacuously, which is why they are not the whole test.
+Expected: FAIL — **four** cases carry a `toContain` and all four fail, because the rule does not exist yet: the three "rejects" cases plus "holds lib tighter than a render at the very same length", whose first assertion is positive. The three "allows" cases pass vacuously, which is why they are not the whole test — and why Step 1 adds `fatals()` to each of them.
 
 - [ ] **Step 3: Add the rules to `eslint.config.mjs`**
 
@@ -727,7 +802,7 @@ Append two config blocks. ESLint flat config **replaces** a rule's options rathe
 - [ ] **Step 4: Run the probes and watch them pass**
 
 Run: `npx vitest run test/guardrails.test.ts`
-Expected: PASS, all six new cases.
+Expected: PASS, all seven new cases.
 
 - [ ] **Step 5: See what the rules say about the real repository**
 
@@ -786,18 +861,27 @@ The rules ESLint cannot express: folder layout, test placement, comment-block le
 - [ ] **Step 1: Write the failing tests**
 
 Create `test/check-structure.test.ts`. `test/check-commands.test.ts` is the model for running a
-script as a child process here — it defines a local `runCli(root)` returning
-`{ status, stdout, stderr, transcript }` and builds fixture checkouts in `tmpdir()`. There is no
-shared `runScript` helper in this repository; `test/child-output.ts` exports only `stripAnsi`
-and `ONE_FAILED_TEST`.
+script as a child here — it defines a local `runCli` and builds fixture checkouts in `tmpdir()`.
+There is no shared `runScript` helper; `test/child-output.ts` exports only `stripAnsi` and
+`ONE_FAILED_TEST`.
 
-That file also states the doctrine this test must follow, in its own words: an exit code "cannot
+**Copy `runCli`'s three details from that model rather than simplifying them**: `process.execPath`
+with `["--import", "tsx", …]` (not `npx`, which costs a resolution per call and would make this
+the slowest test file in the repo), an explicit `timeout`, and `if (result.error) throw result.error`
+so a spawn failure arrives as the error it is rather than as `status: -1` and a confusing
+exit-code assertion.
+
+**And wrap `mkdtempSync` in `realpathSync`.** On macOS `mkdtempSync` returns `/var/…` while the
+child resolves `/private/var/…`; `rel()` is `p.slice(ROOT.length + 1)`, so the mismatch silently
+mangles every reported path. `check-commands.test.ts` already does this for the same reason.
+
+That model also states the doctrine this file must follow, in its own words: an exit code "cannot
 say WHICH guard fired". So every failing case asserts the offending **path appears in the
 output**, not merely that the status was 1.
 
 ```ts
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -813,65 +897,110 @@ afterAll(() => {
 type Run = { status: number; stdout: string; transcript: string };
 
 function runCli(root: string): Run {
-  const result = spawnSync("npx", ["tsx", "scripts/check-structure.ts", "--root", root], {
-    cwd: ROOT,
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "scripts/check-structure.ts", "--root", root],
+    { cwd: ROOT, encoding: "utf8", timeout: 120_000 },
+  );
+  if (result.error) throw result.error;
   const stdout = stripAnsi(result.stdout ?? "");
   const stderr = stripAnsi(result.stderr ?? "");
   return {
     status: result.status ?? -1,
     stdout,
-    transcript: `\n$ tsx scripts/check-structure.ts --root ${root}\n[exit ${result.status}]\n${stdout}${stderr}`,
+    transcript: `\n$ check-structure.ts --root ${root}\n[exit ${result.status}]\n${stdout}${stderr}`,
   };
 }
 
-/** A fixture tree that is COMPLIANT, so each case below breaks exactly one rule. */
+/** The real repository, with no --root at all, so IS_REPO is true. */
+function runRepo(): Run {
+  const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/check-structure.ts"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  if (result.error) throw result.error;
+  const stdout = stripAnsi(result.stdout ?? "");
+  return {
+    status: result.status ?? -1,
+    stdout,
+    transcript: `\n$ check-structure.ts\n[exit ${result.status}]\n${stdout}`,
+  };
+}
+
+/** A COMPLIANT fixture, so each case below breaks exactly one rule. */
 function compliant(): string {
-  const root = mkdtempSync(join(tmpdir(), "structure-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "structure-")));
   created.push(root);
   mkdirSync(join(root, "components", "studio", "widget"), { recursive: true });
+  mkdirSync(join(root, "components", "studio", "widget", "hooks"), { recursive: true });
   mkdirSync(join(root, "lib", "pod"), { recursive: true });
-  mkdirSync(join(root, "test"), { recursive: true });
-  writeFileSync(join(root, "components", "studio", "widget", "widget.tsx"), "export const W = 1;\n");
-  writeFileSync(join(root, "components", "studio", "widget", "index.ts"), 'export * from "./widget";\n');
+  mkdirSync(join(root, "test", "integration"), { recursive: true });
+  const w = join(root, "components", "studio", "widget");
+  writeFileSync(join(w, "widget.tsx"), "export const W = 1;\n");
+  writeFileSync(join(w, "index.ts"), 'export * from "./widget";\n');
+  writeFileSync(join(w, "hooks", "use-widget.ts"), "export const u = 1;\n");
   writeFileSync(join(root, "lib", "pod", "thing.ts"), "export const t = 1;\n");
   writeFileSync(join(root, "lib", "pod", "thing.test.ts"), 'import "./thing";\n');
   return root;
 }
 
 describe("check:structure, against this repository", () => {
+  const run = runRepo();
+
   it("passes", () => {
-    const run = runCli(ROOT);
     expect(run.status, run.transcript).toBe(0);
   });
 
-  it("reports length drift without failing on it", () => {
-    const run = runCli(ROOT);
-    // EntryEditor is 941 against a tendency of 130, exempted rather than fixed until Stage B.
-    expect(run.stdout, run.transcript).toMatch(/entry-editor/);
-    expect(run.stdout, run.transcript).toMatch(/tendency/i);
-    expect(run.status, "drift must report, never fail").toBe(0);
+  it("says how many files it scanned, so a moved directory cannot make it vacuous", () => {
+    const scanned = Number(/scanned (\d+) files/.exec(run.stdout)?.[1] ?? 0);
+    expect(scanned, run.transcript).toBeGreaterThan(50);
   });
 
-  it("lists every active exemption by rule and path, so none of them hides", () => {
-    const run = runCli(ROOT);
-    expect(run.stdout, run.transcript).toMatch(/max-lines-per-function/);
-    expect(run.stdout, run.transcript).toMatch(/entry-model\.ts/);
-    // The count is the point: a report that scans only production files finds
-    // three of Task 5's four and looks complete. The fourth is on a test file.
+  it("reports length drift with real content, not an empty header", () => {
+    // Named function, real line number, real tendency. The earlier draft asserted
+    // /tendency/i, which the header line satisfies at a count of zero — I neutered
+    // driftReport to `return []` and that assertion still passed.
+    expect(run.stdout, run.transcript).toMatch(/entry-editor\.tsx:\d+ .*\(tendency 130\)/);
+    const count = Number(/over the tendency — (\d+) function/.exec(run.stdout)?.[1] ?? 0);
+    expect(count, run.transcript).toBeGreaterThan(5);
+  });
+
+  it("lists all four exemptions by path, and exactly four", () => {
     expect(run.stdout, run.transcript).toMatch(/active exemptions — 4/);
-    expect(run.stdout, run.transcript).toMatch(/entry-editor\.test\.tsx/);
+    for (const path of [
+      "entry-editor/entry-editor.tsx",
+      "entry-editor/entry-editor.test.tsx",
+      "lib/pod/entry-model.ts",
+      "scripts/check-public-bundle.ts",
+    ])
+      expect(run.stdout, run.transcript).toContain(path);
+  });
+
+  it("reports the comment ratchet as a count, not as a failure", () => {
+    expect(run.stdout, run.transcript).toMatch(/comment blocks over 6 lines \(ratchet, reported\)/);
+    expect(run.status, "the ratchet must not fail at or below baseline").toBe(0);
   });
 });
 
 describe("check:structure, on fixtures that each break one rule", () => {
-  it("accepts the compliant fixture, so the cases below mean something", () => {
+  it("accepts the compliant fixture, so every case below means something", () => {
     const run = runCli(compliant());
     expect(run.status, run.transcript).toBe(0);
   });
 
-  it("fails on a component file outside a folder of its own name", () => {
+  it("accepts a flat hooks/ module without demanding a folder for it", () => {
+    // Stage B puts ten plain modules inside state/ and hooks/. The folder rule
+    // binds .tsx only; an earlier draft scanned .ts and would have failed all ten.
+    const root = compliant();
+    writeFileSync(
+      join(root, "components", "studio", "widget", "hooks", "use-other.ts"),
+      "export const o = 1;\n",
+    );
+    expect(runCli(root).status).toBe(0);
+  });
+
+  it("fails on a component .tsx outside a folder of its own name", () => {
     const root = compliant();
     writeFileSync(join(root, "components", "studio", "loose.tsx"), "export const L = 1;\n");
     const run = runCli(root);
@@ -879,20 +1008,49 @@ describe("check:structure, on fixtures that each break one rule", () => {
     expect(run.stdout, run.transcript).toContain("components/studio/loose.tsx");
   });
 
+  it("fails on a component folder with no index.ts barrel", () => {
+    const root = compliant();
+    rmSync(join(root, "components", "studio", "widget", "index.ts"));
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toContain("no index.ts barrel");
+  });
+
   it("exempts components/ui from the folder rule", () => {
     const root = compliant();
     mkdirSync(join(root, "components", "ui"), { recursive: true });
     writeFileSync(join(root, "components", "ui", "button.tsx"), "export const B = 1;\n");
-    const run = runCli(root);
-    expect(run.status, run.transcript).toBe(0);
+    expect(runCli(root).status).toBe(0);
   });
 
-  it("fails on a test with no source file of the same base name beside it", () => {
+  it("fails on a test with no source of the same base name beside it", () => {
     const root = compliant();
     writeFileSync(join(root, "test", "orphan.test.ts"), 'import "vitest";\n');
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
     expect(run.stdout, run.transcript).toContain("test/orphan.test.ts");
+  });
+
+  it("accepts a dotted stem whose first segment matches its subject", () => {
+    // The rule Task 4 invented for read.owner-profile.test.ts, tested in the
+    // direction that matters: the prefix must MATCH, not merely exist.
+    const root = compliant();
+    writeFileSync(join(root, "lib", "pod", "thing.extra.test.ts"), 'import "./thing";\n');
+    expect(runCli(root).status).toBe(0);
+  });
+
+  it("fails on a dotted stem whose first segment matches nothing", () => {
+    const root = compliant();
+    writeFileSync(join(root, "lib", "pod", "absent.extra.test.ts"), 'import "vitest";\n');
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toContain("absent.extra.test.ts");
+  });
+
+  it("skips test/integration/, which has no single subject by design", () => {
+    const root = compliant();
+    writeFileSync(join(root, "test", "integration", "pod.integration.test.ts"), 'import "vitest";\n');
+    expect(runCli(root).status).toBe(0);
   });
 
   it("fails on a notes pointer whose anchor does not resolve", () => {
@@ -905,16 +1063,7 @@ describe("check:structure, on fixtures that each break one rule", () => {
     expect(run.stdout, run.transcript).toContain("no-such-heading");
   });
 
-  it("accepts a pointer whose anchor does resolve, including a slugged heading", () => {
-    const root = compliant();
-    const dir = join(root, "components", "studio", "widget");
-    writeFileSync(join(dir, "widget.tsx"), "// see ./notes.md#first-writer-wins\nexport const W = 1;\n");
-    writeFileSync(join(dir, "notes.md"), "# widget\n\n## First writer wins\n\nprose\n");
-    const run = runCli(root);
-    expect(run.status, run.transcript).toBe(0);
-  });
-
-  it("fails on a pointer to a notes.md that does not exist at all", () => {
+  it("fails on a pointer to a notes.md that does not exist", () => {
     const root = compliant();
     writeFileSync(
       join(root, "components", "studio", "widget", "widget.tsx"),
@@ -922,38 +1071,98 @@ describe("check:structure, on fixtures that each break one rule", () => {
     );
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
-    expect(run.stdout, run.transcript).toContain("notes.md");
+    // NOT just "notes.md" — that substring is in other messages too.
+    expect(run.stdout, run.transcript).toMatch(/points at \.\/notes\.md#anything, which does not exist/);
   });
 
-  it("fails on a comment block past the six-line hard bound", () => {
+  it("resolves an em-dash heading the way GitHub does", () => {
+    // The house style in docs/data-model.md. `/\s+/g` collapses the two spaces
+    // left by the removed dash and yields ONE hyphen; GitHub yields two.
     const root = compliant();
-    const block = `${"// prose\n".repeat(7)}export const t = 1;\n`;
-    writeFileSync(join(root, "lib", "pod", "thing.ts"), block);
+    const dir = join(root, "components", "studio", "widget");
+    writeFileSync(
+      join(dir, "widget.tsx"),
+      "// see ./notes.md#rule-1--where-it-applies\nexport const W = 1;\n",
+    );
+    writeFileSync(join(dir, "notes.md"), "# widget\n\n## Rule 1 — where it applies\n\nprose\n");
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(0);
+  });
+
+  it("finds a pointer inside a test file, which is where the stale citations were", () => {
+    const root = compliant();
+    writeFileSync(
+      join(root, "lib", "pod", "thing.test.ts"),
+      '// see ./notes.md#absent\nimport "./thing";\n',
+    );
+    writeFileSync(join(root, "lib", "pod", "notes.md"), "# thing\n\n## present\n");
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
-    expect(run.stdout, run.transcript).toContain("lib/pod/thing.ts");
+    expect(run.stdout, run.transcript).toContain("#absent");
   });
 
-  it("allows a six-line block, so the bound is a bound and not an off-by-one", () => {
+  it("resolves a non-sibling pointer, which two real ones already are", () => {
     const root = compliant();
-    writeFileSync(join(root, "lib", "pod", "thing.ts"), `${"// prose\n".repeat(6)}export const t = 1;\n`);
+    mkdirSync(join(root, "lib", "pod", "support"), { recursive: true });
+    writeFileSync(join(root, "lib", "pod", "support", "notes.md"), "# s\n\n## why\n");
+    writeFileSync(join(root, "lib", "pod", "thing.ts"), "// see ./support/notes.md#why\nexport const t = 1;\n");
     expect(runCli(root).status).toBe(0);
   });
 
-  it("counts a block comment span, not just // runs", () => {
+  it("counts a JSX comment block, which is the entry editor's house style", () => {
+    // 17 false negatives were measured against a prefix scanner, every one in
+    // entry-editor.tsx, because these lines begin with `{`.
     const root = compliant();
-    const span = `/**\n${" * prose\n".repeat(6)} */\nexport const t = 1;\n`;
-    writeFileSync(join(root, "lib", "pod", "thing.ts"), span);
+    const block = `export const W = () => (\n  <div>\n    {/*\n${"      prose\n".repeat(8)}    */}\n  </div>\n);\n`;
+    writeFileSync(join(root, "components", "studio", "widget", "widget.tsx"), block);
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toContain("widget.tsx");
+  });
+
+  it("does not count a comment-looking line inside a template literal", () => {
+    const root = compliant();
+    const lit = "export const md = `\n" + "* a markdown bullet\n".repeat(8) + "`;\n";
+    writeFileSync(join(root, "lib", "pod", "thing.ts"), lit);
+    expect(runCli(root).status).toBe(0);
+  });
+
+  it("allows a six-line block and fails a seven-line one, so the bound is a bound", () => {
+    const six = compliant();
+    writeFileSync(join(six, "lib", "pod", "thing.ts"), `${"// prose\n".repeat(6)}export const t = 1;\n`);
+    expect(runCli(six).status, "six lines is at the bound, not over it").toBe(0);
+
+    const seven = compliant();
+    writeFileSync(join(seven, "lib", "pod", "thing.ts"), `${"// prose\n".repeat(7)}export const t = 1;\n`);
+    const run = runCli(seven);
+    expect(run.status, run.transcript).toBe(1);
     expect(run.stdout, run.transcript).toContain("lib/pod/thing.ts");
+  });
+
+  it("treats two blocks with no blank line between them as one run", () => {
+    // Task 5 Step 6 inserts a 4-line disable directly above existing docblocks,
+    // which is exactly this shape. Documented in CLAUDE.md; pinned here.
+    const root = compliant();
+    const merged = "/** a\n * b\n * c */\n/** d\n * e\n * f\n * g */\nexport const t = 1;\n";
+    writeFileSync(join(root, "lib", "pod", "thing.ts"), merged);
+    expect(runCli(root).status).toBe(1);
+  });
+
+  it("lets a blank line reset the run", () => {
+    const root = compliant();
+    const split = "/** a\n * b\n * c */\n\n/** d\n * e\n * f */\nexport const t = 1;\n";
+    writeFileSync(join(root, "lib", "pod", "thing.ts"), split);
+    expect(runCli(root).status).toBe(0);
   });
 });
 ```
 
-Fourteen cases, and note the shape: every rule has a **positive** case beside its negative one —
-`components/ui` exempted, a six-line block allowed, a resolving anchor accepted. A rule tested
-only by what it rejects passes just as well when it rejects everything.
+Twenty-two cases. The shape to preserve: **every rule has a positive case beside its negative
+one** — `components/ui` exempted, a flat `hooks/` module accepted, a six-line block allowed, a
+matching dotted stem accepted, `test/integration/` skipped, an em-dash anchor resolved, a
+template literal not counted, a blank line resetting a run. An earlier draft had that claim in
+its prose and four of seven rules actually covered; a rule tested only by what it rejects passes
+just as well when it rejects everything.
 
 - [ ] **Step 2: Run and watch it fail**
 
@@ -964,47 +1173,113 @@ Expected: FAIL — `Cannot find module scripts/check-structure.ts`.
 
 Create `scripts/check-structure.ts`. Every function stays under the 50-line tendency — this
 script is the first thing that would be embarrassing to exempt. One function per rule, each
-returning the failures it found, and a `main` that collects and prints.
+returning what it found, and a `main` that collects and prints.
 
 ```ts
 /**
- * Layout, comment length, and notes.md pointers — what ESLint cannot express.
- * FAILS on: a component outside its own folder, an orphan test, a comment block
- * over six lines, a `see ./notes.md#anchor` that does not resolve.
- * REPORTS, exit 0: functions over the tendency, test files over 600 lines, and
- * every active exemption. See CLAUDE.md "Code structure" for the two tiers.
+ * Layout, comment length and notes.md pointers — what ESLint cannot express.
+ * FAILS on: a component .tsx outside its own folder, a misplaced test, an
+ * unresolved `notes.md#anchor`, and a comment count above the ratchet.
+ * REPORTS: functions over the tendency, test files over 600 lines, exemptions.
+ * See CLAUDE.md "Code structure" for the numbers and why two tiers exist.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { parse } from "@typescript-eslint/parser";
 import { walkTestFiles } from "../test/support/walk";
 
-const arg = process.argv.indexOf("--root");
-const ROOT = resolve(arg === -1 ? process.cwd() : process.argv[arg + 1]);
+const flag = process.argv.indexOf("--root");
+const IS_REPO = flag === -1;
+const ROOT = resolve(IS_REPO ? process.cwd() : process.argv[flag + 1]);
 const rel = (p: string) => p.slice(ROOT.length + 1).split("\\").join("/");
+const SKIP = ["node_modules", ".next", ".git", ".pod-data", "test-results", "coverage"];
 
-/** Every source file under `dir`, at any depth, skipping the usual noise. */
-function sources(dir: string, out: string[] = []): string[] {
+/** Every .ts/.tsx under `dir`, tests included only when `withTests`. */
+function files(dir: string, withTests: boolean, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!["node_modules", ".next", ".git", ".pod-data", "test-results"].includes(e.name))
-        sources(p, out);
-    } else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(p);
+      if (!SKIP.includes(e.name)) files(p, withTests, out);
+    } else if (/\.tsx?$/.test(e.name)) {
+      if (withTests || !/\.test\.tsx?$/.test(e.name)) out.push(p);
+    }
   }
   return out;
 }
+
+const DIRS = ["components", "app", "lib", "scripts", "test"];
+const sources = (withTests: boolean) => DIRS.flatMap((d) => files(join(ROOT, d), withTests));
 ```
 
-Rule 1, the folder layout. `components/ui` is exempt, and so is anything named `index`:
+**The comment counter uses the parser's comment ranges, not string prefixes.** A hand-rolled
+version was measured against real comment tokens across all 59 scanned files: zero false
+positives, but **17 false negatives, every one of them in `entry-editor.tsx`** — including a
+47-line block — because that file's house style is the JSX form, whose lines begin with `{`:
+
+```jsx
+      {/*
+        NAMED BY `title`, NOT BY `aria-label`, AND THAT IS LOAD-BEARING.
+        … seven more prose lines …
+      */}
+```
+
+None of `//`, `/*` or `*` matches that, so the span never opened. A prefix scanner would also
+count a markdown bullet list inside a template literal as comment lines. Both problems disappear
+with real tokens, so this is the shorter correct answer rather than a patched wrong one:
+
+```ts
+/** Runs of adjacent comment lines, as [path:line, lineCount]. */
+function commentRuns(file: string): Array<[string, number]> {
+  const ast = parse(readFileSync(file, "utf8"), { comment: true, loc: true, jsx: true });
+  const runs: Array<[string, number]> = [];
+  let first: number | null = null;
+  let last = 0;
+  for (const c of (ast.comments ?? []).sort((a, b) => a.loc.start.line - b.loc.start.line)) {
+    if (first !== null && c.loc.start.line > last + 1) {
+      runs.push([`${rel(file)}:${first}`, last - first + 1]);
+      first = null;
+    }
+    if (first === null) first = c.loc.start.line;
+    last = Math.max(last, c.loc.end.line);
+  }
+  if (first !== null) runs.push([`${rel(file)}:${first}`, last - first + 1]);
+  return runs;
+}
+
+/**
+ * The ratchet. 262 blocks over six lines across 38 files when this landed, and
+ * the sweep that fixes them is Stage C — so a flat failure would block every
+ * merge on deferred work. Fails only when the count RISES. Lower this number
+ * as the sweep proceeds; Stage C's last commit sets it to 0.
+ */
+const COMMENT_BASELINE = 262;
+
+function commentsOverBound(): { over: string[]; verdict: string[] } {
+  const over = sources(true)
+    .filter((f) => !rel(f).startsWith("components/ui/"))
+    .flatMap((f) => commentRuns(f).filter(([, n]) => n > 6).map(([at, n]) => `${at} — ${n} lines`));
+  if (over.length > COMMENT_BASELINE)
+    return { over, verdict: [`comment blocks over 6 lines ROSE to ${over.length}, baseline ${COMMENT_BASELINE}`] };
+  const note =
+    over.length < COMMENT_BASELINE
+      ? `  ${over.length} now, baseline ${COMMENT_BASELINE} — lower COMMENT_BASELINE to ${over.length}`
+      : `  ${over.length}, at the baseline`;
+  return { over: [], verdict: [note] };
+}
+```
+
+Rule 1, the folder layout. **`.tsx` only** — a component folder holds flat `state/` and `hooks/`
+modules, and an earlier draft of this rule scanned `.ts` too, which would have hard-failed the
+ten plain modules Stage B's own design puts inside those directories:
 
 ```ts
 function componentFoldersAreOwn(): string[] {
   const bad: string[] = [];
-  for (const file of sources(join(ROOT, "components"))) {
+  for (const file of files(join(ROOT, "components"), false)) {
     const path = rel(file);
-    if (path.startsWith("components/ui/")) continue;
-    const name = basename(file).replace(/\.tsx?$/, "");
+    if (path.startsWith("components/ui/") || !path.endsWith(".tsx")) continue;
+    const name = basename(file, ".tsx");
     if (name === "index") continue;
     if (basename(dirname(file)) !== name) bad.push(`${path} is not in a folder named "${name}"`);
     else if (!existsSync(join(dirname(file), "index.ts")))
@@ -1014,8 +1289,9 @@ function componentFoldersAreOwn(): string[] {
 }
 ```
 
-Rule 2, test placement. The allowlist is the table in CLAUDE.md, and a path in it that no longer
-exists is itself a failure — that is what stops the list rotting into a set of permanent excuses:
+Rule 2, test placement. **The allowlist-existence check runs only against the real repository** —
+under a `--root` fixture none of the eight listed files exists, and an earlier draft pushed eight
+failures on every fixture case, which silently broke the four cases that assert exit 0:
 
 ```ts
 const REPO_TESTS = [
@@ -1030,67 +1306,48 @@ function testsSitBesideSubjects(): string[] {
     if (REPO_TESTS.includes(path) || path.startsWith("test/integration/")) continue;
     const dir = join(ROOT, dirname(path));
     const stem = basename(path).replace(/\.test\.tsx?$/, "").split(".")[0];
-    const beside = ["ts", "tsx"].some((ext) => existsSync(join(dir, `${stem}.${ext}`)));
-    if (!beside) bad.push(`${path} has no ${stem}.ts(x) beside it, and is not an allowed repo test`);
+    if (!["ts", "tsx"].some((ext) => existsSync(join(dir, `${stem}.${ext}`))))
+      bad.push(`${path} has no ${stem}.ts(x) beside it, and is not an allowed repo test`);
   }
-  for (const listed of REPO_TESTS)
-    if (!existsSync(join(ROOT, listed))) bad.push(`REPO_TESTS names ${listed}, which does not exist`);
+  // Only on the real tree: a fixture root contains none of these by design.
+  if (IS_REPO)
+    for (const listed of REPO_TESTS)
+      if (!existsSync(join(ROOT, listed)))
+        bad.push(`REPO_TESTS names ${listed}, which does not exist`);
   return bad;
 }
 ```
 
-Rule 3, comment length. Counts a `//` run and a `/* … */` span alike, and reports the line the
-block starts on:
+Rule 3, the pointers. **Scans test files too, and resolves non-sibling paths** — the file whose
+stale citations are the reason this check exists is `entry-editor.test.tsx`, and a sibling-only
+regex over non-test files could never open it:
 
 ```ts
-function commentBlocksAreShort(): string[] {
-  const bad: string[] = [];
-  for (const file of sources(join(ROOT, "lib")).concat(
-    sources(join(ROOT, "components")), sources(join(ROOT, "app")), sources(join(ROOT, "scripts")),
-  )) {
-    const path = rel(file);
-    if (path.startsWith("components/ui/")) continue;
-    let run = 0, startedAt = 0, inSpan = false;
-    readFileSync(file, "utf8").split("\n").forEach((raw, i) => {
-      const line = raw.trim();
-      const isComment =
-        inSpan || line.startsWith("//") || line.startsWith("/*") || line.startsWith("*");
-      if (line.startsWith("/*") && !line.includes("*/")) inSpan = true;
-      if (inSpan && line.includes("*/")) inSpan = false;
-      if (isComment) {
-        if (run === 0) startedAt = i + 1;
-        run += 1;
-      } else {
-        if (run > 6) bad.push(`${path}:${startedAt} has a ${run}-line comment block; move it to notes.md`);
-        run = 0;
-      }
-    });
-    if (run > 6) bad.push(`${path}:${startedAt} has a ${run}-line comment block; move it to notes.md`);
-  }
-  return bad;
-}
-```
-
-Rule 4, the pointers. GitHub's slug: lowercase, spaces to hyphens, drop the rest:
-
-```ts
+/**
+ * GitHub's heading slug: lowercase, drop punctuation, then hyphenate EACH
+ * space. Per-character is load-bearing — `/\s+/g` collapses runs, so
+ * "Rule 1 — where …" (a removed em dash leaving two spaces) slugs to
+ * `rule-1-where-…` where GitHub gives `rule-1--where-…`. Em-dash headings are
+ * the house style in docs/data-model.md, so the collapsed form both rejects
+ * anchors copied from GitHub and accepts anchors GitHub cannot resolve.
+ * Known limit: `[^\w\s-]` is ASCII, so a non-ASCII heading slugs differently
+ * from GitHub. No heading in this repository has one.
+ */
 const slug = (heading: string) =>
-  heading.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
+  heading.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/ /g, "-");
 
 function notesPointersResolve(): string[] {
   const bad: string[] = [];
-  const dirs = [join(ROOT, "lib"), join(ROOT, "components"), join(ROOT, "app"), join(ROOT, "test")];
-  for (const file of dirs.flatMap((d) => sources(d))) {
-    const body = readFileSync(file, "utf8");
-    for (const [, anchor] of body.matchAll(/\.\/notes\.md#([\w-]+)/g)) {
-      const notes = join(dirname(file), "notes.md");
+  for (const file of sources(true)) {
+    for (const [, path, anchor] of readFileSync(file, "utf8")
+      .matchAll(/([\w./-]*notes\.md)#([\w-]+)/g)) {
+      const notes = path.startsWith(".") ? join(dirname(file), path) : join(ROOT, path);
       if (!existsSync(notes)) {
-        bad.push(`${rel(file)} points at ./notes.md#${anchor}, and no notes.md is beside it`);
+        bad.push(`${rel(file)} points at ${path}#${anchor}, which does not exist`);
         continue;
       }
-      const anchors = [...readFileSync(notes, "utf8").matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) =>
-        slug(m[1]),
-      );
+      const anchors = [...readFileSync(notes, "utf8").matchAll(/^#{1,6}\s+(.+)$/gm)]
+        .map((m) => slug(m[1]));
       if (!anchors.includes(anchor))
         bad.push(`${rel(file)} points at #${anchor}, absent from ${rel(notes)} (has: ${anchors.join(", ")})`);
     }
@@ -1099,30 +1356,31 @@ function notesPointersResolve(): string[] {
 }
 ```
 
-The two reports, which print and never fail. Reuse ESLint at the **tendency** values so there is
-one length implementation in the repository rather than two opinions about it:
+The two reports. `driftReport` **passes `cwd: ROOT`** — without it ESLint's basePath is the
+repository, an out-of-basePath file returns exactly one `ruleId: null` message reading "File
+ignored because outside of base path", and the filter drops it, so the whole report silently
+prints zero under any fixture:
 
 ```ts
 async function driftReport(): Promise<string[]> {
   const { ESLint } = await import("eslint");
+  const parser = (await import("@typescript-eslint/parser")).default;
   const lines: string[] = [];
   for (const [dirs, max] of [[["components", "app"], 130], [["lib", "scripts"], 50]] as const) {
-    const files = dirs.flatMap((d) => sources(join(ROOT, d)));
-    if (files.length === 0) continue;
+    const list = dirs.flatMap((d) => files(join(ROOT, d), false));
+    if (list.length === 0) continue;
     const e = new ESLint({
+      cwd: ROOT, // WITHOUT THIS THE REPORT IS ALWAYS EMPTY under --root.
       overrideConfigFile: true, ignore: false,
       overrideConfig: [{
         files: ["**/*.ts", "**/*.tsx"],
-        languageOptions: {
-          parser: (await import("@typescript-eslint/parser")).default,
-          parserOptions: { ecmaFeatures: { jsx: true } },
-        },
+        languageOptions: { parser, parserOptions: { ecmaFeatures: { jsx: true } } },
         rules: {
           "max-lines-per-function": ["warn", { max, skipComments: true, skipBlankLines: true, IIFEs: true }],
         },
       }],
     });
-    for (const r of await e.lintFiles(files))
+    for (const r of await e.lintFiles(list))
       for (const m of r.messages)
         if (m.ruleId === "max-lines-per-function")
           lines.push(`  ${rel(r.filePath)}:${m.line} — ${m.message} (tendency ${max})`);
@@ -1130,34 +1388,55 @@ async function driftReport(): Promise<string[]> {
   return lines;
 }
 
+/**
+ * Includes test files: one of the four Stage A exemptions is on a test file.
+ *
+ * THE COMMENT MUST START THE LINE. Task 5's guardrail probe contains the
+ * string `eslint-disable-next-line max-lines-per-function` inside a template
+ * literal, and a looser regex counts that fixture as a fifth live exemption —
+ * the report would name a test snippet as suppressing a rule.
+ */
 function exemptionReport(): string[] {
-  const dirs = [join(ROOT, "lib"), join(ROOT, "components"), join(ROOT, "app"), join(ROOT, "scripts")];
   const found: string[] = [];
-  for (const file of dirs.flatMap((d) => sources(d)))
+  for (const file of sources(true))
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {
-      const hit = /eslint-disable(?:-next-line)?\s+(max-lines[\w-]*)/.exec(line);
+      const hit = /^\s*(?:\/\*|\/\/)\s*eslint-disable(?:-next-line)?\s+(max-lines[\w-]*)/.exec(line);
       if (hit) found.push(`  ${rel(file)}:${i + 1} — ${hit[1]}`);
     });
   return found;
 }
 ```
 
-`main`, which stays a list of steps and nothing more:
+`main`. Note the **scanned-file control**: without it, renaming `components/` makes every rule
+pass with "Structure OK." The two files this script imitates both carry one —
+`vitest-collection.test.ts` asserts `files.length > 10`, `check-commands.test.ts` asserts
+`LIST.length === 12` — and an earlier draft of this script carried neither:
 
 ```ts
 async function main() {
+  const scanned = sources(true).length;
+  console.log(`scanned ${scanned} files under ${DIRS.join(", ")}`);
+  if (IS_REPO && scanned < 50) {
+    console.log(`\nonly ${scanned} files scanned — a directory moved, and every rule below is vacuous.`);
+    process.exit(1);
+  }
+
+  const comments = commentsOverBound();
   const failures = [
     ["component folders", componentFoldersAreOwn()],
     ["test placement", testsSitBesideSubjects()],
-    ["comment length", commentBlocksAreShort()],
     ["notes.md pointers", notesPointersResolve()],
+    ["comment ratchet", comments.over],
   ] as const;
 
   for (const [label, list] of failures)
     if (list.length > 0) {
       console.log(`\n${label} — ${list.length} problem(s):`);
-      for (const item of list) console.log(`  ${item}`);
+      for (const item of list.slice(0, 40)) console.log(`  ${item}`);
     }
+
+  console.log("\ncomment blocks over 6 lines (ratchet, reported):");
+  for (const line of comments.verdict) console.log(line);
 
   const drift = await driftReport();
   console.log(`\nover the tendency — ${drift.length} function(s), reported, not failing:`);
@@ -1175,16 +1454,16 @@ async function main() {
 await main();
 ```
 
-As written, `exemptionReport` scans `lib`, `components`, `app` and `scripts` — and `sources()`
-excludes `*.test.ts(x)` by construction. `entry-editor.test.tsx` carries one of Task 5's four
-exemptions, so this report shows **three** and silently omits the one attached to a test file.
-Fix it here rather than later: give `exemptionReport` its own file list that includes test files,
-and assert the count in the test, so "every active exemption" is true rather than nearly true.
-
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `npx vitest run test/check-structure.test.ts`
-Expected: PASS. If "passes on this repository" fails, the script found a real layout violation Tasks 3 and 4 left behind — fix the layout, not the script.
+Expected: PASS. If "passes on this repository" fails, read *which* rule failed before touching anything:
+
+- **component folders** or **test placement** — a real violation Tasks 3 and 4 left behind. Fix the layout, not the script.
+- **notes.md pointers** — a pointer written this stage is wrong, or `slug()` disagrees with the heading. Fix whichever is actually wrong; do not loosen the matcher to make a bad anchor pass.
+- **comment ratchet** — the count rose above `COMMENT_BASELINE`. Something in this stage *added* a long comment block. That is the ratchet working; shorten the block. Do **not** raise the baseline, which is the one move that makes the ratchet meaningless.
+
+The earlier draft of this step said only "the script found a real layout violation … fix the layout, not the script", which was wrong advice for three of the four rules — the comment rule had 262 pre-existing violations and no layout fix at all.
 
 - [ ] **Step 5: Wire it into `package.json` and `CLAUDE.md` together**
 
@@ -1261,13 +1540,26 @@ sleep 5
 
 - [ ] **Step 2: Run all nine and read every result**
 
+**Not chained with `&&`.** A chain aborts at the first failure, so one red step hides the eight
+answers you came for — and `build` and `size:public` are last, which is where a refactor's real
+damage would show. Run them all, collect the statuses, then read:
+
 ```bash
-npm test && npm run lint && npm run typecheck && npm run validate:fixtures \
-  && npm run check:vocab && npm run check:commands && npm run check:structure \
-  && npm run build && npm run size:public
+for c in test lint typecheck validate:fixtures check:vocab check:commands check:structure build size:public; do
+  if [ "$c" = "test" ]; then npm test > "/tmp/dod-$c.log" 2>&1; else npm run "$c" > "/tmp/dod-$c.log" 2>&1; fi
+  printf '%-20s %s\n' "$c" "$([ $? -eq 0 ] && echo PASS || echo FAIL)"
+done
 ```
 
-Record the actual test count, and that **skipped is 0**. A green `npm test` with skips is the half-check this repository has already shipped once.
+Then read each log rather than trusting the table — in particular:
+
+- `npm test`: the real counts, and that **skipped is 0**. Vitest 4 prints no `skipped` line at
+  zero, which reads too much like a pass by omission, so confirm the two integration suites
+  actually ran: `grep -c 'pod-.*integration' /tmp/dod-test.log`. A green `npm test` with skips is
+  the half-check this repository has already shipped once.
+- `check:structure`: the `scanned N files` line, the ratchet count, and `active exemptions — 4`.
+- `size:public`: the actual kB against the 190 budget, and that every studio-only dependency is
+  still absent.
 
 - [ ] **Step 3: The gated e2e run**
 
