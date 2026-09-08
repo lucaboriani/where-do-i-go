@@ -137,7 +137,7 @@ A test with a single subject colocates with it. Three kinds do not, and stay in 
 |---|---|
 | `test/setup.ts`, `msw.ts`, `graph.ts`, `network-guard.ts`, `child-output.ts`, `fixtures/` | shared harness, no subject |
 | `test/integration/pod-{read,access}.integration.test.ts` | no single module under test; they need a running Pod |
-| `test/guardrails.test.ts`, `check-commands.test.ts`, `public-bundle*.test.ts`, `vitest-collection.test.ts` | the subject is the repository, not a module |
+| `test/guardrails.test.ts`, `check-commands.test.ts`, `check-structure.test.ts`, `public-bundle*.test.ts`, `vitest-collection.test.ts`, `network-guard.test.ts` | the subject is the repository, not a module |
 
 ## 5. `EntryEditor`: the target shape
 
@@ -164,42 +164,79 @@ components/studio/entry-editor/
 
 ### Why a reducer, and for exactly which state
 
-Not tidiness. **Three of the ten refs shadow three of the state values** —
-`coordinateAuthor`/`coordinateSource`, `occurredAuthor`/`occurredSource`,
-`offsetAuthor`/`offsetSource` — one store for the callback path, one for the render path, kept in
-step by hand at every call site:
+**An earlier draft of this section argued the wrong thing, and the code says so in writing.**
+It claimed the three ref/state pairs — `coordinateAuthor`/`coordinateSource`,
+`occurredAuthor`/`occurredSource`, `offsetAuthor`/`offsetSource` — were "two stores of one truth,
+kept in step by hand at every call site". Measured: there is **exactly one writer per pair**.
+`creditCoordinate` assigns both members at `entry-editor.tsx:1428-1429` and nothing else touches
+either; `creditTime` assigns all four at `:1519-1522`. The file's own docblock at `:1409` makes
+the counter-argument, and makes it well:
 
-```ts
-function creditCoordinate(to: CoordinateAuthor) {
-  coordinateAuthor.current = to;                                   // for callbacks
-  setCoordinateSource(to.kind === "photo" ? to.name : null);       // for render
-}
-```
+> THEY CANNOT DRIFT, BECAUSE THERE IS ONE WRITER … This file argues against two things that have
+> to agree and say nothing when they stop — the offset chain, the precision select — and the
+> argument holds here: what makes this pair safe is not that it is small, it is that neither
+> member has a setter of its own.
 
-Two stores of one truth, updated by convention, is the shape of the defect this stage already
-found and wrote up: *two photos could compose a timestamp that happened nowhere* — one photo's
-wall clock beside another's offset, published as a real instant. A reducer makes "set the value
-**and** record who supplied it" a single transition, and first-writer-wins a guard inside it
-rather than a rule each caller must remember.
+That is right, and the defect this spec pointed at is a different thing entirely. `TODO.md`
+records it as one truth split across **two independently credited halves**: photo A supplied the
+wall clock, photo B's offset was accepted beside it, and the composite published an instant that
+happened nowhere. A reducer does not fix that by construction — the cross-half guard is still
+needed, and it already exists, spelled `(offsetTo.kind !== "photo" || offsetTo.key === key)` at
+`entry-editor.tsx:1998-2001`.
+
+So the reducer is justified on three narrower grounds, none of which is "collapse the shadow":
+
+1. **`restore(draft)` is one action instead of thirteen setters plus a credit call.** That is the
+   real ordering hazard, at `entry-editor.tsx:2534-2690`.
+2. **The rules become pure functions with their own tests.** First-writer-wins per half, and the
+   cross-half guard, are today reachable only through a jsdom render and `fireEvent`.
+3. **The transition becomes the only place a value and its credit can be set**, which is what the
+   single-writer discipline achieves today by convention and a docblock asking the next reader to
+   preserve it.
 
 **In (20 of 27 `useState`, and 3 of 10 refs):** the 15 form fields — `tripIri`, `slug`,
 `headline`, `story`, `occurred`, `offset`, `tagsText`, `mode`, `status`, `lat`, `long`,
 `precision`, `placeName`, `locality`, `country` — plus `slots`, plus the four credit values
 `coordinateSource`, `occurredSource`, `offsetSource`, `offsetGuess`.
 
-The state shape is not invented: `Draft` in `lib/studio/drafts.ts` is already a Zod object of
-exactly those form fields, with `sameText` already comparing them as one value. `restore(draft)`
-becomes one action instead of fifteen setters.
+The state shape is not invented: `Draft` in `lib/studio/drafts.ts` is a Zod object of exactly
+those 15 fields plus `photos` and `savedAt` (verified 2026-09-08), and `sameText` — which lives
+in `entry-editor.tsx`, not in `drafts.ts` — already compares them as one value over
+`Omit<Draft, "savedAt">`.
 
 **Out, staying `useState` inside their own hooks (7):** `target`, `provenance`, `outcome` and
 `saving` in `use-entry-save.ts`; `gate` in `use-settings-gate.ts`; `offered` and
 `storageRefused` in `use-entry-draft.ts`. A dispatch table buys nothing for a boolean one call
 site flips, and pretending otherwise is ceremony.
 
-**`useState` granularity inside the reducer is preserved in behaviour, not collapsed in
-semantics.** Fields keep updating independently; what changes is that a transition touching two
-of them is one dispatch. No `useState` is merged into an object outside the reducer, because
-that changes batching and this file's tests assert on render behaviour.
+### The constraint Stage B must honour, and the test that has to come first
+
+**This is the highest-risk part of the entire refactor, and the three refs are load-bearing
+across an `await`.**
+
+`offerTimestamp` reads `occurredAuthor.current` and `offsetAuthor.current` **synchronously** at
+`entry-editor.tsx:1988-1989`, inside `attach`'s continuation — after a decode and two PUTs. The
+picker is `multiple` and starts every file at once: `for (const file of picked) void attach(file)`
+at `:3722`. `lib/media/pipeline.ts` serialises the *decodes* (`queue = result.catch(…)`, one
+worker, one photo), but photo 2's continuation resumes as a microtask, and React batches updates
+across those. What makes first-writer-wins correct today is precisely that photo 1 has already
+assigned the ref before photo 2 reads it — no re-render required.
+
+**A reducer preserves that only if the first-writer-wins decision lives INSIDE the transition.**
+If Stage B reads `state.occurredAuthor` from the hook's returned value and dispatches a plain
+set, two photos settling in one render cycle both see `nobody`, both fill, and the
+instant-that-happened-nowhere defect is republished — by the commit that was supposed to make it
+harder.
+
+**The existing tests cannot tell the two implementations apart.** `pickAndSettle` picks one file
+and awaits both PUTs and the rendered `<img>`; the sections that exercise two photos call it
+twice in sequence, so React has fully re-rendered in between. No test in the 6,514 lines picks
+two files in one `change` event.
+
+Therefore Stage B's **first** commit is a failing test that dispatches two photo offers with no
+intervening flush, and the guard-inside-the-transition is a stated constraint on the design
+rather than a property hoped for. This paragraph exists so that an implementer told to "extract
+hooks" cannot satisfy the brief and lose the invariant.
 
 ### What this buys beyond line count
 
@@ -221,9 +258,22 @@ milliseconds. Some of the 13,354-line test file therefore *shrinks* rather than 
 
 `serialiseEntry` (111), `serialiseIndex` (57) and `saveEntry` (69) split along the §10 clause
 boundaries they already implement in sequence. The three unnamed spans in `lib/pod/read.ts` (64,
-55, 52) are parse functions and split per resource shape. The three in `lib/pod/access.ts` split
-into a per-mechanism helper each — the ACP/WAC split that `docs/decisions.md` §4 already describes. The
-two `main` functions in `scripts/` split into the steps they already print progress for.
+55, 52) are parse functions and split per resource shape. The two `main` functions in `scripts/`
+split into the steps they already print progress for.
+
+**The three in `lib/pod/access.ts` do NOT split per mechanism.** An earlier draft said they
+should, citing `docs/decisions.md` §4 — which is "No drafts container" and has nothing to do with
+access control. The section that governs here is **§19, "Access control goes through one
+interface, and never branches on mechanism"**, which states the implementation "is the universal
+API rather than a WAC branch and an ACP branch" because "the mechanism is not reliably detectable
+from headers, which is precisely why the abstraction exists". A per-mechanism split is the one
+refactor this repository has already ruled out in writing, and proposing it re-litigated a
+settled decision.
+
+The axis actually present is **document versus container**: `setDocumentPublicRead` goes through
+`universalAccess`, while `setContainerAccess` hand-rolls ACL because `universalAccess` cannot
+express `acl:default` without `acl:accessTo`. Stage C splits along that, per resource kind, and
+keeps the single interface §19 requires.
 
 The reducer's own top-level switch is expected to exceed 50 lines and is not made to fit by
 compression: the per-transition `apply-*.ts` files are each well under it, and the switch is a
@@ -235,29 +285,52 @@ recorded here rather than argued again later.
 A convention in a document is advisory. This repository's own doctrine, in the header docblock of
 `eslint.config.mjs`, is that "an agent can rationalise past a lint rule but not past a failing
 build" and that "the size-limit budget on public routes is the enforcement that really holds";
-the maintainer asked for these conventions enforced. But the numbers are tendencies,
-so enforcement is two-tier:
+the maintainer asked for these conventions enforced. But the numbers are tendencies, so
+enforcement is two-tier — **and an earlier draft of this section put the wrong rule in each
+tier.**
+
+It had ESLint hard-failing the comment bound and `check:structure` merely reporting function
+length. Measured against the current tree, that is exactly inverted:
+
+- The comment bound finds **262 violations across 38 files** today (98 in `entry-editor.tsx`
+  alone). The sweep that fixes them is Stage C, by this document's own §8. So the hard-failing
+  tier would have blocked every merge in Stages A and B on work deliberately deferred.
+- Function length finds **twelve**, and ESLint already hard-fails **three** of them. So the
+  reporting tier covered the one thing a build already enforced.
+
+Corrected:
 
 - **ESLint errors at the hard bound.** `max-lines-per-function` with `skipComments` and
   `skipBlankLines`, 200 for `components/**` and `app/**`, 80 for `lib/**` and `scripts/**`;
-  `max-lines` at 1000 for test files. CI fails only on a genuine monolith.
-- **`check:structure` reports the tendency and fails on layout.** It prints every function over
-  130/50, every comment block over 3 lines, and every test file over 600 lines — as a drift list,
-  not a failure. It *fails* on: a component outside its own folder, a comment block over 6
-  lines, and **a `see ./notes.md#anchor` pointer that does not resolve to a real heading.** It
-  fails on test placement by a rule with no judgement in it: **a `*.test.ts(x)` file must sit in
-  the same directory as a source file of the same base name** — `use-entry-form.test.ts` beside
-  `use-entry-form.ts` — **or be named in the repository-test allowlist** the script carries, which
-  is exactly the table in section 4. A test whose subject was renamed or deleted therefore fails
-  the check rather than drifting into an orphan.
+  `max-lines` at 1000 for test files. CI fails only on a genuine monolith. `npm run lint` also
+  gains `--max-warnings 0`, so a stale `eslint-disable` left behind by Stage B fails the build
+  instead of printing a severity-1 warning nobody sees. Measured 2026-09-08: the repository has
+  zero warnings today, so the flag costs nothing to add.
+- **The comment bound is a ratchet, not a report.** `check:structure` stores the current count
+  and **fails when it rises**. That is the only form of "report" the doctrine above concedes
+  cannot be rationalised past: it is a failing build. The number can only go down; Stage C drives
+  it to zero and the ratchet becomes a hard zero in the same commit.
+- **`check:structure` fails outright on layout and pointers**, where there is no backlog to
+  ratchet against: a component outside its own folder, a test not placed by the rule below, and
+  **a `see ./notes.md#anchor` that does not resolve to a real heading.**
+- **It reports function-length drift** — every function over 130/50 and every test file over 600
+  — beside the ESLint bound rather than instead of it.
 
-The drift list is printed by a command that is in the definition of done, so it is seen on every
-full check rather than filed somewhere nobody reads.
+Test placement is a rule with no judgement in it: **a `*.test.ts(x)` file must sit in the same
+directory as a source file whose base name matches the part before the first dot** —
+`use-entry-form.test.ts` beside `use-entry-form.ts`, `read.owner-profile.test.ts` beside
+`read.ts` — **or be named in the repository-test allowlist**, which is the table in section 4. A
+test whose subject was renamed or deleted fails the check rather than drifting into an orphan.
 
-**The pointer check closes an open TODO item outright.** `test/entry-editor.test.tsx`'s docblocks
-cite line numbers that went stale twice in one stage — once by 76 lines, once by 57, and the
-second time *within a single fix round*, because the production commit landed after the test
-commit. Symbol and anchor references replace them, and the check keeps them true.
+**The pointer check does not, on its own, close the TODO item it was written for.** That item is
+the line-number citations in `test/entry-editor.test.tsx`, which went stale twice in one stage —
+once by 76 lines, once by 57, the second time *within a single fix round*, because the production
+commit landed after the test commit. Rewriting them as symbol and anchor references is what
+closes it. Keeping it closed requires the check to actually scan the file, and a naive
+implementation excludes `*.test.ts(x)` and matches only sibling `./notes.md#` — which would
+never open that file at all. The check therefore scans test files too, and resolves any relative
+`notes.md` path rather than siblings only. Stated here because the earlier draft claimed the
+closure outright and the check as first written could not have delivered it.
 
 Each rule arrives test-first through `test/guardrails.test.ts`, the way the existing guardrails
 did.
@@ -276,7 +349,7 @@ zero risk. Then field groups, props only. Then the hooks and the reducer, which 
 with behavioural risk and goes last, test-first, with the pure `apply-*` tests written before the
 reducer they describe. Suite green between every step.
 
-**Stage C — the other eight functions, and the comment sweep.** 18,999 comment lines down to
+**Stage C — the other eleven functions, and the comment sweep.** 18,999 comment lines down to
 under ~4,000 in code, the remainder trimmed into `notes.md` files.
 
 ## 9. Four traps, named now
