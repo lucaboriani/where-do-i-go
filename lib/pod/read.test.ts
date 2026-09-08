@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { Parser } from "n3";
 import { readDiary, readEntry, readTrip, readTripIndex } from "@/lib/pod/read";
 // The §6.4 budget itself, so the probes below move with it rather than
 // hard-coding 1200 and quietly slipping under a raised budget. A test file is
@@ -283,6 +284,73 @@ describe("readTripIndex", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("datatype");
+  });
+});
+
+/**
+ * The §7.4 parse, addressed without a fetch. It was an anonymous 55-line arrow
+ * inside `readTripIndexWithEtag` until 2026-09-08, which is why every case
+ * below had to go through MSW to reach it at all.
+ */
+describe("parseTripIndex", () => {
+  const quadsOf = (ttl: string) => new Parser({ baseIRI: URLS.index }).parse(ttl);
+  /** Dynamic, for the reason `URL construction` below is: a static import of an
+   *  export that does not exist yet is an ESM link error, which kills the whole
+   *  file instead of failing the case. */
+  const load = async () => (await import("@/lib/pod/read")).parseTripIndex;
+
+  it("parses the normative §7.4 fixture out of quads", async () => {
+    const parseTripIndex = await load();
+    const r = parseTripIndex(quadsOf(INDEX), URLS.index);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.iri).toBe(`${URLS.index}#it`);
+    expect(r.value.indexOf).toBe(`${POD}/travel/trips/2026-japan/trip.ttl#it`);
+    expect(r.value.entryCount).toBe(14);
+    expect(r.value.bbox).toEqual({ west: 129.8721, south: 31.5904, east: 139.8107, north: 35.7148 });
+    expect(r.value.center).toEqual({ lat: 33.6526, long: 134.8414 });
+    expect(r.value.entries.map((e) => e.slug)).toEqual(["2026-03-29-arrival"]);
+    expect(r.value.modified).toBe("2026-04-20T18:02:11+02:00");
+  });
+
+  /** The no-throw contract in the module docblock, at the seam a caller now
+   *  reaches directly: a malformed document is a value, not an exception. */
+  it("returns a structured error rather than throwing", async () => {
+    const parseTripIndex = await load();
+    const ttl = INDEX.replace("dy:entryCount    14 ;", 'dy:entryCount    "14" ;');
+    expect(ttl).not.toBe(INDEX);
+    let threw: unknown;
+    try {
+      const r = parseTripIndex(quadsOf(ttl), URLS.index);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.kind).toBe("datatype");
+    } catch (e) {
+      threw = e;
+    }
+    expect(threw).toBeUndefined();
+  });
+
+  /** §11: dy:schemaVersion is checked on every top-level read, and the split
+   *  that gave this parser a name must not be where that check goes missing. */
+  it("still rejects a schemaVersion it does not understand", async () => {
+    const parseTripIndex = await load();
+    const ttl = INDEX.replace(/dy:schemaVersion\s+1/, "dy:schemaVersion 99");
+    expect(ttl).toContain("dy:schemaVersion 99");
+    const r = parseTripIndex(quadsOf(ttl), URLS.index);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("schemaVersion");
+  });
+
+  it("refuses a document whose <#it> is not a dy:TripIndex", async () => {
+    const parseTripIndex = await load();
+    const ttl = INDEX.replace("a dy:TripIndex ;", "a dy:Trip ;");
+    expect(ttl).not.toBe(INDEX);
+    const r = parseTripIndex(quadsOf(ttl), URLS.index);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("shape");
   });
 });
 

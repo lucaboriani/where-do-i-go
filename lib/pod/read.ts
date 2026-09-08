@@ -276,6 +276,82 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
 }
 
 /**
+ * §7.4 parsed out of quads — the index's `<#it>` and one `<#e-slug>` row per
+ * entry. Named rather than an anonymous arrow inside `readTripIndexWithEtag`,
+ * so that it can be cited, tested directly and reported by name; it was 55
+ * lines of "Arrow function" until 2026-09-08.
+ */
+function tripIndexOf(quads: Quad[], url: string): TripIndex {
+  const v = viewOf(quads, itOf(url));
+  if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+
+  if (!v.types().includes(DY_CLASS.TripIndex)) {
+    throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.TripIndex}`] });
+  }
+
+  const entries = v
+    .all(DY.entry)
+    .map((iri) => viewOf(quads, iri))
+    .filter((e) => e.exists)
+    .map((e) =>
+      validate(
+        IndexEntry,
+        {
+          iri: e.subject,
+          entryResource: e.one(DY.entryResource),
+          title: langText(e, DCTERMS.title),
+          slug: e.typed(DY.slug)?.value,
+          occurredAt: take(offsetDateTime(e, DY.occurredAt, url)),
+          lat: take(decimal(e, DY.lat, url)),
+          long: take(decimal(e, DY.long, url)),
+          precisionMeters: take(integer(e, DY.precisionMeters, url)),
+          thumbnail: e.one(DY.thumbnail),
+          travelModeFrom: travelModeOf(e),
+          // No default: §6 forbids relying on parse order, and a silent 0
+          // does exactly that. Absent becomes a shape error via the schema.
+          sortOrder: take(integer(e, DY.sortOrder, url)),
+        },
+        url,
+      ),
+    )
+    // Parse order carries no meaning; dy:sortOrder is why it exists (§6).
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const bboxParts = {
+    west: take(decimal(v, DY.bboxWest, url)),
+    south: take(decimal(v, DY.bboxSouth, url)),
+    east: take(decimal(v, DY.bboxEast, url)),
+    north: take(decimal(v, DY.bboxNorth, url)),
+  };
+  const centerLat = take(decimal(v, DY.centerLat, url));
+  const centerLong = take(decimal(v, DY.centerLong, url));
+
+  return validate(
+    TripIndex,
+    {
+      iri: itOf(url),
+      indexOf: v.one(DY.indexOf),
+      schemaVersion: schemaVersionOf(v, url),
+      entryCount: take(integer(v, DY.entryCount, url)),
+      bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
+      center: centerLat !== undefined && centerLong !== undefined
+        ? { lat: centerLat, long: centerLong }
+        : undefined,
+      entries,
+      modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+    },
+    url,
+  );
+}
+
+/** The same parse, as the Result this module promises its callers — nothing
+ *  here throws, so the Bail-throwing form above stays private and this is what
+ *  a caller holding a parsed body rather than a URL reaches for. */
+export function parseTripIndex(quads: Quad[], url: string): Result<TripIndex> {
+  return guard(() => tripIndexOf(quads, url));
+}
+
+/**
  * The index, plus the ETag of the response it was parsed from.
  *
  * §10 step 3 is "read `entries.ttl`, insert the index entry, recompute … write
@@ -297,69 +373,7 @@ export async function readTripIndexWithEtag(
   if (!fetched.ok) return fetched;
   const { quads, etag } = fetched.value;
 
-  const parsed = guard(() => {
-    const v = viewOf(quads, itOf(url));
-    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
-
-    if (!v.types().includes(DY_CLASS.TripIndex)) {
-      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.TripIndex}`] });
-    }
-
-    const entries = v
-      .all(DY.entry)
-      .map((iri) => viewOf(quads, iri))
-      .filter((e) => e.exists)
-      .map((e) =>
-        validate(
-          IndexEntry,
-          {
-            iri: e.subject,
-            entryResource: e.one(DY.entryResource),
-            title: langText(e, DCTERMS.title),
-            slug: e.typed(DY.slug)?.value,
-            occurredAt: take(offsetDateTime(e, DY.occurredAt, url)),
-            lat: take(decimal(e, DY.lat, url)),
-            long: take(decimal(e, DY.long, url)),
-            precisionMeters: take(integer(e, DY.precisionMeters, url)),
-            thumbnail: e.one(DY.thumbnail),
-            travelModeFrom: travelModeOf(e),
-            // No default: §6 forbids relying on parse order, and a silent 0
-            // does exactly that. Absent becomes a shape error via the schema.
-            sortOrder: take(integer(e, DY.sortOrder, url)),
-          },
-          url,
-        ),
-      )
-      // Parse order carries no meaning; dy:sortOrder is why it exists (§6).
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-
-    const bboxParts = {
-      west: take(decimal(v, DY.bboxWest, url)),
-      south: take(decimal(v, DY.bboxSouth, url)),
-      east: take(decimal(v, DY.bboxEast, url)),
-      north: take(decimal(v, DY.bboxNorth, url)),
-    };
-    const centerLat = take(decimal(v, DY.centerLat, url));
-    const centerLong = take(decimal(v, DY.centerLong, url));
-
-    return validate(
-      TripIndex,
-      {
-        iri: itOf(url),
-        indexOf: v.one(DY.indexOf),
-        schemaVersion: schemaVersionOf(v, url),
-        entryCount: take(integer(v, DY.entryCount, url)),
-        bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
-        center: centerLat !== undefined && centerLong !== undefined
-          ? { lat: centerLat, long: centerLong }
-          : undefined,
-        entries,
-        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
-      },
-      url,
-    );
-  });
-
+  const parsed = parseTripIndex(quads, url);
   return parsed.ok ? ok({ index: parsed.value, etag }) : parsed;
 }
 
