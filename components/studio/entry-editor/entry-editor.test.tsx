@@ -13355,3 +13355,278 @@ describe("entry editor — a photo whose OffsetTimeOriginal has out-of-range min
     expect(outcomeText(), "the save announced nothing at all").toMatch(/saved/i);
   });
 });
+
+/* ─── 12m. two photos in ONE pick, and the ref read across the await ─────── */
+
+/**
+ * BOTH FILES IN ONE `change` EVENT — what `multiple` delivers, and what
+ * nothing else in this file does: `pickPhoto` sends a one-element list and
+ * `pickAndSettle` awaits an `<img>` before the next pick. That await is a
+ * render boundary, and it is exactly what the three cases below must not have.
+ */
+function pickBoth(files: readonly File[]) {
+  const input = screen.getByLabelText(PHOTOS_LABEL);
+  fireEvent.change(input, { target: { files } });
+}
+
+/**
+ * `fakePipeline` WITH lib/media/pipeline.ts's QUEUE — `queue = result.catch(…)`
+ * at pipeline.ts:87-88. The fake on its own lets two decodes overlap, an
+ * interleaving production does not have, so a pass against it would be about
+ * a schedule this app never runs. `order` makes the premise assertable.
+ */
+function serialisingPipeline() {
+  const rig = fakePipeline();
+  const order: string[] = [];
+  let queue: Promise<unknown> = Promise.resolve();
+  const pipeline: Pipeline = {
+    process(file: Blob): Promise<PipelineResult> {
+      const result = queue.then(() => {
+        order.push(file instanceof File ? file.name : "(not a File)");
+        return rig.pipeline.process(file);
+      });
+      queue = result.catch(() => undefined);
+      return result;
+    },
+    dispose: () => rig.pipeline.dispose(),
+  };
+  return { pipeline, order, processed: rig.processed };
+}
+
+/** Both uploads finished: two PUTs per photo, so four — and never a
+ *  per-photo await, which is the whole point. */
+async function settleBoth(media: ReturnType<typeof mediaFake>) {
+  await waitFor(() => expect(media.puts).toHaveLength(4), { timeout: 5000 });
+}
+
+describe("entry editor — two photos picked at once", () => {
+  /**
+   * `offerTimestamp` seeds both halves from the REFS at entry-editor.tsx:1992
+   * -1993, inside `attach`'s continuation — after a decode and two PUTs. The
+   * picker starts every file at once (`for (const file of picked) void
+   * attach(file)`, :3726), so both resume as microtasks with no render between.
+   */
+
+  /**
+   * A reducer reading its own state from a hook's return value would see
+   * `nobody` twice. MEASURED, by moving those two reads before the `await`:
+   * this case went red with the box holding the SECOND photo's clock — last
+   * writer wins, not first — and the case after it composed §11.5's instant.
+   */
+
+  /**
+   * ALL THREE CASES ARE EXPECTED TO PASS TODAY, and this is the one place in
+   * this repository where that is right: they exist to fail against a future
+   * wrong implementation, and the run above is the proof that they can.
+   */
+  it("credits the clock to the first photo only, with no render between them", async () => {
+    const pod = podFake();
+    const media = mediaFake();
+    const rig = serialisingPipeline();
+    const fake = fakeStudioSession();
+    /* Two phones, two wall clocks, and neither of the second's tags is the
+       first's — `TIMED_WITH_OTHER_OFFSET`'s own reason for existing. */
+    const first = jpegWithExif("first.jpg", TIMED);
+    const second = jpegWithExif("second.jpg", TIMED_WITH_OTHER_OFFSET);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    /* THE SETTINGS LAND BEFORE THE PICK, not during it. §7.6 arrives over MSW
+       and its re-render would fall between the two continuations — which is
+       the flush this case exists to deny, and would mask the defect. */
+    requireOffsetControl();
+    await awaitLiveCoordinateControls();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(shownValue(LABEL.offset), "the create's offset is not this machine's").toBe(
+      MACHINE_OFFSET,
+    );
+    expect(
+      offsetOptions(),
+      `${SECOND_OFFSET} is not one of the offsets this editor offers, so the control could not show it even if the fill this test forbids did happen`,
+    ).toContain(SECOND_OFFSET);
+
+    pickBoth([first, second]);
+    await settleBoth(media);
+    await screen.findByRole("img", { name: alt(first) });
+    await screen.findByRole("img", { name: alt(second) });
+
+    /* ── THE PREMISE: BOTH LANDED, AND IN THE ORDER PRODUCTION GIVES ────── */
+    expect(rig.processed, "one of the two files never reached the pipeline").toHaveLength(2);
+    expect(media.containers(), "both photos went to one container").toHaveLength(2);
+    expect(
+      rig.order,
+      "the decodes did not run first-then-second, so 'the first photo won' below would be a claim about a different schedule than the one lib/media/pipeline.ts produces",
+    ).toEqual(["first.jpg", "second.jpg"]);
+
+    /* ── THE FIRST WRITER WON, PER HALF ─────────────────────────────────── */
+    expect(
+      wallClockShapes(PHOTO_WALL),
+      `the wall clock shows ${JSON.stringify(shownValue(LABEL.occurredAt))}: the second photo's continuation read a stale author and overwrote the first photo's clock, which only a ref read after photo 1 had written it can prevent`,
+    ).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      shownValue(LABEL.occurredAt),
+      "the box holds the second photo's wall clock",
+    ).not.toContain(SECOND_WALL.slice(11, 16));
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo's zone was accepted beside the FIRST photo's clock: two photos' halves composed into an instant that happened at neither place (§11.5), which is what the cross-half guard on `key` refuses",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "accepting a zone cleared the mark on the first photo's clock: the composition §11.5 warns about, with the warning removed by the act of composing it",
+    ).toBe(true);
+
+    /* ── AND THE CREDIT NAMES ONE PHOTO, which is the note the owner reads ─ */
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note stopped naming the photo whose clock is in the box",
+    ).toMatch(alt(first));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note credits the second photo, which supplied neither the clock in the box nor the offset beside it",
+    ).not.toMatch(alt(second));
+
+    /* ── AND WHAT A STRANGER CAN FETCH IS ONE PLACE'S TIME ──────────────── */
+    setChoice(LABEL.trip, /Japan/i);
+    setText(LABEL.slug, "2026-04-11-one-pick");
+    setText(LABEL.headline, "Two cameras, one pick");
+    setText(LABEL.articleBody, "Both files went in on the same click.");
+    setText(LABEL.tags, "walking, morning");
+    setChoice(LABEL.travelModeFrom, /train/i);
+    setChoice(LABEL.status, /publish/i);
+
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(pod.entryPut()).toBeDefined());
+
+    const put = pod.entryPut()!;
+    const occurred = oneObject(quadsOf(put.body, put.url), `${put.url}#it`, DY.occurredAt);
+    expect(occurred, "no dy:occurredAt reached the Pod at all").toBeDefined();
+    expect(
+      occurred!.value,
+      "the published timestamp is the first photo's wall clock on the second photo's offset: the instant that happened at neither place, on the wire",
+    ).not.toBe(`${PHOTO_WALL.slice(0, 16)}:00${SECOND_OFFSET}`);
+    expect(
+      occurred!.value.slice(0, 16),
+      "the published wall clock is not the first photo's",
+    ).toBe(PHOTO_WALL.slice(0, 16));
+    expect(
+      occurred!.value.slice(-6),
+      "the published offset is not the one the control holds",
+    ).toBe(MACHINE_OFFSET);
+    expect(datatypeOf(occurred)).toBe(XSD.dateTime);
+    expect(outcomeText(), "the save announced nothing at all").toMatch(/saved/i);
+  });
+
+  /**
+   * THE COMPOSITE ITSELF, in the interleaving case 1 cannot reach. Case 1's
+   * second photo carries BOTH tags, so a stale read makes it win both halves —
+   * wrong, but coherent. A clock-only photo beside an offset-only one is the
+   * shape §11.5 actually names, and only this pairing produces it.
+   */
+
+  /**
+   * UNDER A STALE READ: photo 1's clock stands, photo 2's zone is accepted
+   * because the snapshot still says `nobody` dated it, and `creditTime(nobody,
+   * photo)` then clears the mark — the instant that happened at neither place,
+   * with the warning removed by the act of composing it.
+   */
+  it("refuses an offset-only second photo beside the first photo's clock", async () => {
+    const media = mediaFake();
+    const rig = serialisingPipeline();
+    const fake = fakeStudioSession();
+    const timed = jpegWithExif("timed.jpg", TIMED);
+    const zoned = jpegWithExif("zoned.jpg", OFFSET_ONLY);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    await awaitLiveCoordinateControls();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(
+      metadataOf(OFFSET_ONLY).dateTimeOriginal,
+      "the offset-only fixture carries a date after all, so this is case 1 again rather than the composite",
+    ).toBeUndefined();
+
+    pickBoth([timed, zoned]);
+    await settleBoth(media);
+    await screen.findByRole("img", { name: alt(timed) });
+    await screen.findByRole("img", { name: alt(zoned) });
+
+    expect(rig.processed, "one of the two files never reached the pipeline").toHaveLength(2);
+    expect(
+      rig.order,
+      "the clock-bearing photo did not decode first, so it was never the earlier offer this case needs it to be",
+    ).toEqual(["timed.jpg", "zoned.jpg"]);
+
+    /* THE ALLOW-CASE IS IN THE SAME RENDER: without it every refusal below
+       also holds for an editor in which nothing filled at all. */
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+
+    expect(
+      shownValue(LABEL.offset),
+      "the second photo's zone was accepted beside the first photo's clock: §11.5's instant that happened at neither place, composed inside one pick where no render separates the two offers",
+    ).toBe(MACHINE_OFFSET);
+    expect(
+      offsetMarkedAsGuess(),
+      "the composition cleared the mark on the first photo's clock: `creditTime(nobody, photo)` recomputes 'a photo dated it and nobody offset it' as false, so the warning is removed by the act of composing the thing it warns about",
+    ).toBe(true);
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note stopped naming the photo whose clock is in the box",
+    ).toMatch(alt(timed));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the note credits the offset-only photo, whose zone the form does not hold",
+    ).not.toMatch(alt(zoned));
+  });
+
+  /**
+   * THE CONTROL, AND IT IS NOT DECORATION. If the guard is "a photo has been
+   * offered, so refuse" rather than "this half is answered, so refuse", this
+   * case fails while the one above still passes — and without it `return state`,
+   * refusing every offer, is a valid implementation of first-writer-wins.
+   */
+
+  /**
+   * `PINNED_ONLY` AND NOT `jpegWithGps`: `EXIF_BASE` carries a
+   * `dateTimeOriginal`, so a `jpegWithGps` first photo would own the clock and
+   * this case would be measuring the refusal above a second time.
+   */
+  it("still fills from the second photo when the first carried no clock at all", async () => {
+    const media = mediaFake();
+    const rig = serialisingPipeline();
+    const fake = fakeStudioSession();
+    const clockless = jpegWithExif("clockless.jpg", PINNED_ONLY);
+    const timed = jpegWithExif("timed.jpg", TIMED);
+    await renderEditor(fake.session, { pipeline: rig.pipeline, storage: fakeStorage().storage });
+
+    requireOffsetControl();
+    await awaitLiveCoordinateControls();
+    expect(shownValue(LABEL.occurredAt), "the wall clock was not empty to begin with").toBe("");
+    expect(
+      metadataOf(PINNED_ONLY).dateTimeOriginal,
+      "the clockless fixture carries a date after all, so 'the first photo said nothing about time' is not what this case sets up",
+    ).toBeUndefined();
+
+    pickBoth([clockless, timed]);
+    await settleBoth(media);
+    await screen.findByRole("img", { name: alt(clockless) });
+    await screen.findByRole("img", { name: alt(timed) });
+
+    expect(rig.processed, "one of the two files never reached the pipeline").toHaveLength(2);
+    expect(
+      rig.order,
+      "the clockless photo did not decode first, so it was never the earlier offer this case needs it to be",
+    ).toEqual(["clockless.jpg", "timed.jpg"]);
+
+    expect(
+      shownValue(LABEL.occurredAt),
+      "the clockless first photo blocked the second photo's clock: the guard asks whether a photo has been offered rather than whether this half is answered, and the owner is left typing a date two photos carried",
+    ).not.toBe("");
+    expect(wallClockShapes(PHOTO_WALL)).toContain(shownValue(LABEL.occurredAt));
+    expect(
+      describedTextOf(LABEL.offset),
+      "the filled clock credits no photo, or credits the wrong one",
+    ).toMatch(alt(timed));
+  });
+});
