@@ -37,11 +37,14 @@ import { E2E, appEnv } from "./e2e/environment";
  * suites as Playwright specs and dies inside @vitest/runner:
  * "TypeError: Cannot read properties of undefined (reading 'config')" at
  * test/access.test.ts:103, before reporting on anything. `testDir` below is
- * what stops that: Playwright only ever looks in e2e/, and vitest.config.ts
- * only ever looks in test/ and lib/, so neither runner can collect the other's
- * files. (vitest's include is `test/**\/*.test.{ts,tsx}` and
- * `lib/**\/*.test.{ts,tsx}`; `e2e/*.spec.ts` matches neither, and
- * test/vitest-collection.test.ts pins that no .spec.ts is ever collected.)
+ * what stops that: Playwright only ever looks in e2e/, and vitest collects
+ * only `*.test.ts(x)`, so neither runner can collect the other's files. The
+ * separation is the EXTENSION, not the directory — vitest's include grew to
+ * four globs on 2026-09-08 (test, lib, components, app) when tests moved
+ * beside their subjects, and would grow again; `.spec.ts` matches none of them
+ * at any depth, and test/vitest-collection.test.ts pins that no .spec.ts is
+ * ever collected. Do not restate vitest's include here: this comment named two
+ * globs and was stale the day a third was added.
  */
 export default defineConfig({
   testDir: "./e2e",
