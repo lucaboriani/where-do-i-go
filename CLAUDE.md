@@ -130,6 +130,7 @@ npm run typecheck         # tsc --noEmit
 npm run validate:fixtures # the normative Turtle in docs/data-model.md
 npm run check:vocab       # lib/vocab.ts vs the data model, both directions
 npm run check:commands    # this file's commands vs package.json
+npm run check:structure   # layout, comment length, notes.md pointers; reports drift
 npm run build             # reads the Pod; needs one running
 npm run size:public       # what a public page actually ships
 ```
@@ -147,7 +148,7 @@ of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — th
 every time either file gains a case, and it was never the point. If a third integration file
 appears, name it here; do not reintroduce a total.
 
-**A ninth command, path-scoped rather than unconditional.** If the diff touches any of
+**A tenth command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
@@ -185,7 +186,7 @@ encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"und
 measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
 order, and none of them can check one pixel or one EXIF tag.
 
-It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
+It is deliberately NOT in the list above. The nine run anywhere with a checkout and Node 22;
 this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
 infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
 reading the diff.
@@ -338,12 +339,19 @@ cannot express that. Do not tighten the lint rules to the tendency values.
 been fixed fails the build rather than printing a severity-1 warning nobody reads. The repository
 had zero warnings when that was added, on 2026-09-08.
 
-**The comment bound is a RATCHET, not a flat failure, until the Stage C sweep lands.** There were
-**262 blocks over six lines across 38 files** when these rules were written — 98 in the entry
-editor alone — and fixing them is Stage C. So `check:structure` stores the count and fails only
-when it **rises**. The number can only go down; when it reaches zero the ratchet becomes a hard
-zero. A failing build is the only kind of "report" the doctrine above concedes cannot be
+**The comment bound is a RATCHET, not a flat failure, until the Stage C sweep lands.** There are
+**788 blocks over six lines across 90 scanned files** — 207 in the entry editor's test and 115 in
+the editor itself — and fixing them is Stage C. So `check:structure` stores the count and fails
+only when it **rises**. The number can only go down; when it reaches zero the ratchet becomes a
+hard zero. A failing build is the only kind of "report" the doctrine above concedes cannot be
 rationalised past, and a hard bound that blocks every merge on deferred work is worse than none.
+
+Two earlier figures for that count were wrong, in ways worth knowing before quoting a third: 262
+came from a line-prefix scanner that never opened a test file and could not see the JSX `{/* … */}`
+form, and 780 came from a parser-based scan that died on the two `lib/pod` files whose generic
+arrows are unparseable as JSX. Both are recorded in `scripts/notes.md#the-comment-ratchet`. The
+allowance is this repository's own debt, so it applies only to this repository: run the script
+against any other tree and the bound is a flat six.
 
 **Delimiter lines count toward the bound**, so a `/** … */` docblock's real budget is four lines
 of prose, not six. Two comment blocks with no blank line between them are one run: a blank line
@@ -363,10 +371,9 @@ sibling `notes.md`, and the code keeps a pointer:
 line-number citations in the entry-editor tests did — twice in one stage, the second time within
 a single fix round, because the production commit landed after the test commit.
 
-> **`check:structure` does not exist yet.** It arrives in Task 6 of
-> `docs/superpowers/plans/2026-09-08-code-structure-stage-a.md`. Until then the three promises
-> this section makes about it — dead pointers, orphan tests, a rotted allowlist — are the design,
-> not the current behaviour. Delete this note when the script lands.
+A pointer counts only where a pointer belongs: `check:structure` reads real comment tokens, so
+`notes.md#…` inside a string literal is fixture text rather than a citation, and the JSX comment
+form is seen. Both directions were measured — `scripts/notes.md#tokens-not-prefixes`.
 
 `notes.md`, not `README.md`: README promises "how to use this", notes promises "why it is like
 this", and the second is what the prose in this repository actually is. **Notes cite
@@ -479,6 +486,7 @@ typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
 check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
 check:commands       # the commands above vs package.json
+check:structure      # layout, comment length, notes.md pointers; reports length drift
 size:public          # gzip budget on what a public page ships; the only bundle budget, CI runs it
 pod:dev              # local Community Solid Server
 pod:seed             # seed it with the docs/data-model.md fixtures
