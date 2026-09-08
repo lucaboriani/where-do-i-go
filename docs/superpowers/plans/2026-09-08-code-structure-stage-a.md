@@ -1250,18 +1250,21 @@ function commentRuns(file: string): Array<[string, number]> {
 }
 
 /**
- * The ratchet. **779** blocks over six lines across 71 files when this landed,
+ * The ratchet. **780** blocks over six lines across 88 scanned files, measured
+ * at c1c5339 with the parser-based counter below —
  * and the sweep that fixes them is Stage C — so a flat failure would block
  * every merge on deferred work. Fails only when the count RISES. Lower this
  * number as the sweep proceeds; Stage C's last commit sets it to 0.
  *
- * MEASURE IT AGAIN BEFORE COMMITTING, and use what you measure. 779 is the
- * parser's count over the five scanned directories INCLUDING test files. An
- * earlier draft said 262, which was a prefix scanner over production code only
- * — it missed every JSX-form block and never opened a test file. If your number
- * differs from 779, the scan changed; find out why before adjusting the number.
+ * MEASURE IT AGAIN BEFORE COMMITTING, and use what you measure. Two earlier
+ * numbers were wrong and both are instructive: 262 came from a prefix scanner
+ * over production code only, which missed every JSX-form block and never opened
+ * a test file; and 779 was the parser's count one commit earlier, before Task 5
+ * added a 14-line docblock to eslint.config.mjs. If your number differs from
+ * 780 by more than the blocks your own diff adds, the SCAN changed rather than
+ * the code — find out why before adjusting the number.
  */
-const COMMENT_BASELINE = 779;
+const COMMENT_BASELINE = 780;
 
 function commentsOverBound(): { over: string[]; verdict: string[] } {
   const over = sources(true)
