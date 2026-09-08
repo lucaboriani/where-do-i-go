@@ -12,12 +12,13 @@ verbose". Measured across the 101 `.ts`/`.tsx` files in `app/`, `components/`, `
 - **23,771 code lines against 18,999 comment lines.** Comments are **44% of every non-blank
   line in the repository**. `lib/studio/drafts.ts` is 84% comment: 345 comment lines carrying
   65 lines of code. This, and not code, is what makes most files here look enormous.
-- **Function length is already almost compliant.** Of 2,568 functions measured with the
-  TypeScript compiler (comments and blanks excluded), exactly **nine** production functions
-  exceed the limits below, and one of them exceeds by 10x.
-- **`EntryEditor` is a genuine monolith** — 1,275 code lines in one function, 2,790 lines
+- **Function length is already almost compliant.** Measured by ESLint's own
+  `max-lines-per-function` with `skipComments` and `skipBlankLines` — the tool that will enforce
+  it, rather than a counter of this document's own — **twelve** production functions exceed the
+  tendencies below and **three** exceed the hard bounds.
+- **`EntryEditor` is a genuine monolith** — 941 code lines in one function, 2,790 lines
   including its prose, 27 `useState`, 10 `useRef`, and ~990 lines of JSX in a single `return`.
-  Its test file is 13,354 lines.
+  Its test file is 13,354 lines, 6,514 of them code.
 - **Layout**: `components/studio/` is flat, and 29 test files sit in `test/` away from their
   subjects.
 
@@ -25,22 +26,35 @@ verbose". Measured across the 101 `.ts`/`.tsx` files in `app/`, `components/`, `
 dictates** — the maintainer's words. Section 7 says what that means for enforcement, which is
 the only place the distinction can be got wrong.
 
-## The nine
+## The twelve, and the three that actually block
+
+Counted by ESLint, which is the authority here because it is the enforcement. An earlier draft
+of this spec used a hand-rolled counter and reported nine; it over-counted `EntryEditor` by a
+third and missed three functions in `lib/pod/read.ts` entirely. The numbers below are the tool's.
 
 | Function | code lines | File |
 |---|---|---|
-| `EntryEditor` | **1275** | `components/studio/entry-editor.tsx` |
-| `serialiseEntry` | 111 | `lib/pod/entry-model.ts` |
-| `main` | 94 | `scripts/check-public-bundle.ts` |
+| `EntryEditor` | **941** | `components/studio/entry-editor.tsx` |
+| `serialiseEntry` | **111** | `lib/pod/entry-model.ts` |
+| `main` | **94** | `scripts/check-public-bundle.ts` |
 | `setContainerAccess` | 73 | `lib/pod/access.ts` |
 | `saveEntry` | 69 | `lib/pod/save-entry.ts` |
+| (read.ts, line 292) | 64 | `lib/pod/read.ts` |
 | `setDocumentPublicRead` | 59 | `lib/pod/access.ts` |
 | `main` | 59 | `scripts/validate-fixtures.ts` |
 | `serialiseIndex` | 57 | `lib/pod/index-model.ts` |
+| (read.ts, line 300) | 55 | `lib/pod/read.ts` |
 | `verifyContainerAccess` | 54 | `lib/pod/access.ts` |
+| (read.ts, line 215) | 52 | `lib/pod/read.ts` |
 
-Near misses worth knowing, because they will cross the line on their next edit: `save` inside
-`EntryEditor` (92), `rebuildIndex` (48), `createPipeline` (44).
+The three in bold are the only ones over the hard bounds, so they are the only ones that need a
+documented exemption when enforcement lands ahead of the work that fixes them. Test files add a
+fourth: `test/entry-editor.test.tsx` at 6,514 code lines against a 1000-line ceiling. Three test
+files exceed the 600-line tendency — that one plus `pod-access.integration.test.ts` (870) and
+`entry-write.test.ts` (811).
+
+Near misses worth knowing, because they will cross on their next edit: `save` inside
+`EntryEditor`, `rebuildIndex` (48) and `createPipeline` (44).
 
 ## 1. The conventions
 
@@ -203,11 +217,12 @@ milliseconds. Some of the 13,354-line test file therefore *shrinks* rather than 
   lines of tests, and broad context re-render in a form is a known regression shape. Rejected as
   the highest risk for the least additional readability.
 
-## 6. The other eight
+## 6. The other eleven
 
 `serialiseEntry` (111), `serialiseIndex` (57) and `saveEntry` (69) split along the §10 clause
-boundaries they already implement in sequence. The three in `lib/pod/access.ts` split into a
-per-mechanism helper each — the ACP/WAC split that `docs/decisions.md` §4 already describes. The
+boundaries they already implement in sequence. The three unnamed spans in `lib/pod/read.ts` (64,
+55, 52) are parse functions and split per resource shape. The three in `lib/pod/access.ts` split
+into a per-mechanism helper each — the ACP/WAC split that `docs/decisions.md` §4 already describes. The
 two `main` functions in `scripts/` split into the steps they already print progress for.
 
 The reducer's own top-level switch is expected to exceed 50 lines and is not made to fit by
