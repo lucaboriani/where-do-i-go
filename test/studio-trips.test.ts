@@ -1028,7 +1028,7 @@ describe("the public/studio fence covers lib/studio/trips", () => {
     },
   );
 
-  it.each(["app/(studio)/studio/page.tsx", "components/studio/studio-shell.tsx"])(
+  it.each(["app/(studio)/studio/page.tsx", "components/studio/studio-shell/studio-shell.tsx"])(
     "allows %s to import it — a fence that rejects everything is not a fence",
     async (path) => {
       const msgs = await lint(

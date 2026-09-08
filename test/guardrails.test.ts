@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
@@ -129,13 +130,13 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a direct string initialiser",
       `const CONTROL = "w-full border border-hairline bg-[#222] px-3 py-2";\n` +
         `export default function T() { return <input className={CONTROL} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a concatenation of two literals — entry-editor.tsx's BUTTON, verbatim but for one value",
       `const BUTTON =\n` +
         `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
@@ -143,13 +144,13 @@ describe("guardrails actually fire", () => {
         `export default function T() { return <button className={BUTTON} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a concatenation of three, where the offender is a grandchild",
       `const BUTTON = "border " + "px-4 " + "p-[3px]";\n` +
         `export default function T() { return <button className={BUTTON} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a template literal initialiser",
       "const CARD = `w-full p-[3px]`;\n" +
         "export default function T() { return <div className={CARD} />; }\n",
@@ -221,14 +222,14 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "entry-editor.tsx's real CONTROL — tokens only, with disabled: variants",
       `const CONTROL =\n` +
         `  "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";\n` +
         `export default function T() { return <input className={CONTROL} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "entry-editor.tsx's real BUTTON — a concatenation, tokens only, hover: and disabled: variants",
       `const BUTTON =\n` +
         `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
@@ -458,6 +459,31 @@ describe("guardrails actually fire", () => {
     ).toContain(moduleSpecifier);
   });
 
+  /**
+   * THE TWO SPELLINGS THE 2026-09-08 FOLDER MOVE CREATED, measured rather than
+   * reasoned. `@/components/studio/entry-editor` named a FILE until that move
+   * and now names a directory with an index.ts — the very resolution the
+   * group's docblock says `**\/x/**` misses for a bare `@/x`. The move also puts
+   * a second door in: the deep path past the barrel.
+   */
+  it.each([
+    ["the barrel, which now resolves to an index.ts", "@/components/studio/entry-editor"],
+    ["the deep path past the barrel", "@/components/studio/entry-editor/entry-editor"],
+  ])("rejects %s from a public page", async (_shape, moduleSpecifier) => {
+    // The control: the specifier really has the shape this case claims. Without
+    // it, both rows pin a ban on a path that resolves to nothing.
+    expect(existsSync(resolve("components/studio/entry-editor/index.ts"))).toBe(true);
+    expect(existsSync(resolve("components/studio/entry-editor.tsx"))).toBe(false);
+    const msgs = await lint(
+      "app/(public)/thing.tsx",
+      `import E from "${moduleSpecifier}";\nexport default function T() { return <div>{String(E)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
   /** The allow-case: the studio importing its own modules is the normal case. */
   it("allows a studio page to import another (studio) module", async () => {
     const msgs = await lint(
@@ -481,7 +507,7 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     ["app/(studio)/studio/page.tsx", "@/components/studio/studio-shell"],
-    ["components/studio/studio-shell.tsx", "@/components/studio/entry-editor"],
+    ["components/studio/studio-shell/studio-shell.tsx", "@/components/studio/entry-editor"],
   ])("allows %s to import %s — the studio has to be able to render itself", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -659,7 +685,7 @@ describe("guardrails actually fire", () => {
   it.each([
     ["app/(studio)/studio/page.tsx", "@/lib/pod/save-entry"],
     ["app/(studio)/studio/page.tsx", "@/lib/pod/entry-model"],
-    ["components/studio/entry-editor.tsx", "@/lib/pod/save-entry"],
+    ["components/studio/entry-editor/entry-editor.tsx", "@/lib/pod/save-entry"],
     ["test/entry-write.test.ts", "@/lib/pod/save-entry"],
     // The real, present-tense imports inside lib/pod itself.
     ["lib/pod/save-entry.ts", "./entry-model"],

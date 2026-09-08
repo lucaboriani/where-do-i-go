@@ -894,7 +894,7 @@ describe("studio shell — the session lapsing mid-edit", () => {
  * ======================================================================== */
 
 describe("components/studio/studio-shell.tsx, as source", () => {
-  const PATH = "components/studio/studio-shell.tsx";
+  const PATH = "components/studio/studio-shell/studio-shell.tsx";
 
   function source(): string {
     try {

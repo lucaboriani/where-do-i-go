@@ -62,7 +62,11 @@ describe("vitest collects every test file that exists", () => {
     // include had been quietly reverted.
     expect(onDisk.filter((f) => f.endsWith(".test.ts")).length).toBeGreaterThan(10);
     expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(0);
-    expect(onDisk).toContain("test/studio-shell.test.tsx");
+    // Control, by COUNT not by path. This named test/studio-shell.test.tsx until
+    // it moved beside its subject on 2026-09-08; a path here goes stale on every
+    // move, and the thing being guarded is "the .tsx include still matches
+    // something", which a count says directly.
+    expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(2);
   });
 
   it("runs every .test.ts and .test.tsx under test/", () => {

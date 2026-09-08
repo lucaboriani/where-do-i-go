@@ -77,7 +77,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { EVENTS } from "@inrupt/solid-client-authn-browser";
-import { server } from "./msw";
+import { server } from "@/test/msw";
 import { NS } from "@/lib/vocab";
 import { describe as describePodError } from "@/lib/pod/result";
 import { resetSessionRestore } from "@/lib/studio/session";

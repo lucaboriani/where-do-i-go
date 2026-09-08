@@ -48,8 +48,8 @@ import {
   studioState,
   subscribeSessionState,
 } from "@/lib/studio/session";
-import EntryEditor from "./entry-editor";
-import type { EditorTrip } from "./entry-editor";
+import EntryEditor from "@/components/studio/entry-editor";
+import type { EditorTrip } from "@/components/studio/entry-editor";
 import type { PodError } from "@/lib/pod/result";
 import type { StudioTripListing } from "@/lib/studio/trips";
 import type { SessionState, StudioSessionLike, StudioState } from "@/lib/studio/session";

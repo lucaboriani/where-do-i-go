@@ -106,8 +106,8 @@ import { fuzzForPublication, snapToPrecision } from "@/lib/pod/fuzz";
 import { describe as describeError } from "@/lib/pod/result";
 import { TAGS } from "@/lib/pod/tags";
 import { resetSessionRestore, type StudioSessionLike } from "@/lib/studio/session";
-import { triples } from "./graph";
-import { server, servePod } from "./msw";
+import { triples } from "@/test/graph";
+import { server, servePod } from "@/test/msw";
 import { Photo, Place } from "@/lib/pod/schema";
 import type { Entry } from "@/lib/pod/schema";
 /* Section 10. The picked file is a real JPEG with real EXIF, built byte by byte
@@ -116,7 +116,7 @@ import type { Entry } from "@/lib/pod/schema";
 /* `ExifOptions` for section 11, which needs the GPS half of the same builder:
    a photo's coordinate has to arrive as EXIF and be read by the real
    `readMetadata`, exactly as `fakePipeline` already does it. */
-import { exifJpeg, type ExifOptions } from "./fixtures/exif-jpeg";
+import { exifJpeg, type ExifOptions } from "@/test/fixtures/exif-jpeg";
 import { readMetadata } from "@/lib/media/exif";
 /* Section 10e's duplicate case needs the container a given file hashes to, and
    the real functions rather than a literal: a hardcoded hash would still pass
@@ -7675,7 +7675,7 @@ describe("entry editor — a draft with no savedAt at all (task 2.5)", () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe("as source", () => {
-  const EDITOR = "components/studio/entry-editor.tsx";
+  const EDITOR = "components/studio/entry-editor/entry-editor.tsx";
   const SESSION = "lib/studio/session.ts";
 
   function read(path: string): string {

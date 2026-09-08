@@ -34,9 +34,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import type { StudioSessionLike } from "@/lib/studio/session";
-import type { StudioShellProps } from "./studio-shell";
+import type { StudioShellProps } from "@/components/studio/studio-shell";
 
-const StudioShell = dynamic(() => import("./studio-shell"), {
+const StudioShell = dynamic(() => import("@/components/studio/studio-shell"), {
   ssr: false,
   loading: () => <Waiting />,
 });
