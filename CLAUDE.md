@@ -61,6 +61,11 @@ docs in context.
 
 ## Everything else here is authoritative
 
+**Keep this file rules, not reasoning.** It is read every session, so every line is paid for on
+every task. A rule belongs here; the measurement, the trap and the argument behind it belong in a
+file under `docs/` that this one points at. A section past roughly forty lines is the signal to
+split it rather than keep appending — and the reasoning is moved, never deleted.
+
 If `/init` or any other tool generates project rules, **merge into this file, never replace
 it.** These rules encode design intent that cannot be inferred by reading the code, and during
 early phases the code is incomplete — a scan-generated description would document a half-built
@@ -167,52 +172,13 @@ lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.
 lib/media/**   lib/pod/write.ts
 ```
 
-then `npm run test:e2e` must pass too. **Two seams, not one.**
+then `npm run test:e2e` must pass too, as
+`env -u CLAUDECODE -u AI_AGENT E2E_PORT=3007 npm run test:e2e`.
 
-Since tests moved beside their subjects on 2026-09-08, those globs also match a diff that only
-adds or edits a **test** file under `lib/media/**` or `lib/studio/**`. That over-fires, and
-deliberately so: the gate is a path match rather than an intent match, and an extra 21-second run
-is cheaper than the reasoning needed to decide a media test is harmless. Do not narrow it.
-
-The first line is the auth seam, and it is where this test's failures live: it drives a real
-Solid login round trip through the local Community Solid Server — redirect, consent,
-authorization code, `handleIncomingRedirect`, owner studio.
-
-`lib/media/**` is the media seam, added 2026-09-06 because the gate had a hole with a name.
-The pass-through shortcut — "the source is already small, skip the re-encode" — lives in
-`lib/media/pipeline.worker.ts`, and taking it uploads the owner's unstripped EXIF, GPS
-included, into a publicly readable container. A change to that file **alone** touches none of
-the four paths on the first line, so neither the gate nor CI would have asked for the one test
-that catches it, and it need never have run.
-
-`lib/pod/write.ts` is on the same seam for the same reason, added 2026-09-06 alongside it.
-`putGuarded` took a `Blob` body in phase 3, so it is now the single function every image
-derivative reaches the Pod through — the media path's last mile, and the one carrying the
-`If-None-Match: *` that makes a re-upload answer 412 instead of overwriting. It sits in
-`lib/pod/`, not `lib/media/`, so the media glob does not reach it, and a change confined to it
-would slip the gate exactly as the worker would have.
-
-That test is also the only place in this repository where the bytes that actually reach the Pod
-are read back and inspected. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no
-encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"undefined"` —
-measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
-order, and none of them can check one pixel or one EXIF tag.
-
-It is deliberately NOT in the list above. The nine run anywhere with a checkout and Node 22;
-this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
-infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
-reading the diff.
-
-Two things it needs, both of which fail loudly rather than skipping: `npm run pod:dev`, and
-`npx playwright install chromium`. A browser already in the Playwright cache is not enough —
-a cached revision only counts for the Playwright version that asks for it, and this repo has
-stale 1208 and 1223 alongside the 1234 that `@playwright/test@1.62.1` actually wants.
-
-It runs against `next dev` on purpose. React only double-invokes effects under StrictMode in a
-development build, and that double invocation is the whole reason `restoreSession` memoises
-synchronously (phase-0 question 2: the first `handleIncomingRedirect` returned
-`isLoggedIn: false`). Under `next start` the effect runs once and the spec would pass with the
-memo deleted.
+**Two seams, not one: auth and media.** Why each of those six paths is listed, why the gate is
+scoped to the diff instead of joining the list above, why it over-fires on test-only diffs
+deliberately, and the control that proves the integration suites ran rather than skipped — all in
+**`docs/testing-gates.md`**. Read it before narrowing a glob or skipping the run.
 
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
@@ -241,6 +207,8 @@ no server-side session anywhere in the system.
 | `docs/design-brief.md` | Visual direction, fixed vs open decisions. |
 | `docs/phase-0-spike.md` | Platform assumptions still unverified. |
 | `TODO.md` | Ordered task list, including installation and setup. Start here. |
+| `docs/code-structure.md` | Why the size and comment rules are what they are, with the measurements |
+| `docs/testing-gates.md` | Why the e2e gate lists those six paths, and how to prove a run was not empty |
 | `AGENTS.md` | Pointer file; hosts the Next.js managed block. Do not delete. |
 
 ## Blocked until decided
