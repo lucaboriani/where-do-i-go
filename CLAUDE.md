@@ -327,7 +327,7 @@ one's.
 |---|---|---|---|
 | Render function | 130 | 200 | `components/**`, `app/**` |
 | Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
-| Inline comment block | 3 lines | 6 lines (ratchet, see below) | everywhere except `components/ui/**` |
+| Inline comment block | 3 lines | 6 lines (ratchet, see below) | **production code**, except `components/ui/**` |
 | Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
 | Test function body | no limit | no limit | — |
 
@@ -340,19 +340,33 @@ cannot express that. Do not tighten the lint rules to the tendency values.
 been fixed fails the build rather than printing a severity-1 warning nobody reads. The repository
 had zero warnings when that was added, on 2026-09-08.
 
-**The comment bound is a RATCHET, not a flat failure, until the Stage C sweep lands.** There are
-**788 blocks over six lines across 90 scanned files** — 207 in the entry editor's test and 115 in
-the editor itself — and fixing them is Stage C. So `check:structure` stores the count and fails
-only when it **rises**. The number can only go down; when it reaches zero the ratchet becomes a
-hard zero. A failing build is the only kind of "report" the doctrine above concedes cannot be
-rationalised past, and a hard bound that blocks every merge on deferred work is worse than none.
+**The comment bound binds production code. Test docblocks are exempt** — decided 2026-09-08,
+after measuring. Of the 788 blocks over six lines, **509 were in test files** and the editor's
+harness, and the two real defects this project has found (the deleted map pin, and the timestamp
+that happened nowhere) were both found *because* a test docblock recorded which fixture could
+reach which branch. A docblock saying what a case catches is prose sitting where it belongs; a
+47-line essay inside a render function is not.
+
+**Both halves are ratcheted, for different reasons, and `check:structure` prints two numbers.**
+The **production** count fails when it rises and is being driven to zero by Stage C — 279 when
+the split landed. The **test** count is frozen at its measured 509 and also fails when it rises,
+so "exempt" means *not rewritten*, never *unbounded*. When production reaches zero its half stops
+being a ratchet and becomes a hard zero.
+
+A failing build is the only kind of "report" the doctrine above concedes cannot be rationalised
+past, and a hard bound that blocks every merge on deferred work is worse than none — which is
+what a single combined 788 would have been through Stages A and B.
+
+The partition has three clauses and the third is load-bearing: a `*.test.ts(x)` file, anything
+under `test/`, **and the editor harness**, which holds 54 blocks and is not a `*.test.tsx`.
+Without it the split reads 333/455 and the number Stage C drives to zero has a 54-block hole.
 
 Two earlier figures for that count were wrong, in ways worth knowing before quoting a third: 262
 came from a line-prefix scanner that never opened a test file and could not see the JSX `{/* … */}`
 form, and 780 came from a parser-based scan that died on the two `lib/pod` files whose generic
 arrows are unparseable as JSX. Both are recorded in `scripts/notes.md#the-comment-ratchet`. The
 allowance is this repository's own debt, so it applies only to this repository: run the script
-against any other tree and the bound is a flat six.
+against any other tree and the bound is a flat six, on both sides.
 
 **Delimiter lines count toward the bound**, so a `/** … */` docblock's real budget is four lines
 of prose, not six. Two comment blocks with no blank line between them are one run: a blank line
