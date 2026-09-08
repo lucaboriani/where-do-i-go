@@ -45,7 +45,7 @@
 
 **This task comes first and nothing may be extracted before it is green.** It is the whole reason the stage has an order.
 
-`offerTimestamp` reads `occurredAuthor.current` and `offsetAuthor.current` **synchronously** at `components/studio/entry-editor/entry-editor.tsx:1988-1989`, inside `attach`'s continuation — after a decode and two PUTs. The picker is `multiple` and starts every file at once: `for (const file of picked) void attach(file)` at `:3722`. `lib/media/pipeline.ts` serialises the *decodes* (`queue = result.catch(…)`), but photo 2's continuation resumes as a microtask and React batches updates across those. What makes first-writer-wins correct today is that photo 1 has already written the ref before photo 2 reads it, with no re-render in between.
+`offerTimestamp` reads `occurredAuthor.current` and `offsetAuthor.current` **synchronously** at `components/studio/entry-editor/entry-editor.tsx:1992-1993`, inside `attach`'s continuation — after a decode and two PUTs. The picker is `multiple` and starts every file at once: `for (const file of picked) void attach(file)` at `:3726`. `lib/media/pipeline.ts` serialises the *decodes* (`queue = result.catch(…)`), but photo 2's continuation resumes as a microtask and React batches updates across those. What makes first-writer-wins correct today is that photo 1 has already written the ref before photo 2 reads it, with no re-render in between.
 
 **No test in the 6,514 lines picks two files in one `change` event.** `pickAndSettle` picks one; the sections that exercise two photos call it twice in sequence, so React has fully re-rendered between them. So the suite cannot distinguish a reducer that keeps the guard inside its transition from one that reads stale state and republishes the "timestamp that happened nowhere" defect.
 
@@ -179,7 +179,7 @@ npx vitest run components/studio/entry-editor/entry-editor.test.tsx -t "two phot
 
 - [ ] **Step 4: Prove the test can fail, by breaking the thing it guards**
 
-A test that has never been seen red is a test that verifies nothing. Temporarily replace the two synchronous ref reads at `entry-editor.tsx:1988-1989` with values captured before the `await` — the mistake a reducer refactor would make:
+A test that has never been seen red is a test that verifies nothing. Temporarily replace the two synchronous ref reads at `entry-editor.tsx:1992-1993` with values captured before the `await` — the mistake a reducer refactor would make:
 
 ```bash
 # make the edit by hand, then:
@@ -567,8 +567,18 @@ transitions, which is the coupling this task is removing.
 npx vitest run components/studio/entry-editor/entry-editor.autodate.test.tsx -t "two photos picked at once"
 ```
 
-**Both cases must pass.** If the first fails, the guard is outside the transition — fix the
-design, not the test. Then the rest:
+**All three cases must pass** — Task 1 shipped as section 12m with three, not two. The third is
+the composite: a clock-only photo paired with an offset-only one, which is the shape §11.5
+actually names and the only pairing that reproduces the instant that happened nowhere with the
+warning cleared. Case 1's second photo carries both tags, so a stale read makes it win both
+halves — wrong, but coherent, and therefore not the defect.
+
+Task 1's suite also wraps the fake pipeline to **serialise** decodes, because `fakePipeline` does
+not and `lib/media/pipeline.ts` does; without it two decodes overlap in a schedule production
+never runs. It asserts the decode order as a stated premise, so an ordering flip fails with its
+own message instead of masquerading as the defect. Preserve that wrapper.
+
+If any case fails, the guard is outside the transition — fix the design, not the test. Then the rest:
 
 ```bash
 npm test && npm run lint && npm run typecheck && npm run check:structure
