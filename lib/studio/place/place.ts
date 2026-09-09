@@ -23,12 +23,6 @@ export function gridOf(text: string): number | null {
   return Number.isInteger(metres) && metres > 0 ? metres : null;
 }
 
-/** `500` → `~500 m`, `10000` → `~10 km`. The tilde is the honest part: what is
- *  published is a cell of about this size, not a distance from anywhere. */
-export function precisionLabel(metres: number): string {
-  return metres >= 1000 && metres % 100 === 0 ? `~${metres / 1000} km` : `~${metres} m`;
-}
-
 /** Everything `Place` holds. `lib/pod/schema.ts` exports the Zod object but no
  *  type for it, and this file imports no Zod. */
 export type EntryPlace = NonNullable<Entry["place"]>;
