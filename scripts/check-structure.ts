@@ -29,8 +29,20 @@ function files(dir: string, withTests: boolean, out: string[] = []): string[] {
   return out;
 }
 
-const DIRS = ["components", "app", "lib", "scripts", "test"];
-const sources = (withTests: boolean) => DIRS.flatMap((d) => files(join(ROOT, d), withTests));
+const DIRS = ["components", "app", "lib", "scripts", "test", "e2e"];
+
+/** Root config files too: `eslint.config.mjs`, `playwright.config.ts`,
+ *  `vitest.config.ts`, `proxy.ts`. Not recursive - `DIRS` covers the rest.
+ *  Why they were missing, and what it cost: ../notes.md#the-scan-and-what-it-once-could-not-see */
+const rootFiles = () =>
+  readdirSync(ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.(ts|tsx|mjs)$/.test(e.name) && !/^next-env/.test(e.name))
+    .map((e) => join(ROOT, e.name));
+
+const sources = (withTests: boolean) => [
+  ...DIRS.flatMap((d) => files(join(ROOT, d), withTests)),
+  ...rootFiles(),
+];
 
 /** Real comment tokens, never line prefixes: ./notes.md#tokens-not-prefixes
  *  `jsx` follows the extension, and must: ./notes.md#jsx-by-extension */
@@ -64,13 +76,18 @@ function commentRuns(file: string): Array<[string, number]> {
  * ./notes.md#the-comment-ratchet
  */
 const PROD_COMMENT_BASELINE = 0;
-const TEST_COMMENT_BASELINE = 509;
+const TEST_COMMENT_BASELINE = 545;
 
-/** The test side, on the predicate the placement rule already reads — plus the
- *  editor rig, which is 54 of the test half and no `*.test.tsx`. */
+/** The test side: the placement rule's own predicate, plus the editor rig (54
+ *  blocks, no `*.test.tsx`) and all of `e2e/`, which is Playwright's suite and
+ *  as much a test as anything under `test/`.
+ *  ../notes.md#the-scan-and-what-it-once-could-not-see */
 const EDITOR_HARNESS = "components/studio/entry-editor/entry-editor.harness/";
 const isTestSide = (path: string) =>
-  /\.test\.tsx?$/.test(path) || path.startsWith("test/") || path.startsWith(EDITOR_HARNESS);
+  /\.(test|spec)\.tsx?$/.test(path) ||
+  path.startsWith("test/") ||
+  path.startsWith("e2e/") ||
+  path.startsWith(EDITOR_HARNESS);
 
 type Ratchet = { over: string[]; verdict: string[] };
 

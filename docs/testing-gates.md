@@ -74,10 +74,15 @@ but Vitest 4 prints no `skipped` line at zero, so a green `npm test` reads the s
 ran or were absent. The control:
 
 ```sh
-npx vitest run test/integration/                                    # 33 passed
-TEST_POD=http://localhost:3999 npx vitest run test/integration/     # 33 skipped
+npx vitest run test/integration/                                    # all passed
+TEST_POD=http://localhost:3999 npx vitest run test/integration/     # all skipped
 ```
 
-Both halves. A count alone is not evidence: it is the same 33 either way, and only the flip
-between passed and skipped shows the suites are genuinely Pod-dependent and that the skip path
-still works. Used on every task of the 2026-09-08 refactor.
+Both halves. A count alone is not evidence: it is the same N either way, whatever N is, and only
+the flip between passed and skipped shows the suites are genuinely Pod-dependent and that the skip
+path still works. Used on every task of the 2026-09-08 refactor.
+
+**No total here, and that is the durable form.** All three lines above said 33 until 2026-09-09,
+by which point Stage C had added three integration cases and the real number was 36 — in the one
+file that also quotes `CLAUDE.md`'s own rule against reintroducing a total, and the one people
+actually run. What the control proves is the flip, not the count.
