@@ -1015,10 +1015,16 @@ describe("guardrails actually fire", () => {
    * lib/place/** and lib/pod/read.ts, but lib/pod/cached.ts wraps read.ts's
    * exports and is what every public entry point actually imports —
    * app/(public)/page.tsx, sitemap.ts, rss.xml/route.ts, both trips/[slug]
+   */
+
+  /**
    * pages — alongside lib/config.ts, lib/vocab.ts, lib/pod/result.ts and
    * lib/pod/tags.ts, with lib/pod/schema.ts as the leaf they share. None of
    * those six was in the belt's `files` array, so importing lib/studio or a
    * bare @inrupt/* package at any of them produced no message at all. Proved
+   */
+
+  /**
    * live, not assumed: `@/lib/studio/session` at lib/pod/cached.ts reports
    * ZERO messages today while the identical import at lib/pod/read.ts is
    * correctly refused.
@@ -1064,6 +1070,9 @@ describe("guardrails actually fire", () => {
    * The allow-cases proving a widened belt must not over-reach: lib/pod/access.ts
    * is the one module whose job is importing @inrupt/solid-client, and
    * lib/media/pipeline.ts needs it for the same reason lib/media/upload.ts
+   */
+
+  /**
    * needs lib/pod/write. `getThing` rather than `getSolidDataset` — a plain,
    * non-ACL export — so this cannot be read as exercising the separate,
    * pre-existing ACL_PRIMITIVES ban instead of the belt.
