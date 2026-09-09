@@ -27,25 +27,10 @@ export function applyFieldEdit(state: EntryFormState, action: FieldEdit): EntryF
     case "lat":
     case "long":
       return { ...next, coordinateAuthor: { kind: "owner" } };
-    /* THE KEYSTROKE IS WHAT MAKES THE CLOCK THE OWNER'S, recorded
-       here rather than in the form's own `onChange` for the reason the
-       coordinate boxes give: that handler catches every control on the
-       form, and this record is about this one. §11.3 in one line —
-       from now on a photo may offer no wall clock.
-       AND THE OFFSET'S RECORD PASSES THROUGH UNTOUCHED (T4-C): the
-       owner correcting WHEN says nothing about the zone.
-       WHICH IS ALSO WHY THIS KEYSTROKE TAKES THE CREDIT AND LEAVES
-       THE WARNING — ruling T4-G, and the comment that used to be here
-       was the argument against it: it claimed a typed-over clock
-       leaves "the default every create opens with, which the
-       permanent hint already covers". THAT EQUIVALENCE DOES NOT HOLD.
-       On a create the owner types a clock from memory beside a guess
-       they were never misled about; here `07:05` nudged to `07:06`
-       leaves the clock substantially the photo's, and clearing the
-       mark would leave §11.5's composition intact with the warning
-       gone. "The time came from a.jpg" is what a keystroke makes
-       uncheckable; "the offset is this machine's guess" is untouched
-       by it and still true. `creditTime` keeps them apart. */
+    /* THE KEYSTROKE IS WHAT MAKES THE CLOCK THE OWNER'S, and it TAKES THE
+       CREDIT AND LEAVES THE WARNING — ruling T4-G. The offset's record
+       passes through untouched (T4-C):
+       ./notes.md#a-keystroke-in-the-clock-takes-the-credit-and-leaves-the-warning */
     case "occurred":
       return withTimeCredit(next, { kind: "owner" }, state.offsetAuthor);
     /* THE CHOICE IS WHAT ENDS THE GUESS (scenario 4), and it is one
