@@ -470,3 +470,202 @@ data is not there (§4).
 Note the narrower guarantee phase 0 established — draft *slugs* can still be
 enumerated from a publicly readable container. That is a container-ACL problem
 rather than an index problem, and `initialiseContainers` owns it.
+
+## fuzz.ts is the last place a precise coordinate exists
+
+§9: "The Pod stores only the coordinate you are willing to publish. The studio
+applies fuzzing before the write and discards the precise original.
+`dy:precisionMeters` then honestly describes what was stored."
+
+Every entry resource is world-readable (`docs/decisions.md` §5), so there is no
+render-time mitigation behind this module and no second chance after the PUT:
+what these functions return is what a stranger can `curl`.
+
+Pure — no fetch, no clock, no randomness. The settings arrive as a value
+`readPrivacySettings` produced (§7.6), and determinism is a privacy property
+here rather than a testing convenience: a jitter redrawn per write lets an
+observer average several publications of one place back to the true point.
+
+**Studio-only by intent.** Nothing in `app/(public)` has a reason to fuzz — the
+public path reads what was already fuzzed. It is deliberately *not* in the
+`no-restricted-imports` group with `write.ts` and `access.ts`, because it holds
+no credentials and imports no auth library, so an accidental public import would
+be a pointless dependency rather than a leak.
+
+`DropReason`'s four values are all fail-closed outcomes: §9 says nothing is
+published unless everything checks out.
+
+## The snapped coordinate is a pair of strings
+
+Strings, not numbers, and that is the datatype rule rather than a style choice.
+A naive float snap yields `35.010000000000005`: `xsd:decimal` has no exponent
+form and no business carrying 15 digits, and those digits are a precision leak
+dressed as a rounding artefact.
+
+Returning numbers would hand the decision to whichever serialiser is
+downstream. Returning strings makes it this module's problem, which is where it
+belongs.
+
+`dy:precisionMeters` is `xsd:integer` and `GeoPoint` already says
+`.int().positive()`, so a fractional grid is refused rather than rounded on the
+owner's behalf: it could not be written back honestly.
+
+## The two grid steps, and why each divides its circle
+
+**Latitude.** 180° divided into a whole number of cells, and an *even* one so
+that ±90 are grid points rather than something just past them. Measured, not
+assumed: with an arbitrary step of `precisionMeters / M_PER_DEG_LAT`, a 50 m
+grid puts `round(90 / step) * step` at 90.000055, `Math.abs(lat) <= 90` fails,
+and the published latitude is not a latitude. Forcing `n` even makes 90 exactly
+`(n / 2) * step`, so the pole is a cell centre and the arithmetic never leaves
+the sphere. `Math.max(1, …)` keeps a step of at most 90° for an absurdly coarse
+precision. It is a pure function of `precisionMeters`, because a degree of
+latitude is the same length everywhere; only longitude varies.
+
+**Longitude.** A cell must be `precisionMeters` across in *metres* —
+`dy:precisionMeters` is written alongside the coordinate and read as a claim
+about metres, so a fixed-degree grid would make that triple a lie at every
+latitude but one, 0.34× the claimed width at 70°N. Hence the `cos φ`.
+
+It must *also* divide 360°, which scaling by `cos φ` alone does not give you.
+Measured: with an arbitrary step, `snapToPrecision(12, -180, 20000)` returns
+179.95, and re-snapping that returns 179.87 — the grid has a seam at the
+antimeridian, so it is not a grid, and the "snap twice, get the same answer"
+property that makes averaging attacks useless is gone. Choosing `n` first and
+deriving the step from it puts the last cell exactly against the first.
+
+**The polar collapse falls out of the same expression, with no special case.**
+At 90° the ideal step is 7.3e13 degrees, `360 / ideal` rounds to 0, and
+`Math.max(1, …)` makes `n = 1`: one cell covering the whole parallel, which is
+the right answer because longitude carries no location at the pole.
+`Math.cos(rad(90))` is 6.1e-17 rather than 0 in IEEE 754, so nothing divides by
+zero — and if it ever did, `ideal` would be `Infinity`, `360 / Infinity` would
+be 0, and `n` would still be 1.
+
+## How many decimals to spend
+
+Derived from the latitude step, which is a pure function of the precision, so
+both axes share a count and it is the same everywhere on the globe.
+
+`toFixed(7)` for everything would satisfy `xsd:decimal` and still be wrong: it
+dresses a 20 km cell as a centimetre measurement in every triple it writes. Two
+decimals finer than the step is enough to place a cell centre without inventing
+precision — the quantum lands between step/1000 and step/100, which also keeps
+the snap idempotent through its own string form: a value re-parsed from the
+published text is within step/200 of the centre it came from, and rounds back to
+the same cell.
+
+Capped at 7 (~1 cm of latitude, matching `lib/pod/literals.ts`) and floored at
+1, because `xsd:decimal` here always carries a decimal point.
+
+`wrapLongitude` spells the shared meridian `-180` rather than `180`, so one cell
+has one spelling.
+
+## Negative zero, and the mechanism it is not
+
+`(-0).toFixed(4)` is `"0.0000"`, because `toFixed` prepends a sign only when
+`x < 0` and `-0` is not. The reachable path is a value whose *magnitude* falls
+below the emitted quantum, which does keep its sign: `(-0.00045).toFixed(2)` is
+`"-0.00"`.
+
+`decimalPlaces` makes that unreachable by keeping the quantum two orders finer
+than the cell — measured: deleting both halves of the guard in `formatDecimal`
+leaves all 121 tests green — so the guard is defence in depth rather than the
+thing keeping them green.
+
+It stays because the property it defends is absolute: the zero cell has one
+spelling, or two points inside it publish differently and the cell has leaked
+the sign of the input it existed to erase. **Anything that widens the quantum
+makes this reachable again.**
+
+## snapToPrecision: the centre, the order of operations, and the throw
+
+**Rounded to the cell centre, not the corner.** `Math.round(x / step) * step`
+puts every published value on a grid node and moves the true point by at most
+half a cell on each axis — half a cell diagonal in total. A `Math.floor` would
+snap to the corner of the cell the point fell in and displace by up to a *full*
+diagonal, twice as far, for nothing: the centre halves the error for free. It
+also matters at the origin, where a floor would publish the four points around
+null island as four different values in four quadrants.
+
+Three ordering details, each measured:
+
+- The latitude is clamped only against the last ulp. `(n / 2) * (180 / n)` is 90
+  in exact arithmetic and may be 90.000000000000014 in floating point, and "a
+  published latitude is a latitude" is worth holding on the number as well as on
+  the string `toFixed` would have rounded.
+- The longitude step is computed from the **snapped** latitude, not the input,
+  and that is what makes the whole function idempotent: re-snapping the published
+  value computes the same cosine, hence the same longitude step, hence the same
+  cell.
+- Quantise **before** wrapping. `n * step` for the cell at the antimeridian is
+  exactly 180 in decimal but may arrive as 179.99999999999997, which wrapping
+  leaves alone and which then publishes as `"180.000"` — re-snapping that
+  crosses to `"-180.000"` and idempotence is lost on one cell out of thousands.
+  Rounding to what is actually emitted first removes the ambiguity.
+
+**The primitive throws.** Its contract is "give me a real coordinate", and a
+plausible-looking string returned for `NaN` is how garbage reaches the Pod
+wearing an `xsd:decimal` datatype. `fuzzForPublication` is the total boundary
+that turns each of those into a drop.
+
+## isInsideHome is geometry, and a zero radius is legal there
+
+Great-circle distance, which handles the antimeridian for free because `cos Δλ`
+is periodic — which is why nothing here subtracts degrees. At 70°N a degree of
+longitude is 38.0 km rather than 111.2 km, so a distance that scales degrees by
+one constant reports the owner's own street as somewhere else.
+
+**Inclusive at the radius**: `distance <= radiusMeters`. When in doubt the
+coordinate is dropped, which is the only direction of error this module can
+afford.
+
+**A zero radius is legal here and illegal in settings, deliberately.** §7.6: "A
+stored `dy:homeRadiusMeters` of 0 is rejected on read … What a fuzzing
+implementation should compute for a zero radius is a separate question, and it
+stays with that module." This is that answer: `isInsideHome` is geometry, where
+a degenerate circle is still a circle and the home point is 0 m from itself, and
+`fuzzForPublication` is policy, where §9 pins a zero radius as invalid settings.
+The radius is not required to be an integer here for the same reason — §7.6's
+datatype is enforced by the schema on the way in, not by the geometry.
+
+## fuzzForPublication is the total boundary, and it fails closed
+
+**Inside the home radius the coordinate is dropped, not coarsened.** Coarsening
+maps every entry near home onto one grid cell, and the centroid of that cell is
+the owner's home to within the cell size: a hundred entries "fuzzed to 2 km"
+resolve to a single point that is the house, and each new entry sharpens it.
+Publishing nothing publishes nothing; publishing a coarse value publishes it
+*repeatedly*, and the repetition is what makes it precise. The tempting shortcut
+— "20 km is coarse enough" — is the same bug at a larger radius, so the
+precision argument never buys an exemption.
+
+**It fails closed**, the same posture as `sameWebId` and with a higher stake: a
+fail-open bug here publishes a precise home coordinate to a world-readable
+resource, which is the worst outcome available to this codebase. Settings that
+are absent, unreadable or failing their schema mean nothing is published,
+however far from home the point is. An explicit precision the module cannot
+honour fails closed too rather than falling back to the default: a caller
+passing `NaN` has a bug, and publishing at 500 m would hide it behind a
+coordinate that looks deliberate.
+
+**Two cases that look alike and are not**, and the distinction is load-bearing:
+valid settings with *no* home region are a legitimate configuration meaning "I
+have no home to protect" (§7.6), and every coordinate is still fuzzed — it is
+just never dropped. Reading that as invalid would silently strip every pin from
+the diary of anyone who has not set a home region.
+
+**One definition of "trustworthy settings", not two.** The gate is the same
+`PrivacySettings` schema `readPrivacySettings` validates against, so a
+half-written home region, a zero radius or a missing
+`dy:defaultPrecisionMeters` is rejected here for exactly the reason it was
+rejected there. The `dy:schemaVersion` gate deliberately stays with the read
+(§7.6: later terms are purely additive), so this does not re-check it and cannot
+start dropping coordinates the day the resource gains a predicate.
+
+**Total by construction rather than by catching.** The two primitives throw only
+on input their own preconditions reject, and every one of those preconditions
+has been checked by the time they are called. There is no `try` here, so a
+genuine internal bug surfaces as a failure instead of being laundered into a
+drop — and a throw would still be fail-closed, since a caller that throws writes
+nothing.
