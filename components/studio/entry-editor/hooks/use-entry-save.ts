@@ -10,7 +10,7 @@ import { describe } from "@/lib/pod/result";
 import { saveEntry } from "@/lib/pod/save-entry";
 import { placeFor, placeTextOf } from "@/lib/studio/place/place";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
-import { nowWithOffset, toOffsetDateTime } from "@/lib/studio/time/offsets";
+import { nowWithOffset, toOffsetDateTime } from "@/lib/time/offsets";
 import { SCHEMA_VERSION } from "@/lib/vocab";
 import { photosFor } from "./use-photo-pipeline";
 import type { DraftText, SettleDraft } from "./use-entry-draft";

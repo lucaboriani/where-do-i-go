@@ -5,7 +5,7 @@
  * ./notes.md#guard-inside-the-transition
  */
 
-import { offsetMinutes, wallClockOf } from "@/lib/studio/time/offsets";
+import { offsetMinutes, wallClockOf } from "@/lib/time/offsets";
 import { withTimeCredit } from "./actions";
 import type { EntryFormAction, EntryFormState } from "./actions";
 

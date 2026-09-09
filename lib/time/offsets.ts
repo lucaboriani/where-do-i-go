@@ -1,6 +1,6 @@
 /**
- * The offset arithmetic behind `dy:occurredAt` (§7.3). No React and no DOM:
- * phase 4's timeline wants this without wanting a form.
+ * The offset arithmetic behind `dy:occurredAt` (§7.3). No React and no DOM,
+ * and out of `lib/studio` so the public timeline can reach it.
  * Why it left the editor: ./notes.md#tested-through-the-dom-until-now
  */
 

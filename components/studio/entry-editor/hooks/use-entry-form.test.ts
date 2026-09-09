@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { OFFSETS, offsetMinutes } from "@/lib/studio/time/offsets";
+import { OFFSETS, offsetMinutes } from "@/lib/time/offsets";
 import { initialEntryFormState, useEntryForm } from "./use-entry-form";
 import type { Entry } from "@/lib/pod/schema";
 

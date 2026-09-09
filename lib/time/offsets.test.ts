@@ -19,7 +19,7 @@ import {
   toOffsetDateTime,
   wallClockNow,
   wallClockOf,
-} from "@/lib/studio/time/offsets";
+} from "@/lib/time/offsets";
 
 /** +10:30 in winter and +11:00 in summer, so the minutes half and the
  *  "computed at the instant" claim are both checkable, and neither is the
