@@ -141,3 +141,53 @@ builds lint probes as template literals, one of which contains the text
 `eslint-disable-next-line max-lines-per-function` indented inside a backtick string. A looser
 pattern counts it, and the report then names a test fixture as a fifth live exemption. There are
 four.
+
+## the steps main prints
+
+`check-public-bundle.ts`'s `main` was 94 code lines against an 80 bound and carried the last
+`eslint-disable` in the repository. It is now 20, split at the seam its own output already
+described: `measurePages` (25), `reportMeasurementGaps` (34), `reportSize` (6),
+`reportComposition` (11), `reportViolations` (23). Verbatim — every message string concatenates
+to the same text and the printed order is unchanged.
+
+Two mechanics are not cosmetic.
+
+**`measurePages(pages, root)` takes the root as a parameter** rather than reading this module's
+`ROOT`. That is the only way the step can be exercised against a synthesised build:
+`test/public-bundle-cli.test.ts` copies *one file* into its temp checkout, so a helper extracted
+into a sibling module would not resolve there, and the in-process cases would otherwise have to
+read this repository's own `.next`. `main` passes `ROOT`.
+
+**The verdict is called into a local before the exit test.** `if (gaps.failed ||
+reportViolations(findings, kb))` short-circuits the second verdict paragraph away whenever the
+first has already fired. Not hypothetical: the made-to-fail run on 2026-09-09 — a fenced
+`@inrupt/solid-client-authn-browser` import on the public home page — is over the ceiling *and*
+leaking, 204.9 kB against 190, and printed both paragraphs. Under `||` the leak would have been
+named and "Over budget" silently dropped.
+
+The exemption left on lint's own signal, not on judgement: `npm run lint` failed with
+`Unused eslint-disable directive (no problems were reported from 'max-lines-per-function')` at
+`check-public-bundle.ts:538`, and only then was the directive deleted.
+
+## fixtures without a test file
+
+`validate-fixtures.ts` has **no test file at all**, and none can be added without touching a
+file outside this task's scope. Both homes are closed:
+
+- `scripts/validate-fixtures.test.ts` sits beside its subject and satisfies `check:structure`'s
+  colocation rule — but `vitest.config.ts`'s `include` covers `test/`, `lib/`, `components/` and
+  `app/` only, so vitest would never collect it. Widening `include` is guarded by
+  `test/vitest-collection.test.ts`.
+- `test/validate-fixtures.test.ts` would be collected, and would fail the colocation rule until
+  it were added to `REPO_TESTS` in `check-structure.ts`.
+
+So the 59 -> 25 line split of its `main` was verified by measurement instead: byte-identical
+stdout and exit code before and after, plus seven controls run in a `git worktree` with
+`node_modules` symlinked in, each mutating `docs/data-model.md` and asserting the mutation
+applied before believing the failure. Blank node, `xsd:float` coordinate, coordinate as
+`xsd:string`, count as `xsd:decimal`, `xsd:dateTime` with no offset, an eighth turtle block, and
+an unresolved relative IRI: all seven fail identically before and after. An eighth control was
+written and refused to run — its anchor matched two turtle blocks — which is the string-replace
+fixture trap catching itself rather than silently grading the unmodified document.
+
+A test file for it is worth having and is not this task's to add.

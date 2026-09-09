@@ -71,9 +71,72 @@ const DT_RE = /[+-]\d{2}:\d{2}$|Z$/;
 const failures: string[] = [];
 const fail = (label: string, msg: string) => failures.push(`[${label}] ${msg}`);
 
+/** Every ```turtle block in the document, in document order — which is the
+ *  order `CASES` gives them their base URIs in. */
+const turtleBlocks = (doc: string) =>
+  [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1]);
+
+/** Parsed at the base URI the block would be served from, or a recorded
+ *  failure and nothing left to check. */
+function parseBlock(label: string, base: string, block: string): Quad[] | undefined {
+  try {
+    return new Parser({ baseIRI: base }).parse(block);
+  } catch (exc) {
+    fail(label, `does not parse standalone: ${exc instanceof Error ? exc.message : String(exc)}`);
+    return undefined;
+  }
+}
+
+/** §6: no blank nodes anywhere. Every term of every quad, because one reached
+ *  as an object is the same defect as one reached as a subject. */
+function checkNoBlankNodes(label: string, quads: Quad[]): void {
+  for (const q of quads) {
+    for (const term of [q.subject, q.predicate, q.object, q.graph] as Term[]) {
+      if (term.termType === "BlankNode") {
+        fail(label, `blank node in ${q.subject.value} ${q.predicate.value} ${q.object.value}`);
+      }
+    }
+  }
+}
+
+/** §6's datatype rules: never xsd:float, xsd:decimal for coordinates,
+ *  xsd:integer for counts, a UTC offset on every xsd:dateTime. */
+function checkDatatypes(label: string, quads: Quad[]): void {
+  for (const q of quads) {
+    if (q.object.termType !== "Literal") continue;
+    const dt = q.object.datatype.value;
+    const p = q.predicate.value;
+    if (dt === `${NS.xsd}float`) {
+      fail(label, `xsd:float literal on ${p} (use xsd:decimal)`);
+    }
+    if (GEO_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}decimal`) {
+      fail(label, `${p} is ${dt}, expected xsd:decimal`);
+    }
+    if (INT_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}integer`) {
+      fail(label, `${p} is ${dt}, expected xsd:integer`);
+    }
+    if (dt === `${NS.xsd}dateTime` && !DT_RE.test(q.object.value)) {
+      fail(label, `dateTime without UTC offset on ${p}: ${q.object.value}`);
+    }
+  }
+}
+
+/** No IRI should still look relative after resolution. */
+function checkResolvedIris(label: string, quads: Quad[]): void {
+  for (const q of quads) {
+    for (const term of [q.subject, q.object]) {
+      const t = term.value;
+      if (t.startsWith("../") || t.startsWith("./") || t.split("://").at(-1)!.includes("..")) {
+        fail(label, `unresolved relative IRI: ${t}`);
+      }
+    }
+  }
+}
+
+/** Read, count, then check each block and print its triple count. Split from
+ *  59 code lines on 2026-09-09: ./notes.md#fixtures-without-a-test-file */
 function main(): number {
-  const doc = readFileSync(DOC, "utf8");
-  const blocks = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const blocks = turtleBlocks(readFileSync(DOC, "utf8"));
 
   if (blocks.length !== CASES.length) {
     console.log(`FAIL: found ${blocks.length} turtle blocks, expected ${CASES.length}.`);
@@ -83,51 +146,15 @@ function main(): number {
 
   for (const [i, block] of blocks.entries()) {
     const [label, base] = CASES[i];
+    const quads = parseBlock(label, base, block);
+    if (quads === undefined) continue;
 
-    let quads: Quad[];
-    try {
-      quads = new Parser({ baseIRI: base }).parse(block);
-    } catch (exc) {
-      fail(label, `does not parse standalone: ${exc instanceof Error ? exc.message : String(exc)}`);
-      continue;
-    }
+    checkNoBlankNodes(label, quads);
+    checkDatatypes(label, quads);
+    checkResolvedIris(label, quads);
 
-    for (const q of quads) {
-      for (const term of [q.subject, q.predicate, q.object, q.graph] as Term[]) {
-        if (term.termType === "BlankNode") {
-          fail(label, `blank node in ${q.subject.value} ${q.predicate.value} ${q.object.value}`);
-        }
-      }
-    }
-
-    for (const q of quads) {
-      if (q.object.termType !== "Literal") continue;
-      const dt = q.object.datatype.value;
-      const p = q.predicate.value;
-      if (dt === `${NS.xsd}float`) {
-        fail(label, `xsd:float literal on ${p} (use xsd:decimal)`);
-      }
-      if (GEO_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}decimal`) {
-        fail(label, `${p} is ${dt}, expected xsd:decimal`);
-      }
-      if (INT_PREDS.some((k) => p.includes(k)) && dt !== `${NS.xsd}integer`) {
-        fail(label, `${p} is ${dt}, expected xsd:integer`);
-      }
-      if (dt === `${NS.xsd}dateTime` && !DT_RE.test(q.object.value)) {
-        fail(label, `dateTime without UTC offset on ${p}: ${q.object.value}`);
-      }
-    }
-
-    // No IRI should still look relative after resolution.
-    for (const q of quads) {
-      for (const term of [q.subject, q.object]) {
-        const t = term.value;
-        if (t.startsWith("../") || t.startsWith("./") || t.split("://").at(-1)!.includes("..")) {
-          fail(label, `unresolved relative IRI: ${t}`);
-        }
-      }
-    }
-
+    // Printed even when a check above recorded a failure, exactly as before:
+    // the triple count is progress, and the failures are listed together below.
     console.log(`[${label}] ok — ${quads.length} triples`);
   }
 
