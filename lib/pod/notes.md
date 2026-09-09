@@ -745,3 +745,220 @@ and only the cache stale, which heals on its own when the entry expires. It is
 reported as a network error against `entryUrl`, because that is what a failing
 hook is — a POST to a route handler that did not land — and because that is the
 resource whose new state is not visible yet.
+
+## access.ts is the only module that touches access control
+
+Five operations are the interface: `makePublic`, `makePrivate`, `getAccess`,
+`createContainer`, `initialiseContainers`. The first four are §5's interface;
+`createContainer` is there because a container created without an ACL of its own
+is publicly enumerable. `no-restricted-imports` bans the ACL primitives
+everywhere else.
+
+The container write's three steps and the document write's apply half are also
+exported, for their own tests and for nothing else. That does not widen the
+fence: an `AclDataset` is inert without the primitives above, which stay banned
+outside this file, so no caller elsewhere can do anything with one.
+
+Per phase 0, `initialiseContainers` must also set inheritance explicitly — a
+Pod root's public read does not cascade — close the container listing where the
+server allows it, or draft slugs leak via `ldp:contains` even though draft
+content is protected, and verify the resulting access rather than assuming the
+writes took effect.
+
+## Document versus container is the only branch, and never the server
+
+There is one branch in this file and it is on the **resource kind**. A document
+and a container need different things said about them — §5: "Containers carry
+the default; individual draft resources override it" — and that is a property of
+LDP, true on WAC and ACP alike.
+
+- **Documents go through `universalAccess`.** Phase 0 granted public read
+  through it on both CSS and ESS with identical calling code
+  (`docs/decisions.md` §19), so it is the mechanism-agnostic path and is used
+  wherever it can express what we mean.
+- **Containers need `acl:default` *without* `acl:accessTo`.** `universalAccess`
+  cannot express that: `setPublicAccess` documents that "if the Resource is a
+  Container, the configured Access will not apply to contained Resources", so on
+  its own it produces a diary whose pages are all 401 — while returning 2xx. The
+  split shape is the fix `docs/decisions.md` §20 records as **verified on WAC**
+  and explicitly **unverified on ACP** ("ACP has no accessTo/default split of
+  this shape").
+
+**The container path refuses rather than guesses.** Writing that shape means
+writing a WAC ACL document, so it runs only on positive evidence that the target
+*is* a WAC ACL: `hasResourceAcl` or `hasFallbackAcl`, both of which mean the
+library fetched an ACL document and parsed `acl:` rules out of it.
+`hasAccessibleAcl` is not that evidence and is never used as it — see
+`#why-the-container-path-is-not-a-mechanism-branch` above. On ESS the library
+raises `AclIsAcrError` internally, reports neither a resource nor a fallback
+ACL, and this module returns `accessUnverified`. That is a refusal, not a
+mechanism branch: the same code path, the same question asked of every server,
+and no server is identified.
+
+It does not fall back to a wider grant either. The fallback would silently
+reopen the container listing that §20 exists to close, and it would be untested
+code claiming a guarantee nobody has measured.
+
+`createAclFromFallbackAcl` copies the ancestor's `acl:default` rules onto the
+resource, which is what keeps the owner's Control when the parent's default
+stops applying.
+
+## Two kinds of evidence, and neither is proof of enforcement
+
+Every method verifies the **result** rather than the status code, and the two
+kinds of evidence are not equal:
+
+- `"server"` — the `WAC-Allow` header, i.e. the server's own evaluation of what
+  an unauthenticated request would get. This is the strong one.
+- `"rules"` — the stored authorisations, read back from the server after the
+  write. Proves the write persisted as written; does not prove the server
+  enforces it.
+
+**Neither is proof.** `"server"` is the server's answer to a question asked over
+an authenticated connection, and `"rules"` is only what is stored. The single
+thing that proves a restriction is a request from the context that should be
+denied — which this module cannot make, because the caller's fetch is the only
+fetch it has (invariant 4). Do not render either value as a guarantee to the
+owner. That evidence lives in
+`test/integration/pod-access.integration.test.ts`, against a real Community
+Solid Server.
+
+`inheritsVerifiedBy` is deliberately a different field from `verifiedBy`,
+because it can never be as strong. `"rules"` means the `acl:default` triple this
+module wrote, read back: no server header answers "what would an anonymous
+request to a *child* of this container get?", so there is no `"server"` value
+available and the type says so. The evidence that inheritance actually reaches a
+child is an anonymous GET of that child, in the integration suite.
+`"notApplicable"` is a document, which has no children.
+
+## The §4 containers, and why travel/settings/ is created at first run
+
+Media is one global container, outside any trip, so that publishing never has to
+move binaries.
+
+**`travel/settings/` is the one with `publicChildren: false`, and that flag is
+the whole point of it being in the list rather than created on demand later.**
+It holds `privacy.ttl` — the owner's home coordinates and fuzzing radius (§7.6)
+— and `acl:default` inherits recursively, so a container created below `travel/`
+with no ACL of its own is covered by the parent's public default. That is not a
+hypothesis: it is measured in this repository, on `travel/trips/2026-japan/`,
+where an anonymous GET returned 200 and listed the children.
+
+So the safe state for this container is *not* the state it arrives in, and the
+failure mode is silent — the write returns 201, the studio works, and the home
+coordinates are readable at a URL anyone can guess from §4. Creating it at first
+run is what makes the safe shape structural rather than remembered by whoever
+writes the settings-editing UI.
+
+Verified rather than reasoned: before this entry existed, the integration
+suite's anonymous GET of `travel/settings/privacy.ttl` returned **200 with the
+home latitude in the body**, and `readPrivacySettings` with a plain
+unauthenticated fetch returned `ok` carrying the full home region. Both are 401
+now. See `test/integration/pod-access.integration.test.ts`, "the privacy
+settings container".
+
+## Report the URL the caller asked about, not the URL that failed
+
+A `FetchError`'s `response.url` is empty for a synthesised `Response`, and an
+inner failure on `{root}.acl` while initialising `{root}scoped/travel/` names a
+resource the caller never mentioned. Both make the error unactionable.
+
+## ensureContainer is idempotent, and still carries a precondition
+
+§5 asks for a first-run flow that is "safe to re-run", and this is the flow a
+deployer retries after any failure. The create still carries
+`If-None-Match: *`: a 412 then means "someone else got there first", which is
+the success case here rather than a failure — and it is why this is not a blind
+PUT even though it may run twice.
+
+It is private on purpose. A container created through `ensureContainer` alone
+has no ACL of its own and is therefore publicly enumerable, which is what
+`createContainer` exists to prevent.
+
+## createContainer is one operation because the halves cannot be separate
+
+`acl:default` inherits recursively, so a container created below
+`travel/trips/` with no ACL of its own is covered by the parent's default rule —
+including as a resource in its own right, which makes its **listing** public.
+
+Measured against CSS 7.2.0 on a Pod initialised by this module: an anonymous
+`GET /travel/trips/2026-japan/` returned 200 with
+`WAC-Allow: user="read",public="read"` and a body containing
+`ldp:contains <entries/>, <trip.ttl>`. That is §20's leak one level down — every
+studio-created trip and entries container, enumerable, with slugs derived from
+titles.
+
+So no code in this project creates a container any other way. Phase 2's entry-
+and trip-creation paths call this. The rule is structural rather than
+remembered, which is the only kind that survives a phase boundary.
+
+## readAcl keeps the ETag of the same response
+
+The point is the pairing. An ETag taken from a later HEAD says nothing about the
+body this module is editing: a change landing in between — two studio tabs,
+`makePublic` racing `makePrivate` — would satisfy `If-Match` and be overwritten.
+One GET, one ETag, one body, and §10's precondition means what it says.
+
+`internal_accessTo` is what makes a `SolidDataset` an `AclDataset`: the resource
+these rules govern. It is set to the server's own source IRI for that resource,
+which is exactly what `@inrupt/solid-client` does when it fetches an ACL itself
+(`acl.internal.ts`, `internal_fetchResourceAcl`).
+
+## An ACL with no Control rule is refused
+
+On WAC an ACL with no Control rule cannot be repaired through the API that wrote
+it, so this is one of the few unrecoverable mistakes available here. The
+question is asked of the document about to be written rather than of the server:
+a network failure or a 403 cannot masquerade as "nobody has Control" the way a
+swallowed read once did.
+
+Control held only by an agent *class* or a group does not count. This project's
+model is one owner plus the public (§5), and a shared Pod needs this thought
+about rather than assumed. The cost of being wrong is a refusal the caller can
+fix by passing `webId`, which the two callers that create containers already do.
+
+## makePrivate on a container cannot go through universalAccess
+
+`publicInherit: false` is the same container shape with the public grant
+removed, and that is what `makePrivate` on a container has to do.
+`universalAccess` would clear the resource rule and leave the `acl:default` rule
+standing, i.e. report success while every child stayed public. Verified in a
+spike against CSS 7.2.0: after `setPublicAccess(doc, { read: false })` the
+resulting ACL still contained
+`acl:agentClass foaf:Agent; acl:mode acl:Read; acl:default …`.
+
+On a container, `makePublic` means "read that reaches the children, without
+leaving the container enumerable" — anything else publishes every draft slug in
+it via `ldp:contains`, and slugs come from titles (`docs/decisions.md` §20). So
+the public default is read and the public resource rule is nothing: the children
+are readable, the listing closes, and the authenticated studio still enumerates.
+
+## getAccess prefers the server's evaluation, and errors rather than saying false
+
+It prefers `WAC-Allow` over our reading of the rules, because the studio's
+publish indicator is only useful if it answers the second question — what is
+enforced — rather than the first.
+
+It returns an error, never `read: false`, when neither can be established. "Not
+public" and "could not tell" are different facts, and the owner acts on what is
+shown.
+
+## initialiseContainers creates no content, and privacy.ttl least of all
+
+Idempotent and safe to re-run, because this is the flow a deployer retries after
+any failure: a second run reporting "already exists" would make the recovery
+path indistinguishable from the failure it recovers from.
+
+It does **not** create `diary.ttl` or any other content. Content is a write, and
+writes carry the `dy:` namespace, which is still `example.org` (CLAUDE.md,
+"Blocked until decided").
+
+That applies to `travel/settings/privacy.ttl` too, and there for a second reason
+on top of the namespace: a default settings document would mean choosing a home
+region on the owner's behalf, and every possible choice is wrong. So a fresh Pod
+gets the container and no document, `readPrivacySettings` returns a structured
+404, and §9's fail-closed rule means entries are written with no coordinate
+until the owner sets one. The studio has to say so.
+
+A Pod root without its trailing slash resolves `travel/` against the parent,
+which is why the root is normalised before anything is built from it.
