@@ -669,3 +669,79 @@ has been checked by the time they are called. There is no `try` here, so a
 genuine internal bug surfaces as a failure instead of being laundered into a
 drop — and a throw would still be fail-closed, since a caller that throws writes
 nothing.
+
+## Why saveEntry is its own module, and why its return value is not a Result
+
+`lib/pod/access.ts` imports `putGuarded` from `./write`, so a `saveEntry` in
+`write.ts` that called `makePublic` would close an import cycle between the two.
+This module sits above both and imports from each. That is a consequence of the
+existing dependency direction rather than a filing preference.
+
+**The return value is a report, not a `Result`.** §10 names three partial
+failures and they are requirements rather than edge cases: an entry written but
+unlisted, an ACL set but unlisted, an entry published but unreadable. "All three
+recover through the same operation: `rebuildIndex`."
+
+`{ ok: false, error }` collapses "nothing happened" into "the entry is on the
+Pod but invisible", and a caller that cannot tell those apart cannot reach the
+documented recovery at all — it would offer `rebuildIndex` for a write the Pod
+refused outright, and offer a retry for a Pod left half-written.
+
+So the report is always returned, always says which steps completed, and always
+says what the caller should do next. `recovery` is the actionable field:
+`rebuildIndex` exactly when something was left behind on the Pod.
+
+The four `SaveRecovery` values:
+
+- `none` — nothing to do; the sequence finished.
+- `retry` — nothing was written, so the same call again is safe.
+- `refetch` — a precondition failed, so something changed underneath us.
+  Re-read the resource and re-apply the edit: retrying with the same stale ETag
+  fails identically, and retrying *without* one is the blind PUT the
+  precondition exists to prevent.
+- `rebuildIndex` — the Pod holds a resource the index does not describe, or one
+  whose access could not be confirmed. §10's single recovery.
+
+412 is the one status where retrying the identical request is guaranteed to fail
+again, which is why `recoveryForWrite` singles it out. Everything else — 507,
+500, a dropped connection — may well succeed on a second attempt.
+
+## dcterms:created is carried forward, and stamped once
+
+This is the whole reason the field exists on `Entry`. An edit that rewrites the
+resource without it destroys the difference between when the record came into
+being and when it became public (§7.3) — silently, permanently, on the first
+save after publication. A caller-supplied value wins on a create too, so
+importing an entry with its real creation date works.
+
+It belongs to no single step: steps 1, 3 and 4 all read the stamped entry, so it
+happens once, before any of them, and `stampedEntry` returns a new object rather
+than touching the caller's.
+
+## Step 3 recomputes, and a draft still goes through it
+
+Recomputed, never incremented. The §7.4 fixture declares `dy:entryCount 14`
+while carrying one row, which is exactly what an increment-and-copy
+implementation leaves behind: derived data describing a set it no longer
+describes.
+
+**A draft still goes through this step, and its row is removed rather than
+skipped.** Unpublishing is "flip `dy:status`" (§5), and if the step were skipped
+for drafts the row of an entry just unpublished would stay in the index — the
+public site would keep listing its title, which is the one thing §7.4 says the
+index boundary exists to prevent.
+
+## Why the index is not written when the ACL step fails
+
+The entry *is* on the Pod, so the report must say so — this is §10's
+"published-but-unreadable". The index is deliberately not written: a row
+pointing at a resource whose access could not be confirmed advertises a link the
+public may not be able to follow, and `rebuildIndex` "verifies each kept entry's
+ACL matches its status", which is precisely the check that just failed to
+complete.
+
+Step 4's hook is the mirror image. A hook that throws leaves the Pod consistent
+and only the cache stale, which heals on its own when the entry expires. It is
+reported as a network error against `entryUrl`, because that is what a failing
+hook is — a POST to a route handler that did not land — and because that is the
+resource whose new state is not visible yet.

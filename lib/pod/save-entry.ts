@@ -1,31 +1,12 @@
-/**
- * The §10 write sequence. STUDIO ONLY.
- *
- *   1. PUT the entry            — `If-None-Match: *` to create, `If-Match` to update
- *   2. set its ACL              — public-read if published, owner-only if draft
- *   3. rewrite `entries.ttl`    — insert the row, recompute the derived values
- *   4. call the revalidation hook so the public site drops its cache
- *
- * WHY THIS IS ITS OWN MODULE AND NOT PART OF lib/pod/write.ts. `lib/pod/access.ts`
- * imports `putGuarded` from `./write`, so a `saveEntry` in `write.ts` that
- * called `makePublic` would close an import cycle between the two. This module
- * sits above both and imports from each. That is a consequence of the existing
- * dependency direction, not a filing preference.
- *
- * WHY THE RETURN VALUE IS NOT A `Result<T>`.
- *
- * §10 names three partial failures and they are requirements, not edge cases:
- * an entry written but unlisted, an ACL set but unlisted, an entry published
- * but unreadable. "All three recover through the same operation: rebuildIndex."
- * `{ ok: false, error }` collapses "nothing happened" into "the entry is on the
- * Pod but invisible", and a caller that cannot tell those apart cannot reach
- * the documented recovery at all — it would offer `rebuildIndex` for a write
- * the Pod refused outright, and offer a retry for a Pod left half-written.
- *
- * So the report is always returned, always says which steps completed, and
- * always says what the caller should do next. `recovery` is the actionable
- * field: `rebuildIndex` exactly when something was left behind on the Pod.
- */
+/** The §10 write sequence. STUDIO ONLY. Its own module because access.ts
+ *  already imports write.ts, and the return value is a REPORT rather than a
+ *  `Result` — §10's three partial failures all recover through `rebuildIndex`.
+ *  ./notes.md#why-saveentry-is-its-own-module-and-why-its-return-value-is-not-a-result */
+
+// 1. PUT the entry         — `If-None-Match: *` to create, `If-Match` to update
+// 2. set its ACL           — public-read if published, owner-only if draft
+// 3. rewrite `entries.ttl` — insert the row, recompute the derived values
+// 4. call the revalidation hook so the public site drops its cache
 import { makePrivate, makePublic } from "./access";
 import { documentUrlOf, serialiseEntry } from "./entry-model";
 import {
@@ -47,16 +28,9 @@ import type { Entry } from "./schema";
 export type SaveStep = "entry" | "access" | "index" | "revalidate";
 
 /**
- * What the caller must do next.
- *
- * "none"         — nothing; the sequence finished.
- * "retry"        — nothing was written. The same call again is safe.
- * "refetch"      — a precondition failed, so something changed underneath us.
- *                  Re-read the resource and re-apply the edit. Retrying with
- *                  the same stale ETag fails identically, and retrying WITHOUT
- *                  one is the blind PUT the precondition exists to prevent.
- * "rebuildIndex" — the Pod holds a resource the index does not describe, or
- *                  whose access could not be confirmed. §10's single recovery.
+ * What the caller must do next: "none", "retry", "refetch" (a precondition
+ * failed — re-read, and never retry without one), "rebuildIndex" (§10's single
+ * recovery). ./notes.md#why-saveentry-is-its-own-module-and-why-its-return-value-is-not-a-result
  */
 export type SaveRecovery = "none" | "retry" | "refetch" | "rebuildIndex";
 
@@ -106,12 +80,9 @@ export type SaveEntryOptions = {
 const nowIso = () => new Date().toISOString().replace("Z", "+00:00");
 
 /**
- * A failed write, classified.
- *
- * 412 is the precondition doing its job — something changed underneath us —
- * and it is the one status where retrying the identical request is guaranteed
- * to fail again. Everything else (507, 500, a dropped connection) may well
- * succeed on a second attempt.
+ * A failed write, classified. 412 is the precondition doing its job and the one
+ * status where retrying the identical request is guaranteed to fail again.
+ * ./notes.md#why-saveentry-is-its-own-module-and-why-its-return-value-is-not-a-result
  */
 const recoveryForWrite = (error: PodError): SaveRecovery =>
   error.kind === "http" && error.status === 412 ? "refetch" : "retry";
@@ -121,17 +92,9 @@ const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : 
 /* ------------------------------------------------------------------ the steps */
 
 /**
- * `dcterms:created` is CARRIED FORWARD on an update and set on a create.
- *
- * This is the whole reason the field exists on `Entry`. An edit that rewrites
- * the resource without it destroys the difference between when the record came
- * into being and when it became public (§7.3) — silently, permanently, on the
- * first save after publication. A caller-supplied value wins on a create too,
- * so importing an entry with its real creation date works.
- *
- * Belongs to no single step: steps 1, 3 and 4 all read the stamped entry, so it
- * happens once, before any of them, and returns a new object rather than
- * touching the caller's.
+ * `dcterms:created` is CARRIED FORWARD on an update and set on a create — the
+ * whole reason the field exists on `Entry` (§7.3). Stamped once, before any
+ * step, into a new object. ./notes.md#dctermscreated-is-carried-forward-and-stamped-once
  */
 export function stampedEntry(opts: SaveEntryOptions, stamp: string): Entry {
   const creating = "create" in opts.precondition;
@@ -171,18 +134,9 @@ export function setEntryAccess(opts: SaveEntryOptions, entry: Entry, entryUrl: s
 
 /**
  * Step 3: read `entries.ttl`, insert this entry's row, recompute the derived
- * values, write back with `If-Match`.
- *
- * Recomputed, never incremented. The §7.4 fixture declares `dy:entryCount 14`
- * while carrying one row, which is exactly what an increment-and-copy
- * implementation leaves behind: derived data describing a set it no longer
- * describes.
- *
- * A DRAFT STILL GOES THROUGH HERE, and the row is removed rather than skipped.
- * Unpublishing is "flip dy:status" (§5), and if this step were skipped for
- * drafts the row of an entry just unpublished would stay in the index — the
- * public site would keep listing its title, which is the one thing §7.4 says
- * the index boundary exists to prevent.
+ * values, write back with `If-Match`. Recomputed, never incremented, and A
+ * DRAFT STILL GOES THROUGH HERE with its row removed rather than skipped.
+ * ./notes.md#step-3-recomputes-and-a-draft-still-goes-through-it
  */
 async function writeIndex(opts: SaveEntryOptions, entry: Entry, stamp: string): Promise<Result<null>> {
   const read = await readTripIndexWithEtag(opts.indexUrl, { fetch: opts.fetch });
@@ -227,13 +181,9 @@ async function writeIndex(opts: SaveEntryOptions, entry: Entry, stamp: string): 
 }
 
 /**
- * Step 4: the revalidation hook, so the public site drops its cache.
- *
- * A hook that throws leaves the Pod consistent and only the cache stale, which
- * heals on its own when the entry expires. Reported as a network error against
- * `entryUrl` because that is what a failing hook is — a POST to a route handler
- * that did not land — and because that is the resource whose new state is not
- * visible yet.
+ * Step 4: the revalidation hook, so the public site drops its cache. A hook
+ * that throws leaves the Pod consistent and only the cache stale.
+ * ./notes.md#why-the-index-is-not-written-when-the-acl-step-fails
  */
 export async function runRevalidation(
   opts: SaveEntryOptions,
@@ -279,12 +229,9 @@ export async function saveEntry(opts: SaveEntryOptions): Promise<SaveEntryReport
 
   const access = await setEntryAccess(opts, stamped, entryUrl);
   /**
-   * The entry IS on the Pod, so the report must say so — this is §10's
-   * "published-but-unreadable". The index is deliberately NOT written: a row
-   * pointing at a resource whose access could not be confirmed advertises a
-   * link the public may not be able to follow, and `rebuildIndex` "verifies
-   * each kept entry's ACL matches its status", which is precisely the check
-   * that just failed to complete.
+   * The entry IS on the Pod, so the report says so — §10's
+   * "published-but-unreadable" — and the index is deliberately NOT written.
+   * ./notes.md#why-the-index-is-not-written-when-the-acl-step-fails
    */
   if (!access.ok) return stoppedAt("access", access.error, "rebuildIndex", etag);
   completed.push("access");
