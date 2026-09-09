@@ -107,19 +107,16 @@ describe("check:structure, against this repository", () => {
     for (const row of rows) expect(row, run.transcript).toMatch(/:\d+ — .*\(tendency \d+\)$/);
   });
 
-  /** ONE since 2026-09-08: `serialiseEntry`'s left with the §7.3 clause split
-   *  that took it from 111 lines to 29, and lint reported the directive unused
-   *  before it was deleted. Asserted against THE EXEMPTIONS BLOCK and not the
-   *  whole of stdout, because every one of these paths also appears in the drift
-   *  report — so a `toContain` over stdout passed whatever the block held. */
-  it("lists the one surviving exemption by path, and exactly one", () => {
+  /** ZERO since 2026-09-09. The last one was `main`'s in check-public-bundle.ts,
+   *  dropped by the split that took it from 94 code lines to 20 — lint reported
+   *  the directive unused before anyone deleted it. Read off THE EXEMPTIONS
+   *  BLOCK, not stdout, because those paths appear in the drift report too. At
+   *  zero the number needs a control, and the fixture case below is it: an
+   *  `exemptionReport()` that found nothing would print 0 here just as happily. */
+  it("reports zero active exemptions, because nothing is suppressed any more", () => {
     const block = /active exemptions — (\d+):\n((?:  .*\n)*)/.exec(run.stdout);
-    expect(block?.[1], run.transcript).toBe("1");
-    const listed = (block?.[2] ?? "").trim().split("\n");
-    expect(listed, run.transcript).toHaveLength(1);
-    expect(listed.join("\n"), run.transcript).toContain("scripts/check-public-bundle.ts");
-    for (const gone of ["entry-model", "entry-editor", "entry-editor.test.tsx"])
-      expect(listed.join("\n"), run.transcript).not.toContain(gone);
+    expect(block?.[1], run.transcript).toBe("0");
+    expect((block?.[2] ?? "").trim(), run.transcript).toBe("");
   });
 
   it("reports the comment ratchet as a count, not as a failure", () => {
@@ -384,6 +381,24 @@ describe("check:structure, on fixtures that each break one rule", () => {
     const run = runCli(root);
     expect(run.status, run.transcript).toBe(1);
     expect(ratchetCount(run.stdout, "production"), run.transcript).toBe(1);
+  });
+
+  it("still counts an exemption where there is one, which is what zero means", () => {
+    // The allow-case for the repository assertion above. Without it, an
+    // exemptionReport() that scanned nothing and a repository that suppresses
+    // nothing print the same line.
+    const root = compliant();
+    writeFileSync(
+      join(root, "lib", "pod", "thing.ts"),
+      "/* eslint-disable-next-line max-lines-per-function */\nexport function t() {}\n",
+    );
+    const run = runCli(root);
+    expect(run.status, "an exemption is reported, never failed").toBe(0);
+    const block = /active exemptions — (\d+):\n((?:  .*\n)*)/.exec(run.stdout);
+    expect(block?.[1], run.transcript).toBe("1");
+    expect(block?.[2] ?? "", run.transcript).toContain(
+      "lib/pod/thing.ts:1 — max-lines-per-function",
+    );
   });
 
   it("reports drift under --root too, which is what cwd: ROOT buys", () => {

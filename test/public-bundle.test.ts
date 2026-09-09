@@ -1,10 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as esbuild from "esbuild";
 import eslintConfig from "../eslint.config.mjs";
 
@@ -53,9 +62,23 @@ const MODULE = "scripts/check-public-bundle.ts";
 type Chunk = { name: string; source: string };
 type Finding = { dep: string; chunk: string; marker: string };
 type BannedDep = { name: string; markers: string[] };
+type Worst = { page: string; bytes: number };
+type Measurement = {
+  worst: Worst;
+  chunks: Map<string, string>;
+  unresolved: { page: string; ref: string }[];
+  noScripts: string[];
+};
+type Gaps = { failed: boolean; measuredNothing: boolean };
 type Mod = {
   BANNED_DEPS?: BannedDep[];
   findStudioDeps?: (chunks: Chunk[]) => Finding[];
+  LIMIT_KB?: number;
+  measurePages?: (pages: string[], root: string) => Measurement;
+  reportMeasurementGaps?: (measured: Measurement) => Gaps;
+  reportSize?: (worst: Worst) => number;
+  reportComposition?: (chunks: Map<string, string>, pageCount: number) => Finding[];
+  reportViolations?: (findings: Finding[], kb: number) => boolean;
 };
 
 // ---------------------------------------------------------------- the module
@@ -102,6 +125,24 @@ function bannedDeps(): BannedDep[] {
     throw new Error(`${MODULE} does not export BANNED_DEPS: { name, markers }[].`);
   }
   return list;
+}
+
+/**
+ * One of the steps `main` is made of, or a failure naming the contract. Same
+ * rule as the two accessors above: a missing export fails the case that needed
+ * it rather than turning its assertions into no-ops.
+ */
+function step<K extends keyof Mod>(name: K): NonNullable<Mod[K]> {
+  if (loadError) throw loadError;
+  const value = mod[name];
+  if (value === undefined) {
+    throw new Error(
+      `${MODULE} does not export ${String(name)}. \`main\` splits into the steps it prints ` +
+        `progress for — measurePages, reportMeasurementGaps, reportSize, reportComposition, ` +
+        `reportViolations — each exported so it can be checked where the CLI cannot reach.`,
+    );
+  }
+  return value as NonNullable<Mod[K]>;
 }
 
 // ------------------------------------------------------------ real artifacts
@@ -866,6 +907,308 @@ describe("findStudioDeps: an empty scan is not a pass", () => {
         { name: "static/chunks/b.js", source: "" },
       ]),
     ).toThrow(/chunk|empt/i);
+  });
+});
+
+// ------------------------------------------------ the steps `main` is made of
+
+/**
+ * `main` was 94 code lines behind an `eslint-disable`, and none of its steps
+ * had a test of its own: the sibling CLI file spawns the whole command, which
+ * pins the verdict and the exit code but not the arithmetic underneath. These
+ * cases pin each printed step at the seam Stage C splits `main` on.
+ */
+
+/** The builds below synthesise their own `.next` under a temp directory. That
+ *  is a fixture; the rule against reading the repository's own build holds. */
+const stepRoots: string[] = [];
+
+afterAll(() => {
+  for (const dir of stepRoots) rmSync(dir, { recursive: true, force: true });
+});
+
+/** How the page names the chunk. `module` is the shape the extraction does NOT
+ *  match — that URL ends `.mjs"` — which is the page-measured-nothing case. */
+type Ref = { chunk: string; via?: "src" | "href" | "module" };
+
+function pageHtml(refs: Ref[]): string {
+  const tag = (r: Ref) => {
+    if (r.via === "href") return `<link rel="preload" as="script" href="/_next/${r.chunk}"/>`;
+    if (r.via === "module") return `<script type="module" src="/_next/${r.chunk}"></script>`;
+    return `<script src="/_next/${r.chunk}" async=""></script>`;
+  };
+  return `<!DOCTYPE html><html lang="en"><head></head><body>${refs.map(tag).join("")}</body></html>`;
+}
+
+/** A root holding chunk files under `.next` and the prerendered HTML that names
+ *  them. Page keys are root-relative, as `publicPages()` yields them. */
+function buildRoot(chunks: Record<string, string>, pages: Record<string, Ref[]>): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "wig-bundle-steps-")));
+  stepRoots.push(root);
+  for (const [name, content] of Object.entries(chunks)) {
+    const file = join(root, ".next", name);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, content);
+  }
+  for (const [page, refs] of Object.entries(pages)) {
+    const file = join(root, page);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, pageHtml(refs));
+  }
+  return root;
+}
+
+/** Printing is half of what each step does, so the output is an assertion and
+ *  not noise. The real console comes back even when the step throws. */
+function capture<T>(run: () => T): { value: T; lines: string[] } {
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  });
+  try {
+    return { value: run(), lines };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** A measurement with no gaps in it, so each case below introduces exactly one. */
+const measurement = (over: Partial<Measurement> = {}): Measurement => ({
+  worst: { page: "index.html", bytes: 95_000 },
+  chunks: new Map([["static/chunks/framework.js", "clean"]]),
+  unresolved: [],
+  noScripts: [],
+  ...over,
+});
+
+const FRAMEWORK_CHUNK = "static/chunks/framework-0a1b2c.js";
+const PAGE_CHUNK = "static/chunks/page-4d5e6f.js";
+const gzipLen = (source: string) => gzipSync(Buffer.from(source)).length;
+
+describe("measurePages: the per-page ledger", () => {
+  const chunks: Record<string, string> = {
+    [FRAMEWORK_CHUNK]: realSource(FRAMEWORK.reactDomClient),
+    [PAGE_CHUNK]: realSource(FRAMEWORK.react),
+  };
+
+  it("sums the gzip bytes of the chunks a page names, and dedupes across pages", () => {
+    const root = buildRoot(chunks, {
+      "index.html": [
+        { chunk: FRAMEWORK_CHUNK, via: "href" },
+        { chunk: FRAMEWORK_CHUNK },
+        { chunk: PAGE_CHUNK },
+      ],
+      "trips/2026-japan.html": [{ chunk: FRAMEWORK_CHUNK }],
+    });
+
+    const { value, lines } = capture(() =>
+      step("measurePages")(["index.html", "trips/2026-japan.html"], root),
+    );
+
+    // The number it reports is the gzip sum of that page's chunks. A report
+    // that is not that is a report nobody can act on.
+    const expected = gzipLen(chunks[FRAMEWORK_CHUNK]) + gzipLen(chunks[PAGE_CHUNK]);
+    expect(expected).toBeGreaterThan(50 * 1024);
+    expect(value.worst).toEqual({ page: "index.html", bytes: expected });
+
+    // Deduped: the framework chunk is named three times across the two pages,
+    // and every chunk that was weighed is kept for the composition scan.
+    expect([...value.chunks.keys()].sort()).toEqual([FRAMEWORK_CHUNK, PAGE_CHUNK]);
+    expect(value.chunks.get(PAGE_CHUNK)).toBe(chunks[PAGE_CHUNK]);
+    expect(value.unresolved).toEqual([]);
+    expect(value.noScripts).toEqual([]);
+
+    // One ledger line per page, and the file count is the deduped ref count.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/kB gzip {2}2 files {2}index\.html$/);
+    expect(lines[1]).toMatch(/kB gzip {2}1 files {2}trips\/2026-japan\.html$/);
+  });
+
+  it("records a reference that is not on disk rather than skipping it", () => {
+    const root = buildRoot(
+      { [FRAMEWORK_CHUNK]: chunks[FRAMEWORK_CHUNK] },
+      {
+        "index.html": [{ chunk: FRAMEWORK_CHUNK }, { chunk: "static/chunks/2f8a1b0c.js" }],
+      },
+    );
+
+    const { value } = capture(() => step("measurePages")(["index.html"], root));
+
+    expect(value.unresolved).toEqual([
+      { page: "index.html", ref: "/_next/static/chunks/2f8a1b0c.js" },
+    ]);
+    // The chunk that IS there was still weighed and still scanned.
+    expect(value.worst.bytes).toBe(gzipLen(chunks[FRAMEWORK_CHUNK]));
+    expect([...value.chunks.keys()]).toEqual([FRAMEWORK_CHUNK]);
+  });
+
+  it("records a page it extracted no script reference from", () => {
+    const root = buildRoot(
+      { "static/chunks/page-esm-8b7a6d.mjs": chunks[PAGE_CHUNK] },
+      { "trips/2026-japan.html": [{ chunk: "static/chunks/page-esm-8b7a6d.mjs", via: "module" }] },
+    );
+
+    // The fixture is only this case if the extraction really does miss the
+    // reference: it requires the URL to end `.js"`, and `.mjs"` does not.
+    const html = readFileSync(join(root, "trips", "2026-japan.html"), "utf8");
+    expect(html).toContain("/_next/static/chunks/page-esm-8b7a6d.mjs");
+    expect([...html.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+\.js)"/g)]).toHaveLength(0);
+
+    const { value } = capture(() => step("measurePages")(["trips/2026-japan.html"], root));
+
+    expect(value.noScripts).toEqual(["trips/2026-japan.html"]);
+    expect(value.worst.bytes).toBe(0);
+    expect(value.chunks.size).toBe(0);
+  });
+
+  it("weighs a chunk the page only preloads with href=", () => {
+    const root = buildRoot(
+      { "static/chunks/preloaded-7c6b5a.js": chunks[PAGE_CHUNK] },
+      { "index.html": [{ chunk: "static/chunks/preloaded-7c6b5a.js", via: "href" }] },
+    );
+
+    const { value } = capture(() => step("measurePages")(["index.html"], root));
+
+    expect([...value.chunks.keys()]).toEqual(["static/chunks/preloaded-7c6b5a.js"]);
+    expect(value.worst.bytes).toBe(gzipLen(chunks[PAGE_CHUNK]));
+  });
+});
+
+describe("reportMeasurementGaps: a run that measured less than it reported", () => {
+  it("passes a measurement with no gaps in it, and prints nothing", () => {
+    const { value, lines } = capture(() => step("reportMeasurementGaps")(measurement()));
+    expect(value).toEqual({ failed: false, measuredNothing: false });
+    expect(lines).toEqual([]);
+  });
+
+  it("fails and names every reference it could not read", () => {
+    const { value, lines } = capture(() =>
+      step("reportMeasurementGaps")(
+        measurement({ unresolved: [{ page: "index.html", ref: "/_next/static/chunks/2f8a.js" }] }),
+      ),
+    );
+
+    expect(value).toEqual({ failed: true, measuredNothing: false });
+    expect(lines.join("\n")).toContain("2f8a.js");
+    expect(lines.join("\n")).toContain("index.html");
+  });
+
+  it("fails and names every page it extracted no script from", () => {
+    const { value, lines } = capture(() =>
+      step("reportMeasurementGaps")(measurement({ noScripts: ["trips/2026-japan.html"] })),
+    );
+
+    expect(value).toEqual({ failed: true, measuredNothing: false });
+    expect(lines.join("\n")).toContain("trips/2026-japan.html");
+  });
+
+  it("reports measuring nothing at all as fatal, not as one more gap", () => {
+    const { value, lines } = capture(() =>
+      step("reportMeasurementGaps")(measurement({ worst: { page: "", bytes: 0 } })),
+    );
+
+    expect(value.measuredNothing, "a budget that measures nothing must fail").toBe(true);
+    expect(lines.join("\n")).toMatch(/0 bytes/i);
+  });
+});
+
+describe("reportSize: the ceiling report", () => {
+  it("returns kB and prints the worst route beside the budget", () => {
+    // 180,531 bytes is 176.3 kB — the measured worst public route of 2026-09-03.
+    const { value, lines } = capture(() =>
+      step("reportSize")({ page: "trips/2026-japan.html", bytes: 180_531 }),
+    );
+
+    expect(value).toBeCloseTo(180_531 / 1024, 6);
+    const printed = lines.join("\n");
+    expect(printed).toContain("trips/2026-japan.html");
+    expect(printed).toMatch(/worst public route: 176\.3 kB gzip/);
+    expect(printed).toMatch(new RegExp(`budget: +${step("LIMIT_KB")} kB`));
+  });
+});
+
+describe("reportComposition: the dependency ledger", () => {
+  it("names every banned dep, and returns the finding for the one that leaked", () => {
+    const clean = realSource(FRAMEWORK.react);
+    const leak = realSource(EXIFREADER_BUILD).slice(0, 512);
+    // The control, in both directions, so the leak is what the case is about.
+    expect(clean).not.toContain("ExifReader");
+    expect(leak).toContain("ExifReader");
+
+    const { value, lines } = capture(() =>
+      step("reportComposition")(
+        new Map([
+          ["static/chunks/framework.js", clean],
+          ["static/chunks/page.js", clean + leak],
+        ]),
+        2,
+      ),
+    );
+
+    expect(
+      value.some(
+        (f) => f.chunk === "static/chunks/page.js" && matchesGroup(f.dep, ["exifreader"]),
+      ),
+      `the leak was not returned to the caller. Findings: ${JSON.stringify(value)}`,
+    ).toBe(true);
+
+    const printed = lines.join("\n");
+    expect(printed).toMatch(/scanned 2 chunks across 2 pages/);
+    expect(printed).toMatch(/FOUND in static\/chunks\/page\.js \(ExifReader\)/);
+    // Every dep is reported as looked at, not merely the one that fired.
+    for (const dep of bannedDeps()) expect(printed).toContain(dep.name);
+    expect((printed.match(/absent/g) ?? []).length).toBe(bannedDeps().length - 1);
+  });
+
+  it("refuses to answer for an empty chunk map", () => {
+    // Printing "absent" for every dep after scanning nothing is the one answer
+    // that cannot be right — the same rule findStudioDeps enforces.
+    expect(() => capture(() => step("reportComposition")(new Map(), 3))).toThrow(/chunk/i);
+  });
+});
+
+describe("reportViolations: the verdict", () => {
+  const FINDING = { dep: "maplibre-gl", chunk: "static/chunks/page-9f8e7d.js", marker: "maplibregl" };
+
+  it("passes a clean scan under the ceiling, and prints nothing", () => {
+    const { value, lines } = capture(() => step("reportViolations")([], step("LIMIT_KB") - 1));
+    expect(value).toBe(false);
+    expect(lines).toEqual([]);
+  });
+
+  it("treats a route measuring exactly the budget as within it", () => {
+    const { value } = capture(() => step("reportViolations")([], step("LIMIT_KB")));
+    expect(value, "the comparison is strictly greater-than").toBe(false);
+  });
+
+  it("fails a route over the ceiling, and calls it weight rather than a leak", () => {
+    const { value, lines } = capture(() => step("reportViolations")([], step("LIMIT_KB") + 1));
+    expect(value).toBe(true);
+    expect(lines.join("\n")).toMatch(/Over budget/);
+    expect(lines.join("\n")).not.toMatch(/studio-only dependency reached a public route/);
+  });
+
+  it("fails a finding under the ceiling, naming dep, chunk and marker", () => {
+    const { value, lines } = capture(() =>
+      step("reportViolations")([FINDING], step("LIMIT_KB") - 1),
+    );
+
+    expect(value).toBe(true);
+    const printed = lines.join("\n");
+    expect(printed).toContain("maplibre-gl");
+    expect(printed).toContain("static/chunks/page-9f8e7d.js");
+    expect(printed).toContain('"maplibregl"');
+    expect(printed, "a 2 kB leak is not a size problem").not.toMatch(/Over budget/);
+  });
+
+  it("reports both when a route is over the ceiling AND leaking", () => {
+    const { value, lines } = capture(() =>
+      step("reportViolations")([FINDING], step("LIMIT_KB") + 40),
+    );
+
+    expect(value).toBe(true);
+    expect(lines.join("\n")).toMatch(/Over budget/);
+    expect(lines.join("\n")).toContain("maplibre-gl");
   });
 });
 
