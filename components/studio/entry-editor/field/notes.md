@@ -1,9 +1,11 @@
 # field — notes
 
 Why the `<Field>` wrapper and the two class tokens sit in a folder of their own,
-and what its test is for. The reasoning that belongs at the point of danger —
-the `disabled:` variants, and what the arbitrary-value guardrail sees — stays
-inline in `field.tsx` where someone editing a class string will read it.
+and what its test is for. The two warnings that belong at the point of danger —
+what the arbitrary-value guardrail sees, and why the `disabled:` variants are
+spelled out — are still shouted inline in `field.tsx`, where someone editing a
+class string will read them; Stage C's comment sweep moved the measurements
+behind them down here, on 2026-09-09.
 
 ## Why it is its own component
 
@@ -132,3 +134,84 @@ they were found so that the extraction diff contains no rewritten prose.
    than something that arrived broken, and it is recorded here for the same
    reason: an extraction commit whose diff contains rewritten prose is one
    nobody can read as an extraction.
+
+## why the disabled variants are spelled out
+
+`CONTROL` and `BUTTON` hold tokens from `app/globals.css` and no arbitrary
+values: the fixed dark palette lives at `:root` and this screen stays plain
+until phase 7.
+
+**The arbitrary-value guardrail's reach.** `CONTROL`'s docblock said, and the
+inline warning still says, that the guardrail does not see these two constants:
+`eslint.config.mjs` banned `w-[137px]` and its kind with the selector
+`JSXAttribute[name.name='className'] Literal[value=/…-\[…\]/]`, which matches a
+string written INSIDE the attribute, and these are module consts spent as
+`className={CONTROL}` — an Identifier, not a Literal. Measured with a throwaway
+probe at the time: `disabled:bg-[#222]` in here produced zero errors and the
+same string inline produced one. **That claim has since been overtaken** — see
+[What travelled here already wrong](#what-travelled-here-already-wrong), item 1:
+the rule grew three more arms on 2026-09-05 and both spellings are now reported.
+The inline warning is kept because "keep arbitrary values out of these by hand"
+is still the right instruction; only its reason has changed.
+
+**Why `disabled:` has to be spelled out at all**, when every browser greys a
+disabled control for free. It greys it by supplying its OWN background and text
+colour, and this theme has already overridden both: `bg-surface` outranks the UA
+background, and Tailwind's preflight sets `color: inherit` on form controls, so
+the UA's disabled text colour never lands either. On a light default that would
+still leave something visibly off; on a fixed dark palette it leaves nothing.
+
+Measured in a real browser, against the local Community Solid Server, with a
+draft seeded and the banner up — `getComputedStyle` on held and free controls
+side by side:
+
+```
+headline (held)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
+save     (held)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
+restore  (free)  bg lab(6.67 -1.11 -4.74)  color lab(90.7 …)  opacity 1
+```
+
+Byte-identical. Seventeen controls that look perfectly editable while swallowing
+every keystroke — a worse failure than an ugly one, because the owner's
+conclusion is that the app is broken rather than that something is being asked
+of them. The programmatic half of the same defect is the Save button's
+`aria-describedby`, in `../entry-editor.tsx`.
+
+**One variant covers all sixteen fields because `:disabled` is inherited in fact
+if not in name**: a control inside a `<fieldset disabled>` is "actually
+disabled" per HTML, so `:disabled` matches it without the attribute being on the
+control. That is the same mechanism the hold itself relies on.
+
+**Both overrides win on specificity, not on source order**, which is worth
+knowing because source order is the thing a Tailwind upgrade may re-sort.
+Compiled with this project's own Tailwind 4.3.3 and read out of the emitted
+stylesheet:
+
+```
+.cursor-pointer                              0,1,0
+.disabled\:cursor-not-allowed:disabled       0,2,0   wins
+.hover\:bg-hairline:hover                    0,2,0
+.disabled\:hover\:bg-surface:disabled:hover  0,3,0   wins
+```
+
+The hover override earns its place: `:hover` still matches a disabled button, so
+without it the held Save button lights up under the pointer — a control that is
+faded and inert and still reacts, which reads as pressable.
+
+**None of this is tested, deliberately and on the record.** jsdom computes no
+cascade, so the only assertion available is
+`toHaveClass("disabled:opacity-60")`, which restates the string on the next line
+and would pass against a variant that resolves to nothing, a token absent from
+`@theme`, or a rule a later Tailwind outranks. The reasoning is in the 8e-bis
+docblock, which item 2 of `#what-travelled-here-already-wrong` places in
+`../entry-editor.draft-banner.test.tsx`; the pin there covers the half a
+stylesheet cannot silently remove.
+
+## why the disabled variants live on BUTTON and not on Save
+
+`BUTTON` is the same plain button for Save, Restore and Discard. Shared so the
+two draft controls cannot drift into looking like something other than the
+buttons they are — which is also why the `disabled:` variants are on the shared
+constant: Restore and Discard are never disabled, so these three utilities only
+ever fire on Save, and putting them here is what stops the next button added
+from shipping inert and looking live.

@@ -71,3 +71,57 @@ Rendered directly with props, never through the editor's harness
    two cameras both call their first photo `IMG_0001.jpg`.
 8. **No named region around the list**, from both ends: one element answers to
    "Photos", and `queryByRole("region")` is null.
+
+---
+
+# What the comment sweep moved here
+
+Stage C's Task 6. Each section is the block that stood at the point its pointer
+now names; nothing was dropped, and the compression is in the wording only.
+
+## the picker uploads as soon as something is picked
+
+The hint says so, because it is a surprise worth telling the owner about: the
+bytes are on the Pod before Save is pressed, and a photo attached to an entry
+that is then abandoned stays in `travel/media/`.
+
+`multiple`, and the pipeline serialises them one at a time — one worker, one
+photo, because three 50 MP decodes in flight is how a phone's browser tab gets
+killed in the middle of an edit.
+
+**No `aria-label` anywhere in this block**, on the input or on anything around
+it. `getByLabelText` matches `aria-label` on ANY element, and this group has
+already cost the editor's suite six tests through a wrapper that shadowed a real
+control. The `<label>` inside `Field` is the one name here.
+
+The input is cleared in the group's own `onChange`, so picking the same file
+again is another `change` rather than silence. The list is already a copy, and
+`""` is the one value a file input's value may be set to.
+
+## what each picked file is doing, announced structurally
+
+`status` for progress and for a photo that settled, `alert` for one that failed
+— the same division the save's outcome uses, and for the same reason: `alert` is
+assertive and interrupts a screen reader mid-sentence, which "your photo is
+uploading" has not earned, while a file that will never be attached is a
+decision the owner has to make.
+
+**A plain `<ul>`, with no named region around it.** A landmark would need a
+name, and every ARIA naming mechanism except `title` lands in `getByLabelText`
+next to the control above.
+
+## the thumbnail comes from the Pod, and is a plain img
+
+**From the Pod, not from `URL.createObjectURL`.** An object URL dies with the
+page, so a draft restored tomorrow would show a broken image — and it is the URL
+an implementation that saved before uploading would be tempted to write into the
+entry.
+
+**A plain `<img>`, not `next/image`**, and the `eslint-disable-next-line` beside
+it is that decision rather than a silenced warning. The host is whatever Pod the
+owner has, so `next/image` would need every one of them in
+`images.remotePatterns` — configuration this project cannot write down and
+cannot ask for, since a Pod root is an env var with a working default. It would
+also put an optimiser in front of a resource that is already a 400 px derivative
+this browser made itself, on a screen only the owner ever loads. The LCP the
+rule is about belongs to the public pages, which never render this.

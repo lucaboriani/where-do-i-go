@@ -36,10 +36,9 @@ export function applyPhotoCoordinate(
 }
 
 /**
- * §11.5, THE SAME OFFER MADE TWICE. THE WALL CLOCK GOES IN UNSHIFTED, to the
- * minute. AND A HALF MAY ONLY JOIN THE OTHER HALF IT BELONGS WITH — T4-E, on
- * the slot `key` and NEVER on the file name (F1), in BOTH branches: two photos
- * once composed Tokyo's clock with the Chathams' zone and cleared the mark.
+ * §11.5, THE SAME OFFER MADE TWICE, and the wall clock goes in UNSHIFTED. A HALF
+ * MAY ONLY JOIN THE OTHER HALF IT BELONGS WITH — T4-E, on the slot `key` and
+ * NEVER on the file name (F1), in BOTH branches.
  * ./notes.md#the-timestamp-offer-and-the-two-photos-that-composed-nowhere
  */
 export function applyPhotoTimestamp(
@@ -71,12 +70,11 @@ export function applyPhotoTimestamp(
   if (
     offset !== undefined &&
     /* THE HALF EXIF USUALLY HAS NOTHING TO SAY ABOUT (§11.5), and it goes in AS
-       READ. THESE TWO CONJUNCTS ARE F4 AND ITS CLOSING ITEM: exif.ts validates
-       the SHAPE only, so `+99:99` and `+05:61` both arrive shape-valid, both
-       fail closed at `Entry.safeParse` after Save, and both make `announce` say
-       "did not reach your Pod … try again" on every retry. `OFFSET_SHAPE` stays
-       wide on purpose — loose for what is DISPLAYED, strict for what is
-       ACCEPTED FROM A PHOTO: ./notes.md#shape-valid-is-not-in-range-twice */
+       READ. THESE TWO CONJUNCTS ARE F4 AND ITS CLOSING ITEM: exif.ts checks the
+       SHAPE only, so `+99:99` and `+05:61` both arrive shape-valid and both make
+       `announce` give advice that is false on every retry. `OFFSET_SHAPE` stays
+       wide — loose for what is DISPLAYED, strict for what is ACCEPTED FROM A
+       PHOTO: ./notes.md#shape-valid-is-not-in-range-twice */
     Math.abs(offsetMinutes(offset)) <= OFFSET_LIMIT_MINUTES &&
     Number(offset.slice(4, 6)) < 60 &&
     offsetTo.kind === "nobody" &&

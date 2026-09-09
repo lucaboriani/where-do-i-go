@@ -43,44 +43,14 @@ export interface WhereFieldsProps {
   hasStoredCoordinate: boolean;
 }
 
-/**
- * THE ONE END OF THE ASSOCIATION BETWEEN THE DEAD COORDINATE CONTROLS AND THE
- * SENTENCE SAYING WHY, for the reason `HOLD_REASON_ID` below is a constant: an
- * `aria-describedby` naming an id nothing renders computes to the empty string,
- * with no error and nothing on screen to show for it, and the control is back
- * to announcing itself as unavailable and no reason.
- *
- * It goes on each of the three controls and NOT on a fieldset around them. That
- * spelling reads better and is heard by nobody — a `<legend>` names a group and
- * nothing propagates a group's DESCRIPTION to its members. Measured for the
- * Save button's own hold, forty lines further down this file.
- */
+/** THE HOLD'S END OF THE ASSOCIATION, on EACH of the three controls and NOT on
+ *  a fieldset around them — nothing propagates a group's description to its
+ *  members: ./notes.md#the-holds-association-goes-on-each-control */
 const COORDINATE_NOTE_ID = "entry-coordinate-note";
 
-/**
- * THE PROVENANCE NOTE'S END OF THE ASSOCIATION — one element for the PAIR, not
- * one per box, and both boxes point at it.
- *
- * ONE, BECAUSE THE COORDINATE IS ONE VALUE. A latitude and a longitude are two
- * halves of one point: `coordinateAuthor` records a single author for the pair
- * (a photo can never supply half a coordinate — lib/media/exif.ts sets `gps`
- * only when both tags are present — so mixing sources is something only the
- * owner could cause, and refusing both boxes is the cure), and two sentences
- * saying the same thing beside each other is noise for anyone hearing them read
- * out one after the other.
- *
- * `aria-describedby`, THROUGH `coordinateHelp`, AND NOT AN `aria-label` ON A
- * WRAPPER. This file has the receipt for the wrapper spelling: a
- * `<section aria-label="Photos">` around the picker made six tests fail with
- * "found multiple elements", because a wrapper with a name shadows the control
- * inside it. A description adds no accessible name and cannot collide with any
- * label on the form.
- *
- * NOT RENDERED WHEN THERE IS NOTHING TO SAY, for `COORDINATE_NOTE_ID`'s reason:
- * an id naming an element that is not there computes to the empty string,
- * silently, and an attribute left on permanently announces provenance for a
- * number the owner has since typed themselves.
- */
+/** THE PROVENANCE NOTE'S END — ONE ELEMENT FOR THE PAIR, not one per box, and
+ *  NOT AN `aria-label` ON A WRAPPER, which shadows the control inside it:
+ *  ./notes.md#one-provenance-note-for-the-pair */
 const COORDINATE_SOURCE_ID = "entry-coordinate-source";
 
 /** Names the FILE, which is what the owner recognises — the photo has no other
@@ -110,24 +80,9 @@ export default function WhereFields({
   coordinateSource,
   hasStoredCoordinate,
 }: WhereFieldsProps) {
-  /**
-   * The ids one coordinate control describes itself by: its own hint, if it has
-   * one, the note above while there is one, and — for the two BOXES — the
-   * provenance note while a photo is credited with what they hold.
-   *
-   * Built rather than written out because EVERY HALF IS SILENT WHEN WRONG. An
-   * id that names nothing computes to the empty string, and an attribute left
-   * on permanently reads as correct markup while announcing a reason that has
-   * stopped being true. `undefined` rather than `""` for the same reason: no
-   * attribute at all is the honest spelling of "nothing to say".
-   *
-   * THE SOURCE NOTE IS PASSED IN RATHER THAN READ HERE, because it belongs to
-   * two of the three controls and not to the third: the precision select is
-   * about the grid a point is published in, and a photo has no opinion about
-   * that. A helper that added it unconditionally would have the select announce
-   * where a coordinate came from, which is true of neither its value nor its
-   * effect.
-   */
+  /** The ids one coordinate control describes itself by, BUILT because every
+   *  half is silent when wrong, and THE SOURCE NOTE IS PASSED IN rather than
+   *  read here: ./notes.md#every-half-of-coordinatehelp-is-silent-when-wrong */
   const coordinateHelp = (ownHintId?: string, sourceNoteId?: string): string | undefined => {
     const ids = [
       ownHintId,
@@ -137,37 +92,17 @@ export default function WhereFields({
     return ids.length === 0 ? undefined : ids.join(" ");
   };
 
-  /** The provenance note's id while there is a note, for the two boxes to name.
-   *  `undefined` is what keeps `coordinateHelp` from pointing at an element that
-   *  is not rendered — the two are decided by the same value on purpose. */
+  /** The provenance note's id while there is a note — the same value decides
+   *  whether the note renders at all, on purpose:
+   *  ./notes.md#every-half-of-coordinatehelp-is-silent-when-wrong */
   const coordinateSourceId = coordinateSource === null ? undefined : COORDINATE_SOURCE_ID;
 
   return (
     <>
-      {/*
-        WHERE THE OWNER WAS, IN WORDS — the three fields §9's mitigation
-        leans on, and the reason they sit HERE, immediately above the
-        coordinate: a place is one subject, and the entry's answer to
-        "where" is these four controls together.
-
-        THEY ARE NOT HELD BY `coordinatesLive`, and that is the point of
-        putting them beside it rather than inside it. The coordinate
-        controls go dead when the privacy settings cannot be read, because
-        there is no home region to check a point against; a place NAME needs
-        no such check — it is prose the owner chose, published exactly as
-        typed — so an editor that dimmed these three alongside the
-        coordinate would leave an owner with no settings unable to say
-        anything at all about where they were. They are inside the draft
-        fieldset with everything else, for the reason everything else is:
-        one storage slot.
-
-        NO `aria-label` ON THIS BLOCK OR ANYTHING WRAPPING IT, and no
-        `<fieldset>`/`<legend>` grouping the four. `getByLabelText` matches
-        `aria-label` on ANY element; this file has already lost six tests to
-        a wrapper that shadowed a real control, and a legend reading
-        "Place" would be a fifth thing for the form's own queries to find.
-        The `<label>` inside each `Field` is the only name here.
-      */}
+      {/* WHERE THE OWNER WAS, IN WORDS, immediately above the coordinate and NOT
+          HELD BY `coordinatesLive` — a name needs no home region. NO
+          `aria-label` ON THIS BLOCK OR ANYTHING WRAPPING IT:
+          ./notes.md#the-place-text-sits-above-the-coordinate-and-is-not-held-with-it */}
       <Field
         id="entry-place-name"
         label="Place name"
@@ -195,11 +130,9 @@ export default function WhereFields({
         />
       </Field>
 
-      {/* A CODE, NOT A NAME (§7.3): `schema:addressCountry "JP"`, written
-          untagged, because `"JP"@en` is a different RDF term from `"JP"`
-          and every consumer filtering on the plain literal would stop
-          matching. The hint is what stops the owner typing "Japan" here —
-          nothing downstream can tell the two apart. */}
+      {/* A CODE, NOT A NAME (§7.3): `"JP"@en` is a different RDF term from `"JP"`
+          and nothing downstream can tell them apart:
+          ./notes.md#the-place-text-sits-above-the-coordinate-and-is-not-held-with-it */}
       <Field
         id="entry-country"
         label="Country"
@@ -216,29 +149,10 @@ export default function WhereFields({
         />
       </Field>
 
-      {/*
-        THE THREE COORDINATE CONTROLS, INSIDE THE HELD FIELDSET WITH THE
-        OTHERS. Nothing about them is special enough to stand outside it:
-        one storage slot, so an unanswered banner must not be typed past
-        here either, and a latitude typed behind the banner is a latitude
-        the local copy is not keeping.
-
-        THEY CARRY A SECOND, INDEPENDENT HOLD — `disabled={!coordinatesLive}`
-        — and the two COMPOSE rather than replace one another, exactly as
-        `saving` and the fieldset do on the Save button. The fieldset says
-        "answer the banner first"; this says "there are no settings to
-        publish a coordinate against". Respelling either as the other passes
-        every attribute assertion and reopens the case it was not spelled
-        for.
-
-        NO NESTED `<fieldset disabled>` AROUND THE THREE, tempting as it is:
-        it would carry the `disabled` once, and it would carry the REASON
-        nowhere. Nothing propagates a group's description to its members —
-        measured for the Save button's hold, and the same measurement
-        applies here — so the association has to be on each control
-        regardless, and a `<legend>` would add a fourth thing named
-        "coordinates" for the form's own queries to trip over.
-      */}
+      {/* THE THREE COORDINATE CONTROLS, INSIDE THE HELD FIELDSET WITH THE OTHERS.
+          THEY CARRY A SECOND, INDEPENDENT HOLD AND THE TWO COMPOSE. NO NESTED
+          `<fieldset disabled>`: it carries the `disabled` once and the REASON
+          nowhere. ./notes.md#two-independent-holds-that-compose */}
       <Field
         id="entry-latitude"
         label="Latitude"
@@ -277,31 +191,18 @@ export default function WhereFields({
         />
       </Field>
 
-      {/*
-        WHERE THE PAIR ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER.
-
-        UNDER THE TWO BOXES AND ABOVE THE PRECISION SELECT, because that is
-        what it is about — one sentence for the pair, named by both boxes'
-        `aria-describedby` (see `COORDINATE_SOURCE_ID` for why one and not
-        two, and why not an `aria-label` on a wrapper).
-
-        RENDERED EXACTLY WHEN SOMETHING POINTS AT IT, which is
-        `coordinateSourceId`'s only other use: a live `aria-describedby`
-        naming an element that is not there computes to the empty string,
-        silently, and the owner is back to a number that appeared from
-        nowhere.
-      */}
+      {/* WHERE THE PAIR ABOVE CAME FROM, WHILE A PHOTO IS THE ANSWER — one
+          sentence for the pair, RENDERED EXACTLY WHEN SOMETHING POINTS AT IT:
+          ./notes.md#where-the-pair-came-from-while-a-photo-is-the-answer */}
       {coordinateSource !== null && (
         <p id={COORDINATE_SOURCE_ID} className="text-sm text-muted-foreground">
           {coordinateSourceNote(coordinateSource)}
         </p>
       )}
 
-      {/* §9 step 3: whatever this says, `dy:precisionMeters` says the same
-          and the pair beside it is that grid's. The owner's own
-          `dy:defaultPrecisionMeters` is preselected and is in the list
-          VERBATIM — see `precisionOptions` for why it is not rounded onto
-          the fixed grids in either direction. */}
+      {/* §9 step 3: whatever this says, `dy:precisionMeters` says the same. The
+          owner's own default is in the list VERBATIM:
+          ./notes.md#where-the-pair-came-from-while-a-photo-is-the-answer */}
       <Field
         id="entry-precision"
         label="Precision"
@@ -316,11 +217,9 @@ export default function WhereFields({
           aria-describedby={coordinateHelp("entry-precision-hint")}
           onChange={(event) => onPrecisionChange(event.target.value)}
         >
-          {/* Only ever reachable with the control dead: §7.6 has no default
-              and this app supplies none, so an empty value means the
-              settings have not answered or could not be read. A controlled
-              <select> whose value matches no option renders blank, which
-              reads as a list someone forgot to fill in. */}
+          {/* Only ever reachable with the control dead — §7.6 has no default and
+              this app supplies none:
+              ./notes.md#where-the-pair-came-from-while-a-photo-is-the-answer */}
           {precision === "" && <option value="">{"Unavailable"}</option>}
           {precisionOptions.map((metres) => (
             <option key={metres} value={String(metres)}>
@@ -330,27 +229,16 @@ export default function WhereFields({
         </select>
       </Field>
 
-      {/*
-        WHY THE THREE ABOVE ARE DEAD, ON SCREEN AND ASSOCIATED WITH THEM.
-        §9: "an entry silently losing its map pin becomes a bug report,
-        whereas 'you have not set a home region yet' is a one-time setup
-        step with an obvious fix."
-
-        Rendered exactly when something points at it — a live
-        `aria-describedby` naming an element that is not there computes to
-        the empty string, silently, and the control is back to announcing
-        itself as unavailable with no reason given.
-      */}
+      {/* WHY THE THREE ABOVE ARE DEAD, ON SCREEN AND ASSOCIATED WITH THEM (§9),
+          rendered exactly when something points at it:
+          ./notes.md#why-the-three-above-are-dead-on-screen-and-associated */}
       {coordinateNote !== null && (
         <p id={COORDINATE_NOTE_ID} className="text-sm text-muted-foreground">
           {coordinateNote}
         </p>
       )}
-      {/* The failure as `describe()` renders it — a URL and a status code.
-          Outside the association for the same reason the save's detail is
-          outside the announced region: the sentence above is what a person
-          can act on, and a screen reader should not read a Pod URL out
-          character by character to deliver it. */}
+      {/* The failure as `describe()` renders it, OUTSIDE the association:
+          ./notes.md#why-the-three-above-are-dead-on-screen-and-associated */}
       {settingsDetail !== null && (
         <p className="text-sm text-muted-foreground">{settingsDetail}</p>
       )}
