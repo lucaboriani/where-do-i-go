@@ -1,11 +1,8 @@
 /**
- * Structured results for every Pod read.
- *
- * docs/data-model.md §11: "Every read goes through a parser returning a typed
- * object or a structured error. Never index into raw triples inside a
- * component." A thrown exception is not a structured error — the public site
- * has to render *something* when one trip in an index is malformed, so failures
- * are values, not control flow.
+ * Structured results for every Pod read. §11: a read returns a typed object or
+ * a structured error, and a component never indexes into raw triples. A thrown
+ * exception is not a structured error — the public site has to render something
+ * when one trip in an index is malformed, so failures are values.
  */
 
 export type PodError =
@@ -18,16 +15,8 @@ export type PodError =
   | { kind: "slugMismatch"; url: string; slug: string; segment: string }
   /**
    * Access control was written, or read, and the result could not be confirmed.
-   *
-   * Distinct from `http` on purpose: the request may well have returned 2xx.
-   * "A 200 write response proves nothing — the only evidence that counts is the
-   * failed read" (docs/phase-0-spike.md, question 3), so lib/pod/access.ts
-   * reads the resulting access back and reports this when what came back is not
-   * what it asked for, or when the server says nothing it can act on.
-   *
-   * It is also the honest answer to "is this public?" when access could not be
-   * determined. Collapsing that into `read: false` tells the owner their entry
-   * is private on no evidence at all, and the owner acts on what is shown.
+   * Distinct from `http` on purpose: A 2XX PROVES THE WRITE, NOT THE RULE.
+   * ./notes.md#a-2xx-write-proves-the-write-not-the-access-rule
    */
   | { kind: "accessUnverified"; url: string; expected: string; found: string };
 

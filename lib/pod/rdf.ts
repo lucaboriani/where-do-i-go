@@ -1,10 +1,8 @@
 /**
  * Turtle fetching and quad access. Unauthenticated: plain `fetch`, no Solid
- * library, no credentials — phase 0 verified this works for public resources on
- * both Community Solid Server (WAC) and Inrupt ESS (ACP), even though ESS
- * answers *protected* resources with a UMA challenge.
- *
- * Nothing above this layer touches quads directly.
+ * library, no credentials — phase 0 verified this on both Community Solid
+ * Server (WAC) and Inrupt ESS (ACP), even though ESS answers *protected*
+ * resources with a UMA challenge. Nothing above this layer touches quads.
  */
 import { Parser, type Quad } from "n3";
 import { RDF, XSD } from "@/lib/vocab";

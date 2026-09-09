@@ -1,18 +1,8 @@
 /**
- * The cache tags the public read layer stamps and the studio invalidates.
- *
- * WHY THIS IS NOT IN lib/pod/cached.ts, WHERE IT USED TO LIVE. `cached.ts`
- * imports `next/cache` and carries `"use cache"` functions, both of which are
- * server-only. `saveEntry` runs in the BROWSER — writes go browser → Pod
- * directly (invariant 4) — and step 4 of §10 hands these tags to a revalidation
- * hook that posts them to a route handler. Importing `cached.ts` to reach the
- * tag strings would drag `next/cache` into the studio bundle; hardcoding
- * `trip:${slug}` in the writer instead would let the two spellings drift, and a
- * revalidation tag that does not match the tag the read was stamped with fails
- * silently — the public site simply keeps serving the old page.
- *
- * `cached.ts` re-exports this, so `import { TAGS } from "@/lib/pod/cached"`
- * keeps working and there is still one definition.
+ * The cache tags the public read layer stamps and the studio invalidates. NOT
+ * in cached.ts, where they used to live: that file imports `next/cache`, and
+ * `saveEntry` runs in the browser. cached.ts re-exports these.
+ * ./notes.md#why-the-cache-tags-are-not-in-cachedts-where-they-used-to-live
  */
 
 /** Tags the studio revalidates. Keep them coarse: the Pod cannot tell us what

@@ -1,10 +1,8 @@
 /**
  * Authenticated Pod writes. STUDIO ONLY — never imported by app/(public);
- * enforced by no-restricted-imports.
- *
- * Writes go browser → Pod directly. No server-side session, no service account,
- * no route handler proxying a write: a full compromise of the hosting still
- * cannot write a single entry.
+ * enforced by no-restricted-imports. Writes go browser → Pod directly: no
+ * server-side session, no service account, no route handler proxying a write,
+ * so a full compromise of the hosting still cannot write a single entry.
  */
 import { Parser } from "n3";
 import { LDP } from "@/lib/vocab";
@@ -16,10 +14,9 @@ import type { Entry } from "./schema";
 
 /**
  * Every write carries a precondition: `If-None-Match: *` to create, `If-Match:
- * <etag>` to update. A blind PUT is how a phone tab left open for two days
+ * <etag>` to update. A BLIND PUT is how a phone tab left open for two days
  * silently reverts a week of edits (§10). Phase 0 confirmed both Community
- * Solid Server and Inrupt ESS honour these, including rejecting a stale ETag
- * with 412 — so there is no server for which this is merely advisory.
+ * Solid Server and Inrupt ESS honour these, rejecting a stale ETag with 412.
  */
 export type Precondition = { create: true } | { etag: string };
 
@@ -84,15 +81,10 @@ export type RebuildReport = {
 };
 
 /**
- * Regenerate a trip's index from the entries themselves.
- *
- * Built in phase 1 rather than when first needed, because it is the recovery
- * path for every partial-write failure in §10 — an entry that exists but is
- * unlisted is invisible, not corrupt, and this is what makes it visible again.
- * It is also the migration tool when dy:schemaVersion increments.
- *
- * Deliberately tolerant: one malformed entry is skipped and reported, never
- * fatal. A single bad resource must not make the whole trip unrecoverable.
+ * Regenerate a trip's index from the entries themselves: the recovery path for
+ * every partial-write failure in §10, and the migration tool when
+ * `dy:schemaVersion` increments. Deliberately tolerant.
+ * ./notes.md#rebuildindex-is-the-recovery-path-and-it-is-deliberately-tolerant
  */
 export async function rebuildIndex(opts: {
   fetch: PodFetch;

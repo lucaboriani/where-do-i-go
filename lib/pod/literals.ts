@@ -1,13 +1,8 @@
 /**
- * RDF literal formatting, shared by every serialiser in this project.
- *
- * ONE implementation on purpose. §6 fixes the datatypes — `xsd:date`,
- * `xsd:dateTime` with a UTC offset, `xsd:decimal` for coordinates (never
- * float), `xsd:integer` for counts and distances, a language tag on every
- * human-readable literal — and a second copy of these four lines in a second
- * serialiser is how one of them ends up writing `1e-7` while the other does
- * not. `lib/pod/index-model.ts` and `lib/pod/entry-model.ts` both write
- * coordinates; they must write them identically.
+ * RDF literal formatting, shared by every serialiser in this project. ONE
+ * implementation on purpose: §6 fixes the datatypes, and a second copy of these
+ * four lines is how one serialiser writes `1e-7` and the other does not.
+ * ./notes.md#one-set-of-literal-formatters
  */
 import { DataFactory } from "n3";
 import { XSD } from "@/lib/vocab";
