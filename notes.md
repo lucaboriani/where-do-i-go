@@ -366,3 +366,19 @@ Named paths rather than a glob over `lib/**`, deliberately — enumerated so `li
 `lib/pod/write.ts`, `lib/pod/access.ts` and `lib/pod/save-entry.ts` stay off the list. Those four
 are studio-only and *must* import Inrupt packages; a blanket rule would fence the modules whose
 job it is.
+
+**This fence, and every other one written with `no-restricted-imports`, sees only STATIC
+imports.** Measured 2026-09-09: a dynamic `import("@/lib/studio/session")` produces zero messages
+at a belted module — and zero written directly in `app/(public)/page.tsx`. The rule reaches an
+`ImportDeclaration` and an `export … from`, never an `ImportExpression` or a `TSImportType`.
+
+That is not a hole to close, it is the property the map depends on. `CLAUDE.md` requires MapLibre
+to be lazy-mounted, and stage 0's own `maplibre-gl` fence is built on exactly this asymmetry:
+`import maplibregl from "maplibre-gl"` is refused, `await import("maplibre-gl")` is allowed,
+because the second produces a chunk no prerendered page references. A rule that caught both would
+ban the map outright.
+
+So the honest statement of what these fences are: **a static-import guard, backstopped by
+`size:public`'s marker scan for anything that actually ships.** A dynamic import of studio code
+from a public route lints clean and is caught only at build time, by name, in
+`scripts/check-public-bundle.ts`'s `BANNED_DEPS`.
