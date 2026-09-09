@@ -277,6 +277,7 @@ const eslintConfig = defineConfig([
       "lib/pod/result.ts",
       "lib/pod/tags.ts",
       "lib/pod/schema.ts",
+      "lib/pod/rdf.ts",
     ],
     rules: {
       "no-restricted-imports": [

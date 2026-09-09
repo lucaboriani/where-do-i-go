@@ -429,7 +429,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **And the moves in Tasks 1 and 2 open a gap.** `lib/time/**` and `lib/place/**` are now publicly reachable and fenced by nothing, so a later edit importing `@/lib/studio/session` there would drag the auth library into a public route indirectly — the shape the `lib/studio` fence exists to stop, one level down. `lib/pod/read.ts` has had this property all along and `size:public`'s marker scan is the backstop. The belt is cheap and goes in now, while the reason is fresh.
 
 **Files:**
-- Modify: `test/guardrails.test.ts` — four new cases
+- Modify: `test/guardrails.test.ts` — far more than the four cases below; three review rounds
+  added a `BELTED_MODULES` sweep and a closure test that walks real entry points, so read the
+  file directly for the current count rather than trusting this line.
 - Modify: `eslint.config.mjs` — the public block's `paths` and `patterns`, plus one new block
 
 **Interfaces:**
@@ -883,7 +885,10 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - `test/guardrails.test.ts` carries six new cases, and the two `maplibre-gl` reject-cases were watched failing before the rule existed. The four allow-cases each assert `fatals(msgs)` is empty, so none of them can pass on a snippet that was never linted.
 - The fence's eight measured shapes hold, on real files as well as virtual paths: the bare and deep JS imports refused, the `.css` subpath and both dynamic forms allowed.
-- `lib/time/**`, `lib/place/**` and `lib/pod/read.ts` are fenced from `@inrupt/*` and `lib/studio`, and `npx eslint lib/time lib/place lib/pod/read.ts` is clean.
+- Every module named in `eslint.config.mjs`'s belt block's `files` array is fenced from
+  `@inrupt/*` and `lib/studio` — a closure test walks the real import graph from every public
+  entry point to prove the array is not missing one, the way it once missed `lib/pod/rdf.ts` —
+  and `npx eslint` against that same file list is clean.
 - `react-map-gl` is gone from `package.json` and the lockfile, and from `docs/versions.md` and `.claude/agents/nextjs-specialist.md`; `docs/decisions.md` §25 records why and reserves §26.
-- All nine definition-of-done commands pass, plus `test:e2e`, each run separately and each log read — and the integration suites were proven to have run by the dead-port control: 1420 passed with the Pod up, 1384 passed / 36 skipped with it down.
+- All nine definition-of-done commands pass, plus `test:e2e`, each run separately and each log read — and the integration suites were proven to have run by the dead-port control: 63 files, 1453 passed | 2 todo with the Pod up; 63 files, 1417 passed | 36 skipped | 2 todo with it down (measured 2026-09-09, at the end of the final review wave — re-run rather than trust these, the suite has grown within this stage before).
 - No test file was edited for content. `git diff main -- '**/*.test.ts' '**/*.test.tsx'` shows only import specifiers, one relocated describe block, and the six added guardrail cases.

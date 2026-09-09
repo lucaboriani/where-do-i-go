@@ -358,7 +358,11 @@ sentence this note lacked the first time, and the gap a review found by grepping
 `app/(public)/page.tsx`, `sitemap.ts`, `rss.xml/route.ts` and both `trips/[slug]` pages actually
 import: `lib/config.ts`, `lib/vocab.ts`, and `lib/pod/cached.ts` (which wraps `read.ts` and is
 what every one of those entry points actually calls), plus `result.ts`, `tags.ts` and `schema.ts`
-underneath it. Nine paths rather than a glob over `lib/**`, deliberately — enumerated so
-`lib/media`, `lib/pod/write.ts`, `lib/pod/access.ts` and `lib/pod/save-entry.ts` stay off the
-list. Those four are studio-only and *must* import Inrupt packages; a blanket rule would fence
-the modules whose job it is.
+underneath it. A grep still missed `lib/pod/rdf.ts`, one level deeper again — `read.ts` imports
+values from it — which is why `test/guardrails.test.ts` now walks the real import graph from the
+public entry points instead of trusting a list assembled by reading imports by eye.
+
+Named paths rather than a glob over `lib/**`, deliberately — enumerated so `lib/media`,
+`lib/pod/write.ts`, `lib/pod/access.ts` and `lib/pod/save-entry.ts` stay off the list. Those four
+are studio-only and *must* import Inrupt packages; a blanket rule would fence the modules whose
+job it is.

@@ -483,10 +483,10 @@ route to the same map is how a one-instance rule rots. There is one way to touch
 
 **Consequences.** Roughly seventy lines of marker DOM reconciliation are written by hand rather
 than by `<Marker>`. That cost is real and is accepted: clustering needs `querySourceFeatures` on
-`render` regardless, so the imperative loop exists either way and the wrapper would have sat
-beside it rather than replaced it. Everything worth testing is pure and lives in `lib/map/` — the
-style, the GeoJSON builders, the leg derivation, the dash expression, the cluster threshold — and
-needs no browser and no library to test.
+`moveend` and `sourcedata` regardless, so the imperative loop exists either way and the wrapper
+would have sat beside it rather than replaced it. Everything worth testing is pure and lives in
+`lib/map/` — the style, the GeoJSON builders, the leg derivation, the dash expression, the cluster
+threshold — and needs no browser and no library to test.
 
 **Rejected:** keeping the dependency installed but unused. A pinned library nothing imports reads
 to the next agent as sanctioned — which is why this landed alongside edits to `docs/versions.md`

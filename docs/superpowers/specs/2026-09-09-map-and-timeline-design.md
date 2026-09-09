@@ -103,8 +103,11 @@ a spelling that can simply be avoided would put two rules on the same job.
 publicly reachable and fenced by nothing, so a future edit importing `@/lib/studio/session` there
 would drag the auth library into a public route indirectly — the shape the `lib/studio` fence
 exists to stop, one level down. `lib/pod/read.ts` has had this property all along and
-`size:public`'s marker scan is the backstop. Stage 0 adds the cheap belt: a block over
-`lib/time/**`, `lib/place/**` and `lib/pod/read.ts` restricting `@inrupt/*` and `**/lib/studio/**`.
+`size:public`'s marker scan is the backstop. Stage 0 adds the cheap belt: a block restricting
+`@inrupt/*` and `**/lib/studio/**` over every `lib/` module a public page can reach, named
+explicitly in `eslint.config.mjs` rather than matched by a glob over `lib/**` — see the block's
+own `files` array for the current list, which review rounds widened past the two modules that
+prompted it.
 
 **`size:public` goes quiet on the map, and that is the half-check this repository keeps hitting.**
 With the library lazy, the check passes identically whether the map is correct or entirely absent —
@@ -133,7 +136,7 @@ how the ACL primitive list nearly failed.
 
 - **`lib/studio/time/` → `lib/time/`, wholesale.** All of it is pure arithmetic over strings. Its
   `notes.md` and `offsets.test.ts` move with it. `nowWithOffset` and `wallClockNow` are write-side
-  only and move anyway: splitting a nine-function arithmetic module to keep two functions on the
+  only and move anyway: splitting a pure arithmetic module to keep two functions on the
   other side of a fence costs more than it protects.
 - **`lib/studio/place/place.ts` splits.** `precisionLabel` moves to a new `lib/place/precision.ts`.
   Only that one function: the coordinate-decimal count §6 needs lands in the same module in stage
