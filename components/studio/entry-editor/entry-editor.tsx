@@ -9,6 +9,7 @@
 
 import { useMemo } from "react";
 import { BUTTON } from "./field";
+import DraftBanner, { HOLD_REASON_ID } from "./draft-banner";
 import { draftTextOf, useEntryDraft } from "./hooks/use-entry-draft";
 import { useEntryForm } from "./hooks/use-entry-form";
 import { useEntrySave } from "./hooks/use-entry-save";
@@ -76,22 +77,13 @@ export interface EntryEditorProps {
   storage?: StorageLike;
 }
 
-/** `2026-04-02T19:00:00+09:00` → `2026-04-02 at 19:00`, the wall clock AS IT WAS
- *  STAMPED and never shifted. Takes a `string` and stays that way (ruling
- *  2.5-A): ./notes.md#savedattext-shows-the-wall-clock-as-it-was-stamped */
-const savedAtText = (savedAt: string) => `${savedAt.slice(0, 10)} at ${savedAt.slice(11, 16)}`;
-
-/** ONE END OF THE ASSOCIATION BETWEEN THE HELD SAVE BUTTON AND THE SENTENCE
- *  THAT EXPLAINS THE HOLD, spelled once because a dangling IDREF computes to
- *  the empty string, silently: ./notes.md#the-hold-reason-id-is-spelled-once */
-const HOLD_REASON_ID = "entry-draft-hold";
-
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-/** Composition, and the page's own frame. 195 code lines against the 200 bound,
+/** Composition, and the page's own frame. 164 code lines against the 200 bound,
  *  which is why the `max-lines-per-function` exemption is gone:
  *  ./notes.md#the-exemption-went-because-the-directive-became-unused
- *  What the 195 are: ./hooks/notes.md#what-the-195-are-and-what-they-are-not */
+ *  What the 164 are, and why they stay over the 130 tendency rather than being
+ *  forced under it: ./notes.md#what-the-164-are-and-why-they-stay */
 export default function EntryEditor({
   session,
   trips,
@@ -191,45 +183,12 @@ export default function EntryEditor({
     <section className="mt-8 border-t border-hairline pt-6">
       <h2 className="text-xl">{initial === undefined ? "New entry" : "Edit entry"}</h2>
 
-      {/* NAMED BY `title`, NOT BY `aria-label`, AND THAT IS LOAD-BEARING: every
-          ARIA naming mechanism lands in `getByLabelText` on ANY element, and the
-          Status select already answers to these words — two matches against one,
-          measured. ./notes.md#named-by-title-not-by-aria-label */}
+      {/* WHETHER THERE IS AN OFFER AT ALL IS ASKED HERE, once: the same answer
+          holds the fieldset below and describes the Save button, which is why
+          the banner takes a non-null `Draft`.
+          ./draft-banner/notes.md#what-travelled-and-what-did-not */}
       {offered !== null && (
-        <section
-          role="region"
-          title="Unsaved draft"
-          className="mt-4 border border-hairline bg-surface p-4"
-        >
-          {/* RULING 2.5-A: the banner still appears when `savedAt` is absent, and
-              the WHOLE clause is conditional rather than just the `<time>`:
-              ./notes.md#ruling-25-a-the-banner-survives-an-absent-savedat */}
-          <p>
-            {"This browser kept what you were writing here"}
-            {offered.savedAt !== undefined && (
-              <>
-                {", from "}
-                <time dateTime={offered.savedAt}>{savedAtText(offered.savedAt)}</time>
-              </>
-            )}
-            {". Nothing on this form has been changed."}
-          </p>
-          {/* THE HOLD, SAID OUT LOUD AND SAID HERE — the Save button NAMES this
-              element, so a second copy beside the button is a text that drifts:
-              ./notes.md#the-hold-is-said-in-the-banner-not-beside-the-button */}
-          <p id={HOLD_REASON_ID} className="mt-2">
-            {"Restore it or discard it to carry on: while it is waiting, the form below is " +
-              "held and cannot be saved, so that one storage slot is not written by two hands."}
-          </p>
-          <div className="mt-3 flex gap-2">
-            <button type="button" className={BUTTON} onClick={() => restore(offered)}>
-              {"Restore"}
-            </button>
-            <button type="button" className={BUTTON} onClick={discard}>
-              {"Discard"}
-            </button>
-          </div>
-        </section>
+        <DraftBanner offered={offered} onRestore={() => restore(offered)} onDiscard={discard} />
       )}
 
       <form

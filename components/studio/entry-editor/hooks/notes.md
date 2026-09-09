@@ -1327,6 +1327,13 @@ the Save button exactly as `OCCURRED_SOURCE_ID` is shared in
 bound is met without it, and an extraction nobody asked for inside the commit
 that removes the exemption is how a reviewable diff stops being reviewable.
 
+**It left on 2026-09-09**, in Stage C's Task 7, in a commit whose only subject it
+was: `draft-banner/`, 31 of the 195 code lines, and `EntryEditor` measured at 164
+afterwards. The estimate above was one line out. The current number and what it
+is made of live in `../notes.md#what-the-164-are-and-why-they-stay`; everything
+above this paragraph is the measurement as it stood after the four hooks, which
+is what it is here to record.
+
 ## the file header's bearings, after four hooks
 
 `entry-editor.tsx`'s own header docblock is 136 lines and still names, as

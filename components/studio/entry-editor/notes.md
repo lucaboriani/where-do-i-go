@@ -238,89 +238,54 @@ Injected rather than reached for so that the failure that matters can be
 scripted: Safari in private mode reports a zero quota and throws on the first
 `setItem`, and no browser global can be made to do that on demand.
 
-## savedAtText shows the wall clock as it was stamped
-
-`2026-04-02T19:00:00+09:00` → `2026-04-02 at 19:00`. Never shifted into whatever
-zone the browser is in now — the same rule `wallClockOf` follows and for the same
-reason. The machine-readable instant is on the `<time dateTime>` beside it,
-offset and all, which is what the offset requirement on `savedAt` exists for.
-
-**It takes a `string`, not `string | undefined`, and stays that way** (task
-2.5): `lib/studio/drafts.ts`'s `Draft.savedAt` became `.optional()`, but its one
-caller only reaches it inside an `offered.savedAt !== undefined` check (ruling
-2.5-A), so the absent case never arrives here at all rather than arriving and
-being handled.
-
-## the hold reason id is spelled once
-
-`HOLD_REASON_ID` is one end of the association between the held Save button and
-the sentence that explains the hold, spelled once because both ends have to
-agree and neither of them says so when they stop agreeing.
-
-An `aria-describedby` naming an id nothing renders computes to the empty string —
-no error, no warning, nothing on screen different, and a screen reader back to
-announcing "Save entry, button, unavailable" and no reason. That is the silent
-way this breaks, so the id is a constant rather than two string literals thirty
-lines apart.
-
 ## the exemption went because the directive became unused
 
-`EntryEditor` is 195 code lines against the 200 bound, which is why the
-`eslint-disable max-lines-per-function` that stood on it until 2026-09-08 is
-gone: at 195 it is an UNUSED directive and `--max-warnings 0` refuses the build
-for that. Its own removal condition — "Remove this line with the last field
-group" — was wrong, and Task 5 proved it: after all five groups this function
-was still 633 lines. What the 195 are is
-`hooks/notes.md#what-the-195-are-and-what-they-are-not`.
+`EntryEditor` is 164 code lines against the 200 bound — 195 when the directive
+went — which is why the `eslint-disable max-lines-per-function` that stood on it
+until 2026-09-08 is gone: at 195 it was already an UNUSED directive and
+`--max-warnings 0` refuses the build for that. Its own removal condition —
+"Remove this line with the last field group" — was wrong, and Task 5 proved it:
+after all five groups this function was still 633 lines.
 
-## named by title, not by aria-label
+## what the 164 are, and why they stay
 
-The banner's name has to say "draft" — that is what tells the owner what this is
-— and every ARIA naming mechanism puts the named element into
-`@testing-library`'s `getByLabelText` results: it matches `aria-label` and
-`aria-labelledby` on **any** element, not only on form controls. This screen
-already has a control whose label matches the same words, the Status select, so
-an `aria-label` here makes `getByLabelText(/status|draft/)` ambiguous and every
-test that fills the form while the banner is up fails on "found multiple
-elements" rather than on anything real. Measured with a throwaway probe:
-`aria-label` yields two matches, `title` one.
+Stage C's Task 7, 2026-09-09. **The banner was extracted and the rest stays**,
+with the number measured after the extraction rather than predicted before it:
+`check:structure` reports 164, over the 130 tendency and 36 under the 200 bound.
 
-`role="region"` is explicit for the same probe's other half — a bare `<section>`
-named only by `title` is not given the region role, so it would be unfindable as
-the landmark it is. The name still resolves from `title` in the accessible-name
-computation, which is where a tooltip belongs in that algorithm.
+**What left.** `draft-banner/` — the unsaved-draft banner, `HOLD_REASON_ID` and
+`savedAtText`, 31 code lines of the 195. It was the one block in here that
+qualified as a sixth presentational group by Stage B's own Task 5 argument, and
+Stage B left it out for timing rather than merit
+(`hooks/notes.md#what-the-195-are-and-what-they-are-not`). The reason it was left
+had expired; the merit had not.
 
-## ruling 25-a the banner survives an absent savedAt
+**What the 164 are.** Roughly 55 lines of composition — the props, the reducer,
+five hook calls, `attached`, `text`, `restore` — and roughly 110 of JSX in one
+`return`. The composition is this component's whole job and cannot be moved
+without moving the thing being composed. The JSX is the page's frame: an
+`<h2>`, the banner's one condition, the `<form>` with its two handlers, the held
+`<fieldset>` and the five groups inside it, the Save button, the storage note
+and the outcome region.
 
-Task 2.5: the banner still appears when `savedAt` is absent; only the `<time>`
-goes away. `lib/studio/drafts.ts` made the field `.optional()` for a payload
-written by another build or hand-edited in devtools — never one this editor
-wrote, since `nowWithOffset()` stamps every write site here — and such a payload
-must not crash the mount effect that offers it back.
+**What was considered next, and declined.** Three candidates remain, and each
+would move lines without moving responsibility:
 
-**The spelling chosen**: the whole ", from `<time>`…`</time>`" clause is
-conditional on `offered.savedAt !== undefined`, not just the `<time>` tag, so
-the sentence reads as a complete claim either way — "kept what you were writing
-here" rather than a comma trailing into nothing. An empty `<time>` was rejected:
-a `<time>` with no `dateTime` to point at is markup with nothing to say. An
-invented timestamp was rejected too: it would tell the owner a moment that never
-happened, which is worse than omitting the nicety this field is.
+1. **The outcome region** (~15 lines) reads `outcome.tone`, `outcome.text` and
+   `outcome.detail`, which is the whole of `useEntrySave`'s answer. Extracting it
+   buys 15 lines for a component whose only argument is one object, and the
+   `role="status"` / `role="alert"` / detail-outside-the-region decision is the
+   thing a reader most needs to find where the save's result is rendered.
+2. **The `<form>` and its `<fieldset>`** cannot leave without the five groups and
+   the Save button going with them, which is `EntryEditor` under another name and
+   one more layer of prop forwarding — 40 props through a component that decides
+   nothing.
+3. **The storage note** (~7 lines) is one `<p>` behind one boolean. A folder,
+   a barrel, a notes file and a test for that is bookkeeping, not structure.
 
-## the hold is said in the banner, not beside the button
-
-The sentence above it explains the DRAFT and stops there — it kept your text,
-the form is untouched — which accounts for the banner but not for the seventeen
-controls underneath it going dead. Someone who reads only that sentence has been
-told what happened and not what is now being withheld, and the fieldset does not
-announce itself.
-
-**It lives in the banner rather than next to the button, and the difference is
-not layout.** The Save button names this element, so what a screen reader reads
-out as the reason is this text and not a paraphrase of it: a second copy parked
-beside the button is a text that drifts from the one it duplicates, and the copy
-nobody edits is the copy the owner hears. Keeping it inside also makes the hold
-explanation structural — it cannot outlive the offer, because it is rendered by
-the same condition.
+The tendency is a tendency. 164 lines that each say something, in the one file
+that composes this feature, reads better than 130 plus three components that
+exist to be under 130.
 
 ## one place marks the form as touched
 
