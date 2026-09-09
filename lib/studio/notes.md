@@ -569,3 +569,192 @@ rather than declining storage outright, so the failure arrives at write time and
 not at feature-detection time. The editor turns that into one quiet line saying
 it is not keeping a local copy, which is something the owner can act on; an
 exception out of a debounced timer is not.
+
+## trips.ts
+
+### Why the studio enumerates instead of reading the diary
+
+§4, "The index is the publication boundary", gives each side exactly one source
+of truth:
+
+> The **public site** reads `entries.ttl` and can therefore never leak a draft
+> title […] The **studio** is authenticated and enumerates `entries/` directly
+> via `ldp:contains`, so it sees drafts and published entries alike.
+
+This module is the same split one level up. `travel/diary.ttl` is the public
+trip list, so a studio built on it would list *published* trips only, and the
+owner could never add an entry to a draft trip — which is most of what a draft
+trip is for. So this path never fetches the diary at all, and
+`lib/studio/trips.test.ts` asserts the *absence* of that request rather than
+merely the presence of the draft. That test also pins that this module is inside
+the `lib/studio` fence rather than beside it.
+
+It composes rather than reimplements:
+
+- `listContainer` does the enumeration. It parses with a `baseIRI`, which is what
+  makes a container's relative member IRIs resolve (phase 0: "container listings
+  use relative IRIs"). A second hand-rolled listing here would be a second place
+  to forget that.
+- `readTrip` does the reading, so every trip on this list has been through the
+  same `schemaVersion` check, datatype checks and slug assertion as one read by
+  the public site.
+- `rebuildIndex` is the model for the rest: bounded concurrency, and one
+  unreadable member reported rather than fatal.
+
+### Two rules this module is held to
+
+1. **The fetch is injected and never defaulted.** It is the session's
+   authenticated one, the same rule `saveEntry` states. Falling back to the
+   ambient `fetch` does not fail loudly: against a Pod whose trips container
+   *is* publicly readable it returns a list that silently omits every draft,
+   which looks exactly like success. Nothing is imported from
+   `@inrupt/solid-client-authn-browser` here — not even to reach a session — so
+   there is no second way to obtain a credential.
+2. **It reads no config and no env var.** `POD_ROOT` is not `NEXT_PUBLIC_`, so
+   `lib/config.ts` throws the moment it is reached in a browser, and this module
+   runs in the browser. The root arrives as a parameter, handed down as a prop by
+   the thin server component exactly as `ownerWebId`, `oidcIssuer`, `siteUrl` and
+   `siteName` already are.
+
+### StudioTrip is a structural superset, not an import
+
+`StudioTrip` fits `EditorTrip`, the prop type
+`components/studio/entry-editor/entry-editor.tsx` publishes, and deliberately
+does not import it: a `lib/` module importing a type from a component is
+backwards layering. The editor only cares that the object fits, and `tsc` checks
+that at the call site.
+
+`indexUrl` is a document URL with no fragment — `saveEntry` hands it to
+`readTripIndexWithEtag` and then to `putGuarded`, and the `<entries.ttl#it>`
+written in the trip would address nothing. `entriesContainer` keeps its trailing
+slash because in LDP a container without one is a different resource, and CSS
+redirects.
+
+`status` is carried even though `EditorTrip` has no room for it today, because
+this list exists precisely to contain drafts: a picker that shows a draft trip
+and a published trip identically invites the one mistake that cannot be undone
+from the editor — writing a *published* entry into a *draft* trip, which yields
+a public entry whose trip is not public. Surfacing it is a later increment's
+job; making the fact available is this one's.
+
+### The one place the language tag stops
+
+§6 language-tags every human-readable literal, and `Trip.name` off `readTrip`
+honours that: it is `{ value, language }`. `StudioTrip.name` is a plain string,
+so the tag is discarded there. That is a decision rather than an oversight.
+
+It is acceptable because of what the value is *for*: the label of an `<option>`
+in the owner's trip picker, rendered inside a document that already declares its
+language, chosen by the one person who wrote the name in the first place.
+Nothing downstream serialises it back to the Pod — the editor writes
+`dy:trip <iri>`, never a name — so no untagged literal can reach a Pod through
+this path, which is the failure §6 exists to prevent.
+
+The tag starts mattering the moment a trip carries its name in more than one
+language, or the moment this list drives anything but a label. Then this becomes
+`LangText` and the picker picks a tag. It is not that today, and carrying a tag
+nothing reads would be its own kind of lie.
+
+### The ordering is explicit, and locale-independent
+
+§6: "parse order carries no meaning and must never be relied on." Without an
+explicit order the owner's trip picker reshuffles whenever the server serialises
+its container differently, which is a bug that only ever shows up as a mis-click.
+
+Newest first, because the trip being written into is almost always the current
+one. `xsd:date` is lexicographically ordered, so a string compare is a date
+compare, and an absent `dy:startDate` sorts to the end under descending order
+without a special case. The slug breaks ties, giving a total order, so the result
+cannot depend on the sort being stable either.
+
+`descending` is codepoint order and deliberately not `localeCompare`: the point
+of sorting at all is that the list does not move between page loads, and a
+locale-sensitive collation makes that a property of the machine.
+
+### Empty is not the same as unreadable
+
+"No trips yet" and "your Pod would not answer" are deliberately different values.
+An empty container is `ok` with an empty list — a new deployer has written
+nothing, and the studio's "no trips" note is written for exactly that person. A
+failed enumeration (403, 404, unreachable) is a structured error, because telling
+that owner to write their first trip when the truth is that their Pod is
+misconfigured sends them somewhere no amount of writing helps. The error is
+passed through unflattened, so the caller can render different words for 403, 404
+and a network failure.
+
+One unreadable trip is skipped and reported, never fatal — `rebuildIndex`'s rule
+verbatim: "a single bad resource must not make the whole trip unrecoverable".
+Here it is the whole editor at stake. `skipped.reason` is the `PodError.kind`,
+exactly as `RebuildReport` records it, which is what makes the report actionable
+rather than a count.
+
+### A trip is a child container, and both halves of that matter
+
+- `<>` in a container listing resolves to the container itself, and it ends in
+  `/` exactly as a trip does, so a bare "keep the containers" filter walks
+  straight into `travel/trips/trip.ttl`.
+- `notes.ttl` is the mirror image: the filter `rebuildIndex` uses keeps `.ttl`
+  members, which one level up reads the stray file and skips every real trip.
+
+A member that is not a trip is **filtered, not reported**. Reporting it would
+make `skipped` noisy on every real Pod, and noise is how an actually skipped trip
+goes unnoticed.
+
+`dy:index` is used when the trip declares one — the Pod's own statement about
+where its index is — and §4's fixed filename when it does not. The predicate has
+always been optional in the schema, and a Pod holds whatever was written to it,
+including by an older version of this app. Refusing a trip over a derivable
+filename would cost the owner the editor for that trip and gain nothing. No
+predicate names `entriesContainer` at all; §4 does, and it is the same fact that
+makes `/trips/[slug]` resolvable without a lookup.
+
+## revalidate.ts
+
+### Step 4 of §10, from the browser
+
+This module tells this app's own server to drop the cache entries a save
+invalidated. It lives in `lib/studio` rather than `lib/pod` because it talks to
+the app, not to the Pod. `saveEntry` takes it as an injected callback —
+`revalidateTag` is server-side and the write sequence runs in the browser — so
+this is the thing on the other end of that injection, and
+`app/(public)/api/revalidate/route.ts` is on the other end of the POST.
+
+`REVALIDATE_PATH` is same-origin and relative on purpose: the route is served by
+whatever origin the studio was loaded from, so there is nothing to configure and
+nothing that can drift from it.
+
+**It deliberately does not use the session's fetch.** The route is
+unauthenticated by design and says so at length: "any credential it could send
+here would be shipped to every visitor in the client bundle". Invariant 4 is
+that no Pod credential is ever held server-side, and posting a DPoP token to our
+own route handler is the first step towards holding one. The ambient `fetch` is
+the correct one here, and this is the only place in the studio where that is
+true.
+
+### It reads the body, not the status
+
+This is the whole reason the function exists rather than being three lines
+inlined at the call site. The route answers `200 { revalidated: 0, rejected:
+[...] }` when it rejects every tag it was given — a tag no read in this app could
+have stamped invalidates nothing — and its own docblock spells out the
+consequence: "the studio branches on it: `saveEntry` treats step 4 as failed if
+the hook throws, and the hook can only know to throw by reading this." A hook
+that checks `res.ok` and stops reports a clean save while the public site keeps
+serving the old page.
+
+The success body is documented by the route as **closed** — `{ revalidated,
+rejected }` and nothing else — and is parsed rather than trusted. A body that
+does not match is a route that changed under us, and the honest reading of "I
+cannot tell what happened" is the same as the reading of "nothing happened":
+warn the owner that the public site may be stale. Silently treating it as
+success is the failure this module exists to prevent.
+
+The count is compared against the **distinct** tags asked for, because the route
+de-duplicates before it counts. Fewer revalidated than asked for, with nothing
+rejected, is a shape neither side should be able to produce, so it is reported
+rather than rounded up to success.
+
+**A throw is the protocol.** `saveEntry` catches it and reports step 4 as
+failed, which is a partial success: the Pod is consistent and only the public
+cache is behind, so the message the owner sees says "saved, the public site may
+be a few minutes behind" rather than anything about losing work.

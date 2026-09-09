@@ -22,25 +22,10 @@ export function offsetHere(wall: string): string {
 }
 
 /**
- * What the form holds → `xsd:dateTime` with an offset (§3, §6).
- *
- * THE WALL CLOCK IS COPIED, NOT RECOMPUTED. §7.3: `dy:occurredAt` "carries the
- * local UTC offset of the place", so "21:40+09:00" renders as half past nine in
- * the evening for every reader. Converting through a `Date` and back would
- * rewrite an entry edited from another time zone into that zone's offset — the
- * same instant, spelled as the wrong time of day, which for a travel diary is
- * most of the meaning. So only the OFFSET is supplied here, and it is the one
- * the owner's own control is holding.
- *
- * THE OFFSET IS REQUIRED, AND THE FALLBACK THAT USED TO BE ON THIS LINE HAS
- * MOVED RATHER THAN GONE. It read `storedOffset ?? offsetHere(wall)` — the
- * entry's own offset, else the EDITING MACHINE'S — which is the guess the
- * offset control exists to replace, and it fired where nobody could see it. The
- * same chain is now the control's INITIAL VALUE, where the owner can read it
- * and correct it. Keeping a copy here as well would be a second chain that has
- * to agree with the first and says nothing when it stops: the rule §9 step 3
- * states for the precision — what the control shows is what gets applied —
- * spelled for the offset.
+ * What the form holds → `xsd:dateTime` with an offset (§3, §6). THE WALL CLOCK
+ * IS COPIED, NOT RECOMPUTED, and only the OFFSET is supplied — the one the
+ * owner's own control is holding, with no fallback left on this line.
+ * ./notes.md#the-wall-clock-is-copied-not-recomputed
  */
 export function toOffsetDateTime(local: string, offset: string): string | undefined {
   const parts = LOCAL_DATETIME.exec(local);
@@ -63,15 +48,9 @@ export function offsetOf(value: string | undefined): string | undefined {
 export const wallClockOf = (value: string | undefined) => (value === undefined ? "" : value.slice(0, 16));
 
 /**
- * This machine's clock, right now, as a wall clock with no offset on it.
- *
- * SPLIT OUT OF `nowWithOffset` FOR THE OFFSET CONTROL'S INITIAL VALUE, which
- * needs the offset of the current instant and has no wall clock of its own to
- * ask about: `occurred` is `""` on a create, and `offsetHere("")` is `+00:00`
- * rather than this machine's zone — measured, not reasoned about, because
- * `offsetHere` treats an unparseable date as zero minutes. A new entry
- * defaulting to UTC while the owner sits in Tokyo is the exact silent
- * wrong-offset bug the control exists to remove.
+ * This machine's clock, right now, as a wall clock with no offset on it. Split
+ * out of `nowWithOffset` because `offsetHere("")` answers `+00:00` rather than
+ * this machine's zone — measured. ./notes.md#wallclocknow-exists-because-offsethere-is-0000
  */
 export function wallClockNow(): string {
   const at = new Date();
@@ -82,13 +61,10 @@ export function wallClockNow(): string {
 }
 
 /**
- * Now, with this machine's offset — the one instant a save is stamped with:
- * `dcterms:created` on a create, `schema:datePublished` on a first publication,
- * and, through `saveEntry`'s `now`, `dcterms:modified` on the entry and its
- * index row.
- *
- * These are moments in the owner's life rather than in the trip's, so unlike
- * `dy:occurredAt` they take the offset of wherever the owner is sitting.
+ * Now, with this machine's offset — the one instant a save is stamped with. A
+ * moment in the owner's life rather than in the trip's, so unlike
+ * `dy:occurredAt` it takes the offset of wherever the owner is sitting.
+ * ./notes.md#wallclocknow-exists-because-offsethere-is-0000
  */
 export function nowWithOffset(): string {
   const wall = wallClockNow();
@@ -96,48 +72,10 @@ export function nowWithOffset(): string {
 }
 
 /**
- * THE OFFSETS ACTUALLY IN USE, west to east, and the odd ones are the point.
- *
- * `+05:45` is Nepal, `+08:45` is Eucla, `+12:45` is the Chathams, `-09:30` is
- * the Marquesas, `+05:30` is India. A list of whole hours makes those places
- * unwritable, which for a travel diary is the wrong corner to cut, and it is
- * also why this is a `<select>` over a fixed list rather than a stepper: a
- * numeric control that admits `+05:45` admits `+05:61` with it.
- *
- * BOTH HALVES OF A ZONE'S YEAR, AND THIS LIST WAS WRONG ON THAT TWICE OVER
- * UNTIL 2026-09-07 (F2). `-02:30` is Newfoundland DAYLIGHT Time, May to
- * November, and `-03:30` — the same island in the other half of its year — was
- * already here. `+13:45` is Chatham DAYLIGHT Time, September to April, beside
- * the `+12:45` the paragraph above names as one of the odd ones the list exists
- * for. So two of the places argued for were writable for half a year each, and
- * the cost is not a wall clock — §7.3's guarantee survives: the owner writing
- * up the Chathams in January picks the nearest offered value and the INSTANT is
- * an hour out, which is what any cross-trip ordering uses. Nothing on screen
- * says so, and `offsetOptions`' union cannot rescue it either, because on a
- * create there is no stored value and no photo to supply one.
- *
- * "ACTUALLY IN USE" IS A MEASURED CLAIM AS OF THAT DATE, AND THE WAY IT WAS
- * WRONG IS WORTH MORE THAN THE TWO STRINGS. Task 2's review verified this list
- * programmatically *against the brief text*, so the brief was the oracle rather
- * than the world — and neither could name a value neither of them knew about.
- * The oracle is the set of offsets in real civil use, daylight ones included;
- * the durable form of the claim is `ODD_OFFSETS` in components/studio/entry-editor/entry-editor.test.tsx,
- * which lists the non-whole-hour zones and goes red if one stops being offered.
- * A COUNT IS NOT THE CLAIM, so there is none here: the length moved the moment
- * these two were added and it moves again the next time a legislature moves a
- * zone.
- *
- * `+00:00`, NEVER `Z`. Both are valid `xsd:dateTime` offsets and mean the same
- * instant, but §6 and lib/pod/rdf.ts want the explicit spelling and `offsetOf`
- * normalises a stored `Z` onto it — so a list offering `Z` would be a second
- * spelling of one value, and the control would blank on every entry written
- * with the other one.
- *
- * IN ORDER, RATHER THAN SORTED AT USE. The strings do not sort into this order:
- * `-` precedes `+` in ASCII, so a string sort puts the western hemisphere first
- * and then orders it backwards, `-01:00` before `-12:00`. `offsetMinutes` below
- * is the comparator for the one case that cannot be written out here — an
- * offset the entry carries that is not on this list.
+ * THE OFFSETS ACTUALLY IN USE, west to east, and the odd ones are the point —
+ * `+05:45`, `+08:45`, `+12:45`, `-09:30`, `+05:30`. Both halves of a zone's
+ * year, `+00:00` and never `Z`, in order rather than sorted at use, and NO
+ * COUNT: ./notes.md#the-offsets-actually-in-use-and-the-odd-ones-are-the-point
  */
 export const OFFSETS = [
   "-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00",
