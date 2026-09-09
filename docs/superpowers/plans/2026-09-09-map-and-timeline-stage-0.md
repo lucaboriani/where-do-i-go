@@ -566,6 +566,17 @@ Then the belt, as a **new block** after the public one, because its file list is
       "no-restricted-imports": [
         "error",
         {
+          // Flat config REPLACES a rule's options per file, not merges them, so
+          // this block would silently drop the ACL ban above for lib/pod/read.ts
+          // unless it repeats it — caught by the primitive-sweep tests below.
+          paths: [
+            {
+              name: "@inrupt/solid-client",
+              importNames: ACL_PRIMITIVES,
+              message:
+                "Access control goes through lib/pod/access.ts only — the four-method interface in docs/data-model.md §5. Mechanisms differ per server (WAC vs ACP) and are not reliably detectable; see decisions.md §19.",
+            },
+          ],
           patterns: [
             {
               group: ["@inrupt/*", "**/lib/studio", "**/lib/studio/**"],
@@ -578,6 +589,13 @@ Then the belt, as a **new block** after the public one, because its file list is
     },
   },
 ```
+
+**The repeated `paths` entry is load-bearing and an earlier draft of this plan omitted it.** ESLint
+flat config **replaces** a rule's options for a matching file rather than merging them, so a belt
+block carrying only `patterns` silently drops the ACL-primitive ban for `lib/pod/read.ts` — a
+public-path module — while every new case still goes green. Four pre-existing tests caught it.
+This is the same hazard the public block's own comment already warns about, one block further
+down; `eslint.config.mjs` had it written down and the plan still walked into it.
 
 That block's docblock carries a `./notes.md#` pointer, so add the anchor to `notes.md` **beside `eslint.config.mjs`** — the repository root's `notes.md`, which the config's other pointers already use:
 
