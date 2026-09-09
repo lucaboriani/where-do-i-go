@@ -212,6 +212,10 @@ cached-and-invalidated model expects.
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
+- [x] **`react-map-gl` was removed on 2026-09-09** and must not be reinstalled — see
+      `docs/decisions.md` §25. Nothing ever imported it. Left in the command above as the
+      historical record of what phase 0.5 installed, exactly as `size-limit` is.
+
 - [x] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
       for it, that is stale training data — replace with `exifreader`.
 - [x] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
@@ -1503,6 +1507,11 @@ first; and the fifteen phase-3 follow-ups above are untouched.
 
 ## Phase 4 — map and timeline
 
+- [x] **Stage 0 — prerequisites.** Landed 2026-09-09, plan at
+      `docs/superpowers/plans/2026-09-09-map-and-timeline-stage-0.md`. `offsets.ts` moved to
+      `lib/time/` and `precisionLabel` to `lib/place/`, because `lib/studio` is fenced from the
+      public path and the timeline is a public feature. The eslint public fence gained
+      `maplibre-gl`, statically only. `react-map-gl` removed.
 - [ ] Dark desaturated map style built to the tokens in `docs/design-brief.md`
 - [ ] One MapLibre instance, lazy-mounted, never remounted
 - [ ] Photo-thumbnail markers, clustering above ~50 points

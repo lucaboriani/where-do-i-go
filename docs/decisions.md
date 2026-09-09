@@ -463,3 +463,35 @@ them there (decision 13). Next's docs warn that proxy code may be deployed to a 
 and should not rely on shared modules or globals, so the in-process cache is
 best-effort and correctness does not depend on it. The in-page `notFound()` checks
 stay as a second line: when the proxy fails open, they still render the right content.
+
+---
+
+## 25. Raw MapLibre, not react-map-gl
+
+`react-map-gl@8.1.2` was pinned in phase 0.5 and nothing ever imported it. Two of phase 4's
+invariants push against the declarative wrapper at exactly the points where this project has
+written rules.
+
+**`setProjection` only inside the `style.load` handler.** react-map-gl applies a `projection`
+prop on its own schedule, so satisfying the invariant means reaching through `mapRef.getMap()`
+inside `onStyleData` and leaving the prop unused. The globe becomes imperative either way, and
+the wrapper's value was that it would not be.
+
+**One instance, mounted once, never remounted.** The wrapper keeps its instance as long as its
+element is mounted, which a layout provides. But having both a declarative and an imperative
+route to the same map is how a one-instance rule rots. There is one way to touch the map.
+
+**Consequences.** Roughly seventy lines of marker DOM reconciliation are written by hand rather
+than by `<Marker>`. That cost is real and is accepted: clustering needs `querySourceFeatures` on
+`render` regardless, so the imperative loop exists either way and the wrapper would have sat
+beside it rather than replaced it. Everything worth testing is pure and lives in `lib/map/` — the
+style, the GeoJSON builders, the leg derivation, the dash expression, the cluster threshold — and
+needs no browser and no library to test.
+
+**Rejected:** keeping the dependency installed but unused. A pinned library nothing imports reads
+to the next agent as sanctioned — which is why this landed alongside edits to `docs/versions.md`
+and `.claude/agents/nextjs-specialist.md`, the two other places that named it.
+
+**§26 is reserved** for the public map sheet, landing in phase 4 stage 4. It withdraws decision
+11's sentence about the Drawer providing the mobile map layout's snap-point sheet. Do not reuse
+the number.
