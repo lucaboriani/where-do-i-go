@@ -1409,22 +1409,96 @@ lines. Rules in `CLAUDE.md` `## Code structure`; reasoning in
       in every run since — four full suites and five of that file in isolation at the stage's
       close. Timing-sensitive rather than wrong; watch it rather than act on it.
 
-- [ ] **Stage C — the other eleven long functions, and the comment sweep.** 18,999 comment lines
-      down to under ~4,000 in code, the remainder trimmed into `notes.md` files, and the ratchet
-      driven from 788 to a hard zero.
+- [x] **Stage C — the long functions, and the comment sweep.** Landed 2026-09-09, plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-c.md`. All nine checks plus the
+      gated e2e, run unchained and each log read: `npm test` **1420 passed / 2 todo / 0 skipped /
+      62 files**; `lint` at `--max-warnings 0`; `typecheck`; `validate:fixtures`; `check:vocab`;
+      `check:commands`; `check:structure` **Structure OK, 162 files scanned**; `build`;
+      `size:public` **176.4 kB of 190** with every studio-only dependency absent; and
+      `E2E_PORT=3007 npm run test:e2e` **6 passed**. The integration suites were proven to have
+      RUN, not skipped, by the dead-port control on every task: 36 passed, then 36 skipped.
 
-      **One question to settle before this is planned: do the conventions bind test docblocks?**
-      Test files are **60% of the 788** — `entry-editor.test.tsx` alone has 207 blocks over six
-      lines. A docblock recording which defect a case catches is arguably prose sitting exactly
-      where it belongs, unlike a 47-line essay inside a render function. `CLAUDE.md` as written
-      says "everywhere except `components/ui/**`", so it binds them. Deferred by the maintainer
-      on 2026-09-08; answering it roughly halves or doubles this stage.
+      **Nothing in the repository is suppressed.** `active exemptions — 0`. Both of Stage A's
+      remaining `eslint-disable` directives left on their own signal — `npm run lint` reporting
+      `Unused eslint-disable directive` at `--max-warnings 0` — rather than because anyone
+      remembered them.
 
-      **`lib/pod/access.ts` does NOT split per mechanism.** An earlier draft proposed the ACP/WAC
-      split, citing `docs/decisions.md` §4 — which is "No drafts container". §19 is "Access
-      control goes through one interface, and never branches on mechanism", so that split is the
-      one refactor this repository has already ruled out in writing. The axis actually present is
-      document versus container.
+      **The production comment bound is now a hard zero**, down from 279. Three sweeps moved
+      **277 blocks and deleted none**: `scripts/` 20, `lib/` 124 (the plan estimated ~90), and
+      `components/` + `app/` 133. Proved absolute by adding an eight-line block to `lib/config.ts`
+      and watching `check:structure` name the file and exit 1. Test docblocks stay **exempt but
+      ratcheted at 509** — the maintainer's decision on measurement, since 509 of the original 788
+      were test-side and this project's two real defects were both found *because* a test docblock
+      recorded which fixture could reach which branch. Exempt means not rewritten, never
+      unbounded.
+
+      **Eleven long functions became three, and the three are decisions rather than leftovers.**
+      `serialiseEntry` 111→29, `serialiseIndex` 57→20, `saveEntry` 69→23, `readTripIndexWithEtag`
+      64→10, `tripIndexOf` 55→23, `readEntry` 52→37, `setContainerAccess` 73→15,
+      `setDocumentPublicRead` 59→32, `verifyContainerAccess` 54→29,
+      `check-public-bundle.ts :: main` 94→20, `validate-fixtures.ts :: main` 59→24. What remains
+      is over the 130 *tendency* and under the 200 bound, each with its reason in the nearest
+      `notes.md`: `EntryEditor` **164** (the draft banner became a sixth field group; the three
+      further candidates are costed), `WhereFields` **161**, `useEntryDraft` **142**.
+
+      **`WhereFields` is the one worth reading, because the alternative was measured rather than
+      asserted.** The split along the §9 hold boundary is a real seam, and it comes to **199 lines
+      across three functions where there are 161 in one** — but the decisive argument is a test:
+      `holds the three coordinate controls when the settings cannot be read` asserts three
+      disabled and three live in a single render, which *is* §9's mitigation, and split in two the
+      only place left to render it is the harness, where the banner's own `fieldset disabled`
+      holds all six and confounds it. A tendency that would make the code worse is not followed.
+
+      **Four things this stage corrected in its own plan**, each found by doing the work:
+
+      - **The serialisers' seam is §7.3 and §7.4, not §10.** §10 is the write protocol — PUT with
+        `If-None-Match`, set ACL, recompute the index, revalidate — which is `saveEntry`'s
+        sequence. A pure serialiser implements no §10 clause, so following the citation literally
+        would have split them along a protocol they do not implement.
+      - **`access.ts` does not split per mechanism**, and the earlier draft citing `decisions.md`
+        §4 was citing "No drafts container". §19 is "Access control goes through one interface,
+        and never branches on mechanism". The axis actually present is document versus container.
+      - **A blank line inside a `/** */` does not split a comment run**, because the whole block
+        is one token. Several replacement pointers came in over the bound that way.
+      - **GitHub's heading slug removes punctuation rather than hyphenating it**, so a pointer at
+        `#…not-import-meta-main` did not resolve to a heading about `import.meta.main`. Caught by
+        `check:structure` going red, and missed first time by grepping its output for one line
+        instead of reading its exit status — a half-check in the shape this file warns about.
+
+      **Findings recorded rather than fixed**, each in a `notes.md` beside the code: an unreadable
+      ACL is indistinguishable from no ACL in `@inrupt/solid-client` 3.0.0, so a 403 on
+      `{container}.acl` reports "race" where the truth was a transient failure; a half-written
+      bbox is dropped silently, unlike `readPrivacySettings`' deliberate all-three-or-none;
+      `scripts/validate-fixtures.ts` cannot have a test file without changing `vitest.config.ts`
+      or `REPO_TESTS`; and `drafts.ts` requires the editor to render a shape-valid-but-unlisted
+      offset while the select in fact falls back silently — both claims are now in the notes,
+      unreconciled, because that contradiction is the open item.
+
+### The refactor, as one thing
+
+Three stages, 2026-09-08 to 2026-09-09, between phases 3 and 4. What a reader can now rely on:
+
+- **A component lives in its own folder** with a named file, a one-line `index.ts`, its test and
+  its `notes.md`. `EntryEditor` went from **941 code lines in one file to 164 in a folder of
+  sixty-odd**.
+- **A test sits beside its subject**, and the three kinds that have no subject are listed in
+  `CLAUDE.md` and enforced — including that a name on that list which no longer exists fails the
+  check.
+- **Prose lives behind a checked anchor.** A `see ./notes.md#anchor` that does not resolve fails
+  the build, which is what stops the line-number rot that went stale twice in one stage.
+- **Two bounds are enforced by a build and nothing is suppressed**: 200/80 on function length at
+  `--max-warnings 0`, a hard zero on production comment blocks, and zero `eslint-disable`
+  directives anywhere.
+- **The tendencies are reported, never enforced** — 130/50 and 600 — because the maintainer's
+  instruction was "tend to, not a dictate", and a lint error cannot express that.
+
+Still open, and none of it caused by the refactor: the ~509 test-side comment blocks are exempt
+rather than swept; `OFFSET_SHAPE`'s width is unpinned; the "exact" precision option needs a §9
+decision, because `GeoPoint.precisionMeters` is `.positive()` and its own docblock argues against
+0; `rebuildIndex` still lacks ACL verification and needs the `write.ts` ↔ `access.ts` cycle broken
+first; and the fifteen phase-3 follow-ups above are untouched.
+
+**Phase 4 next.**
 
 ## Phase 4 — map and timeline
 
