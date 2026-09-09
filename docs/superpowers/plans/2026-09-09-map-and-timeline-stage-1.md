@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Node 22.** `nvm use`, then confirm `node -v` prints `v22.x`. If `nvm` is not on `PATH`: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Every command below runs and passes on Node 20 too, which is why checking is a step you do.
-- **`npm test` needs a Pod.** `npm run pod:dev &` first, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran by the **passed count dropping** when the Pod is stopped — measured 2026-09-09, a Pod-less run prints no "skipped" line at all and simply reports fewer passing tests (1420 across 62 files). Do this once, before closing the stage.
+- **`npm test` needs a Pod.** `npm run pod:dev &` first, or the two integration suites skip themselves. Measured 2026-09-09: with the Pod up, **1420 passed | 2 todo**; with it down, **1384 passed | 36 skipped | 2 todo** — 62 files either way, and the 36 are the whole of `test/integration/`. Run the control once before closing the stage.
 - **`npm run test:e2e` is NOT required by this stage's diff** — it touches `lib/map/**`, `lib/config.ts`, `app/globals.css`, `.env.example` and `docs/`, none of which are among the six paths `CLAUDE.md`'s path-scoped gate names. Do not run it, and do not add those paths to the gate here; stage 2 does that, when there is a public component to gate.
 - **No network in any test.** `test/network-guard.test.ts` pins a guard that fails a test on a real `fetch`, and it was decorative for as long as nothing tested it. Everything in this stage is offline: `validateStyleMin` is a local function, and the OpenFreeMap URLs are asserted as strings, never fetched.
 - **MapLibre cannot parse `oklch()`.** Measured 2026-09-09: `Color.parse("oklch(0.185 0.008 250)")` returns `undefined`, and `validateStyleMin` rejects it with `color expected, "oklch(0.185 0.008 250)" found`. Every colour in the style is a 6-digit hex string. Do not "modernise" one to `oklch()`; the style will silently stop rendering that layer.
@@ -1175,7 +1175,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - `.env.example` sets no `MAP_STYLE_URL`, pinned by a test rather than by a `grep` in this plan; `config.mapStyleUrl` is `undefined` for unset, `""` and whitespace, and trims what it returns.
 - `TODO.md`'s two phase-0.5 lines are annotated and resolved, so the checklist cannot reintroduce the value.
 - `docs/decisions.md` §27 exists; `TODO.md`'s first phase-4 deliverable is ticked with what landed.
-- All ten definition-of-done commands pass, each run separately and each log read, and the integration suites were proven to have run because the passed count dropped with the Pod down. `size:public` unchanged, `maplibre-gl` absent, and `@maplibre/maplibre-gl-style-spec` absent from every public chunk.
+- All ten definition-of-done commands pass, each run separately and each log read, and the integration suites were proven to have run by the dead-port control (1420 up, 1384 passed / 36 skipped down). `size:public` unchanged, `maplibre-gl` absent, and `@maplibre/maplibre-gl-style-spec` absent from every public chunk.
 
 ## What stage 2 needs from this
 
