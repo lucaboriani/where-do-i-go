@@ -60,6 +60,10 @@ const COORDINATE_SOURCE_ID = "entry-coordinate-source";
 const coordinateSourceNote = (name: string) =>
   `Latitude and longitude came from ${name}. Type in either box to replace them.`;
 
+/** 161 code lines against the 200 bound, over the 130 tendency and staying
+ *  there: the hold boundary IS a real seam, and cutting along it was measured at
+ *  199 lines across three functions, with §9's asymmetry left with no single
+ *  component to pin it in. ./notes.md#task-7-measured-the-split-and-161-stays */
 export default function WhereFields({
   placeName,
   onPlaceNameChange,

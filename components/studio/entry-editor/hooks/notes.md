@@ -673,6 +673,52 @@ storage, and with `touched` reset nothing would be armed again until the next
 keystroke. Close the tab on that sentence and it never existed. So when the form
 has moved on it is re-kept at once, under the key this editor owns from here on.
 
+## Task 7 measured the 142, and it stays
+
+Stage C's Task 7, 2026-09-09. `useEntryDraft` is 142 code lines, over the 130
+tendency and 58 under the 200 bound — reported, not failing.
+
+**52 of the 142 are one identifier each.** Counted:
+
+| enumeration | lines |
+|---|---|
+| `text` destructured into its sixteen fields | 16 |
+| the payload `writeDraft` is handed | 17 |
+| the autosave's dependency array | 19 |
+
+All three are the same sixteen fields written out three times, and each spelling
+has its own reason already recorded here:
+`#why-the-autosave-still-depends-on-sixteen-values` for the array,
+`#what-goes-into-the-autosave-and-what-is-left-out` for the payload. The short
+version is that `text` is a fresh object every render so it cannot be the
+dependency, and the one-dependency spelling — memoise `text` on
+`[form.values, attached]` — is equivalent only by an argument about React's
+batching: `applyPhotoTimestamp` returns `withTimeCredit({ ...state, … })`
+unconditionally, so a refused offer moves reducer-state identity and would
+restart a window the sixteen names leave alone. **Verified again in Task 7**, by
+reading `state/apply-photo-offer.ts`: the return is outside both `if` blocks.
+
+**One split would take it under the tendency, and it is declined.** The autosave
+effect is 35 code lines by the same measurement; lifted into its own
+`use-draft-autosave.ts` the hook would land near 115. What it would carry across
+the module boundary is two refs that three consumers share:
+
+- `touched` — read by the autosave, written by `settleDraft` both ways, written
+  by `markTouched`.
+- `pendingWrite` — set by the autosave, read and cleared by the unmount flush,
+  read and cleared by `settleDraft`.
+
+Passing a `RefObject` out of the hook that owns it and back into a hook that
+borrows it is the exact move `#the-touched-ref-moved-into-the-hook-that-reads-it`
+argued against, one task earlier and in the other direction: the ref belongs to
+the effect that READS it. The asymmetry the unmount flush depends on — the timer
+is cleared and the ref is not — would then be a contract between two files rather
+than two effects, with nothing checking it.
+
+142 lines, three of which are the same list written three times for three
+different reasons, in the hook that owns the state. That reads better than 115
+plus a ref lent across a file.
+
 ## what use-entry-draft is tested for
 
 Twenty cases. `draftTextOf` first, because it is the projection everything else

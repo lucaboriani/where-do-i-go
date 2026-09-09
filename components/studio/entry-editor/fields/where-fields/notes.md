@@ -29,6 +29,46 @@ by `check:structure` and not a failure. Six controls, four conditional notes and
 two `*Help` closures is what that is; splitting it further would separate the
 coordinate boxes from the note both of them name.
 
+## Task 7 measured the split, and 161 stays
+
+Stage C's Task 7, 2026-09-09. Stage B's paragraph above answers the split it was
+looking at — cutting the coordinate half apart from its notes. It does not answer
+the one a reader would actually propose, which is the **hold boundary**: the
+three place fields in one group, the three coordinate controls in another. That
+is a real seam. `coordinatesLive` holds exactly one half, no IDREF crosses it,
+and it is even the boundary the RDF takes — `#place` and `#address` carry the
+words, `#geo` carries the point (`docs/data-model.md` §7.3).
+
+**It was built as a probe and measured with the same ESLint rule
+`check:structure` runs.** Three functions, `skipComments` and `skipBlankLines` as
+configured:
+
+| function | code lines |
+|---|---|
+| `PlaceTextFields` | 53 |
+| `CoordinateFields` | 99 |
+| `WhereFields`, now a wrapper | 47 |
+| **total** | **199** |
+
+**199 across three functions where there are 161 in one**, and the largest single
+thing afterwards is still 99. The 38 added lines are all destructuring and prop
+forwarding: eighteen names come apart into six and twelve, and the wrapper spells
+all eighteen again to pass them on. Nothing moved except lines, which is the
+failure mode this refactor is against — and the drift list would be shorter only
+because 99 and 53 are both under 130, not because anything got easier to read.
+
+**The test is the other half of the reason.** `where-fields.test.tsx` opens on
+§9's asymmetry — "holds the three coordinate controls when the settings cannot be
+read" asserts three controls disabled and three not, in one render, in one
+component. That assertion is the mitigation: a place NAME needs no home region to
+check against, so an owner whose settings cannot be read can still say where they
+were. Split in two there is nothing to render that can hold it. It would have to
+go up to the editor's harness, where the draft banner's own `<fieldset disabled>`
+holds all six and confounds the very thing being pinned.
+
+Six controls in the group that corresponds to one `schema:Place` reads better
+than two groups and a pass-through.
+
 ## What travelled, and two handler comments that did not
 
 Moved **verbatim**, docblocks included: `COORDINATE_NOTE_ID`,
