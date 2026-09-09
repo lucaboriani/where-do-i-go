@@ -175,13 +175,28 @@ landcover_glacier     railway
 greys stepped off `map-land` — the brief's requirement, because any saturated hue in the basemap
 competes with the route.
 
-**The three map colours are literals in `lib/map/style.ts`, and that duplicates
-`app/globals.css`.** `--color-map-land`, `--color-map-water` and `--color-map-label` are already
-in the `@theme` block, but a MapLibre paint property cannot read a CSS custom property, so the
-style module must carry the values itself. This is the same shape as `BLUR_BUDGET_BYTES`, which
-`lib/pod/schema.ts` restates rather than imports — and it gets more than a keep-in-step comment:
-a test parses the three declarations out of `app/globals.css` and asserts they equal the style
-module's, so the two cannot drift in silence.
+**The palette is restated as hex in `lib/map/tokens.ts`, and that duplicates `app/globals.css`.**
+Two measured reasons, not one: a MapLibre paint property cannot read a CSS custom property, **and
+MapLibre cannot parse `oklch()`** — `Color.parse` returns `undefined` and `validateStyleMin`
+answers `color expected`, so an `oklch()` colour is a layer that silently does not draw. The
+stylesheet is written entirely in `oklch()`.
+
+Six tokens, not three: `--color-map-land`, `--color-map-water`, `--color-map-label`, plus the
+accent trio, which stage 3's route and markers need in the same form. This is the shape
+`lib/pod/schema.ts` already has with `BLUR_BUDGET_BYTES` — and it gets more than a keep-in-step
+comment. `app/globals.css` already records the hex beside eight of its eleven `@theme` colours in
+a trailing comment; stage 1 extends that to the three basemap lines, and a test parses those
+comments and asserts `lib/map/tokens.ts` agrees. It catches the copy drifting, which is the real
+risk. It does **not** catch a hex comment wrong for its own `oklch()` value — that is colour maths
+with a tolerance to argue about, and `docs/design-brief.md` settled all eleven pairs in-gamut
+upstream.
+
+**`@maplibre/maplibre-gl-style-spec` gets declared.** It holds `StyleSpecification`,
+`LayerSpecification` and `validateStyleMin`, and **`maplibre-gl` re-exports none of them** —
+verified against its `export { … }` list. It is only in the tree today as a transitive dependency,
+which works under npm's flat `node_modules` and breaks under pnpm, and `docs/decisions.md` §21
+leaves the package manager to the checkout. A devDependency: the style module uses it through
+`import type` and the validator runs only in tests, so nothing ships.
 
 **`MAP_STYLE_URL` becomes a wholesale override rather than the default.** Set ⇒ MapLibre loads that
 URL verbatim and the in-repo style is not used. Unset ⇒ the in-repo style. This keeps decision 7's
@@ -338,8 +353,8 @@ The call is inside the `style.load` handler, the same single call site as stage 
   static import rejected, dynamic import allowed — since a fence that also refused the dynamic
   import would ban the map outright.
 - **The bundle controls from §1**, in `test/public-bundle.test.ts`.
-- **The token-drift check from §4**, asserting `app/globals.css` and `lib/map/style.ts` agree on
-  the three map colours.
+- **The token-drift check from §4**, asserting `app/globals.css` and `lib/map/tokens.ts` agree on
+  all six map-relevant colours, and that none of them is spelled `oklch()`.
 - **One Playwright spec**, justified in §5.
 
 Every test is written failing first and shown failing, per `CLAUDE.md`. The two failure modes that
