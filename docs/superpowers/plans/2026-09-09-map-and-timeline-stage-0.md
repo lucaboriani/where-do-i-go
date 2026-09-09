@@ -14,7 +14,7 @@
 
 - **Node 22.** Run `nvm use`, then confirm `node -v` prints `v22.x` before anything else. If `nvm` is not on `PATH`: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Every command below runs and passes on Node 20 as well, which is exactly why checking is a step you do rather than one the tooling does for you.
 - **`npm test` needs a Pod.** Start `npm run pod:dev &` first. Without it, `test/integration/pod-read.integration.test.ts` and `test/integration/pod-access.integration.test.ts` skip themselves and the run reports green having never executed them.
-- **Prove the integration suites RAN, not skipped.** After a full-suite run, note the passed count. Then stop the Pod and run again: the count must drop and the same files must report as skipped. Do this once at the end of the stage, not per task.
+- **Prove the integration suites RAN, not skipped, and use the COUNT as the signal.** After a full-suite run with the Pod up, note the passed count. Then stop the Pod and run again: the count must drop. **Do not look for a "skipped" line** — measured on 2026-09-09, a Pod-less run prints no skip line at all and simply reports fewer passing tests (1420 across 62 files), which is exactly the silence `docs/testing-gates.md` warns about. Do this once at the end of the stage, not per task.
 - **`npm run test:e2e` is required for this stage.** The diff touches `lib/studio/**` and `components/studio/**`, two of the six paths `CLAUDE.md`'s path-scoped gate names. Run it as `env -u CLAUDECODE -u AI_AGENT E2E_PORT=3007 npm run test:e2e`.
 - **Zero behaviour change in this entire stage.** The invariant that proves it: **no test file is edited for content.** Import paths change, and one describe block is relocated verbatim. Assertions, fixtures and test names do not change. If a move seems to require an assertion change, the move changed behaviour — stop and report rather than adjusting the test.
 - **Take every count from HEAD, never from this plan.** Run `npm test` before touching anything and compare against that number. `TEST_COMMENT_BASELINE` in `scripts/check-structure.ts` is `545` at the time of writing; read the file rather than trusting that.
@@ -35,20 +35,35 @@
 | `lib/place/notes.md` | new: why `precisionLabel` left `place.ts` |
 | `lib/studio/place/place.ts` | keeps `placeFor`, `placeTextOf`, `gridOf`, `PRECISION_GRIDS`, `EntryPlace`, `PlaceText` |
 | `lib/studio/place/place.test.ts` | keeps everything except the `precisionLabel` describe |
-| `eslint.config.mjs` | public `no-restricted-imports` gains a `maplibre-gl` entry with its own message |
-| `test/guardrails.test.ts` | two new cases: static import refused, dynamic import allowed |
-| `package.json` | `react-map-gl` removed |
-| `docs/decisions.md` | new §25 |
+| `eslint.config.mjs` | public block gains a `maplibre-gl` `paths` entry and a deep-path `patterns` entry; a new block fences the publicly reachable `lib/` modules |
+| `notes.md` (repo root) | the belt's reasoning, behind a new anchor |
+| `test/guardrails.test.ts` | six new cases — four for the maplibre fence's eight measured shapes, two pinning what the moves make reachable |
+| `package.json`, `package-lock.json` | `react-map-gl` removed |
+| `docs/decisions.md` | new §25, and §26 reserved in writing |
+| `docs/versions.md` | the `react-map-gl` row annotated |
+| `.claude/agents/nextjs-specialist.md` | stops naming `react-map-gl` — **ask the owner first** |
 | `TODO.md` | phase 0.5's `react-map-gl` pin annotated; a Stage 0 line under phase 4 |
 
-**Six files import the two modules today**, and Tasks 1 and 2 repoint them. Confirm the list at HEAD rather than trusting it:
+**Eight files name the two modules today; seven need an edit.** Confirm the list at HEAD rather than trusting it:
 
 ```sh
 grep -rn "lib/studio/time\|lib/studio/place" --include='*.ts' --include='*.tsx' \
   . --exclude-dir=node_modules --exclude-dir=.next
 ```
 
-At the time of writing: `components/studio/entry-editor/state/apply-restore.ts`, `state/apply-photo-offer.ts`, `hooks/use-settings-gate.ts`, `hooks/use-entry-form.ts`, `hooks/use-entry-form.test.ts`, `hooks/use-entry-draft.ts`, `hooks/use-entry-save.ts`, `fields/where-fields/where-fields.tsx`. Two prose mentions in `lib/pod/entry-model.ts` and `lib/pod/entry-model.test.ts` refer to `placeFor`, which does **not** move — leave both alone.
+At the time of writing, under `components/studio/entry-editor/`:
+
+- **`lib/studio/time/offsets` — six importers, all repointed by Task 1:** `state/apply-restore.ts`,
+  `state/apply-photo-offer.ts`, `hooks/use-entry-form.ts`, `hooks/use-entry-form.test.ts`,
+  `hooks/use-entry-draft.ts`, `hooks/use-entry-save.ts`.
+- **`precisionLabel` — one importer, repointed by Task 2:** `fields/where-fields/where-fields.tsx`.
+- **`hooks/use-settings-gate.ts` needs NO edit.** It imports `PRECISION_GRIDS`, `gridOf` and
+  `EntryPlace` from `@/lib/studio/place/place`, none of which move. `state/apply-restore.ts`
+  likewise keeps its `gridOf` import while its `offsets` import is repointed — it appears in both
+  lists for different reasons.
+
+Two prose mentions in `lib/pod/entry-model.ts` and `lib/pod/entry-model.test.ts` refer to
+`placeFor`, which does **not** move — leave both alone.
 
 ---
 
@@ -94,7 +109,17 @@ git diff --stat -- lib/time/offsets.test.ts
 
 Run: `npx vitest run lib/time/offsets.test.ts`
 
-Expected: FAIL, and specifically a resolution failure naming `@/lib/time/offsets` — something of the shape `Failed to resolve import "@/lib/time/offsets"`. If it fails with assertion errors instead, the wrong thing moved; stop.
+Expected: FAIL. The exact shape, measured rather than paraphrased — note that it is a failed
+**suite** with `Tests  no tests`, not a failed test:
+
+```
+FAIL  lib/time/offsets.test.ts [ lib/time/offsets.test.ts ]
+Error: Cannot find package '@/lib/time/offsets' imported from /…/lib/time/offsets.test.ts
+Test Files  1 failed (1)
+      Tests  no tests
+```
+
+If it fails with assertion errors instead, the wrong thing moved; stop.
 
 - [ ] **Step 3: Move the subject and its notes**
 
@@ -127,7 +152,11 @@ Three lines, inside the hard bound of six.
 
 Run: `npx vitest run lib/time/offsets.test.ts`
 
-Expected: PASS, with the same test count it had at HEAD. Get that number from `git show HEAD -- lib/studio/time/offsets.test.ts | grep -c '  it('` if you did not record it.
+Expected: PASS, with the same test count it had at HEAD — **40**. Confirm with the colon form, not `--`: `git show HEAD -- <path>` prints nothing at all when HEAD's own commit does not touch that path, so `grep -c` answers `0` and you would be comparing against zero.
+
+```sh
+git show HEAD:lib/studio/time/offsets.test.ts | grep -c '  it('
+```
 
 - [ ] **Step 5: Repoint the six importers**
 
@@ -135,7 +164,15 @@ Expected: PASS, with the same test count it had at HEAD. Get that number from `g
 grep -rln 'lib/studio/time/offsets' --include='*.ts' --include='*.tsx' \
   . --exclude-dir=node_modules --exclude-dir=.next \
   | xargs sed -i '' 's|@/lib/studio/time/offsets|@/lib/time/offsets|g'
-grep -rn 'lib/studio/time' . --exclude-dir=node_modules --exclude-dir=.next   # expect: no output
+```
+
+Then the check — and **it must be scoped to source, or it can never be quiet.** Unscoped, this
+string still matches `TODO.md`, `docs/superpowers/plans/2026-09-08-code-structure-stage-b.md`, the
+phase 4 spec, and this plan itself, all of which are historical record that must not be edited:
+
+```sh
+grep -rn 'lib/studio/time' --include='*.ts' --include='*.tsx' \
+  . --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git   # expect: no output
 ```
 
 `lib/studio/time/` is now empty. Remove it:
@@ -263,7 +300,9 @@ for the same reason and to the same consumers.
 
 Run: `npx vitest run lib/place/precision.test.ts`
 
-Expected: FAIL with `Failed to resolve import "@/lib/place/precision"`. Not an assertion failure — if you see one, something already exports `precisionLabel` from that path.
+Expected: FAIL as a failed suite with `Tests  no tests` and
+`Error: Cannot find package '@/lib/place/precision' imported from …`. Not an assertion failure —
+if you see one, something already exports `precisionLabel` from that path.
 
 - [ ] **Step 3: Create the module and remove the original**
 
@@ -311,10 +350,18 @@ Then confirm nothing still reaches for it in the old place:
 
 ```sh
 grep -rn 'precisionLabel' --include='*.ts' --include='*.tsx' . \
-  --exclude-dir=node_modules --exclude-dir=.next
+  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git
 ```
 
-Expected: hits only in `lib/place/*`, `where-fields.tsx`, and prose inside `lib/studio/place/notes.md` or `place.test.ts` docblocks. A prose mention is not an import; leave it.
+Expected: hits only in `lib/place/precision.ts`, `lib/place/precision.test.ts` and
+`where-fields.tsx`. **`--include='*.ts'` excludes `notes.md`, so no markdown appears in that
+output** — an earlier draft of this step told you to expect some, which it cannot produce.
+
+One prose mention does survive in a file this step does not touch:
+`lib/studio/place/place.test.ts`'s section-3 banner comment says "`precisionLabel` renders it" and
+will now describe a block that has left the file. **Leave it.** The stage's own invariant is that
+no test file is edited for content, and it is named here so it reads as a deliberate omission
+rather than a missed edit — stage 3 rewrites that banner when it adds the decimal count.
 
 - [ ] **Step 6: Run the full suite and the checks**
 
@@ -352,111 +399,238 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 3: the public fence gains `maplibre-gl`
+### Task 3: the public fence gains `maplibre-gl`, and the two moved modules gain a belt
 
 `scripts/check-public-bundle.ts` has listed `maplibre-gl` in `BANNED_DEPS` since phase 0.5, but `eslint.config.mjs`'s public block never has — so today lint permits an import the bundle check refuses, and the mistake is caught at build time rather than at edit time. `eslint.config.mjs`'s own docblock says that is backwards: *"the public bundle budget is the enforcement which really holds; these catch the same mistake earlier."*
 
-**The fence must refuse the static import and permit the dynamic one.** Measured on 2026-09-09 with the real config: `no-restricted-imports` flags `import maplibregl from "maplibre-gl"` and does not flag `await import("maplibre-gl")`. That asymmetry is what makes the rule usable — the map's whole design is a dynamic import — and both halves are asserted, because a fence that also refused `import()` would ban the map outright and nothing would say so until stage 2.
+**The obvious spelling of the fence is wrong, and it was in an earlier draft of this plan.** A `patterns` group of `["maplibre-gl", "maplibre-gl/**"]` also refuses `maplibre-gl/dist/maplibre-gl.css` — the stylesheet that positions the canvas and renders the attribution control `CLAUDE.md` forbids removing — and a `!`-negated pattern does **not** rescue it, because gitignore semantics refuse to re-include under an excluded parent. The bare `"maplibre-gl"` arm already matches every subpath, so the second arm is redundant as well.
+
+**Eight import shapes, all measured on real files under `components/public/` against the real config.** This is the table the rule has to produce:
+
+| Shape | Verdict | Why |
+|---|---|---|
+| `import maplibregl from "maplibre-gl"` | refused | 252.8 kB in the eager chunk |
+| `import { Marker } from "maplibre-gl"` | refused | same |
+| `import mod from "maplibre-gl/dist/maplibre-gl.mjs"` | refused | the same bytes by a deep path |
+| `import type { Map } from "maplibre-gl"` | refused | acceptable; the inline form below is the spelling to use |
+| `import "maplibre-gl/dist/maplibre-gl.css"` | **allowed** | ~4 kB of CSS the attribution control needs |
+| `await import("maplibre-gl")` | **allowed** | how the map mounts |
+| `import("maplibre-gl").Map`, as a type | **allowed** | how the hook types itself |
+| `import type … from "@maplibre/maplibre-gl-style-spec"` | **allowed** | stage 1's types, and it ships nothing |
+
+**Types come through the inline `import("maplibre-gl").X` form, not `import type`.** The base rule has no `allowTypeImports` — only `@typescript-eslint`'s version does — and putting two rules on the same job to permit a spelling that can simply be avoided is worse than using the spelling. It is also the honest one: the module genuinely is only available dynamically.
+
+**The CSS import lives in `components/public/trip-map/trip-map.tsx`** (stage 2), not inside the lazy chunk, so the map's chrome is styled before the instance arrives. It costs nothing against the budget: `measurePages` matches only `.js` references.
+
+**And the moves in Tasks 1 and 2 open a gap.** `lib/time/**` and `lib/place/**` are now publicly reachable and fenced by nothing, so a later edit importing `@/lib/studio/session` there would drag the auth library into a public route indirectly — the shape the `lib/studio` fence exists to stop, one level down. `lib/pod/read.ts` has had this property all along and `size:public`'s marker scan is the backstop. The belt is cheap and goes in now, while the reason is fresh.
 
 **Files:**
-- Modify: `test/guardrails.test.ts`
-- Modify: `eslint.config.mjs` — the public `no-restricted-imports` `patterns` array
+- Modify: `test/guardrails.test.ts` — four new cases
+- Modify: `eslint.config.mjs` — the public block's `paths` and `patterns`, plus one new block
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: a lint rule stage 2 relies on. No exported code.
+- Consumes: `@/lib/time/offsets` and `@/lib/place/precision` from Tasks 1 and 2.
+- Produces: lint rules stage 2 relies on. No exported code.
 
-- [ ] **Step 1: Write the two failing cases, using the file's own three helpers**
+- [ ] **Step 1: Write the four failing cases, using the file's own three helpers**
 
 `test/guardrails.test.ts` already has everything needed, and the signatures matter:
 
 - `lint(filePath, code)` — **path first, code second.** Getting this round the wrong way lints the snippet at a path where no rule applies, and every reject-case then passes for the wrong reason.
 - `ruleIds(msgs)` — the rule ids, for `toContain` / `not.toContain`.
-- `fatals(msgs)` — parse failures. **The allow-case must assert this is empty.** The helper's own docblock explains why: an unparseable snippet yields one message with `fatal: true` and `ruleId: null` and no rule messages at all, so *every* allow-case would pass on a snippet that was never linted. That is this repository's "green run that verified nothing" in miniature.
+- `fatals(msgs)` — parse failures. **Every allow-case must assert this is empty.** The helper's own docblock explains why: an unparseable snippet yields one message with `fatal: true` and `ruleId: null` and no rule messages at all, so *every* allow-case would pass on a snippet that was never linted. That is this repository's "green run that verified nothing" in miniature.
 
-Add both cases inside the existing `describe("guardrails actually fire", …)`, beside the other public-boundary cases:
+Add all four inside the existing `describe("guardrails actually fire", …)`, beside the other public-boundary cases:
 
 ```ts
   it("rejects a static maplibre-gl import from a public route", async () => {
     const msgs = await lint(
-      "app/(public)/trips/[slug]/probe.ts",
+      "components/public/trip-map/probe.ts",
       `import maplibregl from "maplibre-gl";\nexport const a = maplibregl;\n`,
     );
     expect(ruleIds(msgs)).toContain("no-restricted-imports");
     expect(msgs.map((m) => m.message).join()).toMatch(/lazy/i);
   });
 
-  it("allows a dynamic maplibre-gl import from a public route, which is how the map mounts", async () => {
-    // The asymmetry is the whole point: no-restricted-imports does not reach an
-    // ImportExpression, and the map is a chunk the prerendered HTML never names.
+  it("rejects the same bytes reached by a deep path", async () => {
     const msgs = await lint(
-      "app/(public)/trips/[slug]/probe.ts",
-      `export async function load() {\n  const m = await import("maplibre-gl");\n  return m.default;\n}\n`,
+      "components/public/trip-map/probe.ts",
+      `import mod from "maplibre-gl/dist/maplibre-gl.mjs";\nexport const a = mod;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  it("allows the maplibre stylesheet, which the attribution control needs", async () => {
+    // An exact-specifier `paths` entry is what makes this possible: a
+    // "maplibre-gl/**" pattern refuses it and no negation re-includes it.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import "maplibre-gl/dist/maplibre-gl.css";\nexport const a = 1;\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("allows a dynamic maplibre-gl import and an inline type, which is how the map mounts", async () => {
+    // The asymmetry is the whole point: no-restricted-imports reaches neither
+    // an ImportExpression nor a TSImportType, and the map is a chunk the
+    // prerendered HTML never names.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `export type M = import("maplibre-gl").Map;\n` +
+        `export async function load() {\n  const m = await import("maplibre-gl");\n  return m.default;\n}\n`,
     );
     expect(fatals(msgs)).toEqual([]);
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
 ```
 
-- [ ] **Step 2: Run them and watch the first fail and the second pass**
+And two more that pin what Tasks 1 and 2 exist to make true. Both are green before *and* after — controls rather than red-first tests — but `test/guardrails.test.ts` already keeps exactly this convention for `lib/pod/read.ts` and the studio's session module, on the principle that a fence which rejects everything proves nothing. Without them, a later `**/lib/**`-shaped group re-breaks the timeline in silence:
+
+```ts
+  it("allows a public route to import the two modules stage 0 moved out of lib/studio", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { offsetOf } from "@/lib/time/offsets";\n` +
+        `import { precisionLabel } from "@/lib/place/precision";\n` +
+        `export const a = [offsetOf, precisionLabel];\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("still refuses the paths they moved from, so the fence did not simply widen", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { offsetOf } from "@/lib/studio/time/offsets";\n` +
+        `import { placeFor } from "@/lib/studio/place/place";\n` +
+        `export const a = [offsetOf, placeFor];\n`,
+    );
+    expect(msgs.filter((m) => m.ruleId === "no-restricted-imports")).toHaveLength(2);
+  });
+```
+
+- [ ] **Step 2: Run them and watch the two reject-cases fail**
 
 Run: `npx vitest run test/guardrails.test.ts`
 
-Expected: the static case FAILS — `ruleIds(msgs)` is `[]` because the fence does not exist yet. The dynamic case PASSES already, which is correct and is a control rather than a bug: it must keep passing after Step 3, and its value is that it will fail if anyone later reaches for `no-restricted-syntax` on `ImportExpression`.
+Expected: the two `maplibre-gl` reject-cases FAIL with `AssertionError: expected [] to include 'no-restricted-imports'` — the fence does not exist yet. Everything else passes already, which is correct.
 
-If the dynamic case fails at this step, read `fatals(msgs)` first — a top-level `await import` in a snippet ESLint cannot parse would report as fatal, and that is a fixture bug, not a rule.
+If an allow-case fails, read `fatals(msgs)` first: a fixture ESLint cannot parse reports as fatal, and that is a fixture bug rather than a rule.
 
-If the static case passes at this step, the fence is already there and this task is done — check `git log` before doing anything else.
+- [ ] **Step 3: Add the fence, in two parts**
 
-- [ ] **Step 3: Add the fence, as its own entry**
+Both go in the `app/(public)/**` block in `eslint.config.mjs`. **`paths` for the exact specifier, `patterns` for the deep-JS hole** — the split is what leaves the stylesheet reachable.
 
-In `eslint.config.mjs`, inside the `app/(public)/**` block's `no-restricted-imports` `patterns` array, add a new entry. **Its own entry, not appended to the `exifreader` group** — that group's message is about image processing and would be actively misleading here.
+Into the block's existing `paths` array — the one whose entry carries the message *"Access control goes through lib/pod/access.ts only"*, **not** the identically-shaped array in the ACL block higher up the file:
 
 ```js
-{
-  // BANNED_DEPS has listed maplibre-gl since phase 0.5; this is the same ban
-  // one step earlier. STATIC ONLY, deliberately: no-restricted-imports does
-  // not reach an ImportExpression, and the map is mounted by
-  // `await import("maplibre-gl")` on intersection, which must stay legal.
-  group: ["maplibre-gl", "maplibre-gl/**"],
-  message:
-    "maplibre-gl must never be statically imported by a public route — it is 252.8 kB gzip against a 190 kB budget. The map is lazy: `await import(\"maplibre-gl\")` inside the intersection handler, so the chunk is one the prerendered HTML never names (CLAUDE.md, Map).",
-},
+            {
+              // EXACT SPECIFIER, not a pattern. "maplibre-gl/**" would also
+              // refuse dist/maplibre-gl.css, which the attribution control
+              // needs, and no negation re-includes it under gitignore
+              // semantics. Measured across eight import shapes.
+              name: "maplibre-gl",
+              message:
+                "maplibre-gl must never be statically imported by a public route — 252.8 kB gzip against a 190 kB budget. The map is lazy: `await import(\"maplibre-gl\")` inside the intersection handler, typed with `import(\"maplibre-gl\").Map`, so the chunk is one the prerendered HTML never names (CLAUDE.md, Map). The stylesheet subpath is deliberately still allowed.",
+            },
 ```
 
-Four comment lines, inside the hard bound of six.
+And into the same block's `patterns` array, as its own entry — **not** appended to the `exifreader` group, whose message is about image processing and would be actively misleading:
 
-- [ ] **Step 4: Run them and watch both pass**
+```js
+            {
+              // The bare specifier above does not cover a deep path, and
+              // dist/maplibre-gl.mjs is the same 252.8 kB by another name.
+              // Scoped to JS so the .css subpath stays reachable.
+              group: ["maplibre-gl/dist/*.js", "maplibre-gl/dist/*.mjs"],
+              message:
+                "Import maplibre-gl lazily, not by a deep path: `await import(\"maplibre-gl\")`. Only the stylesheet subpath may be imported statically.",
+            },
+```
+
+Then the belt, as a **new block** after the public one, because its file list is different:
+
+```js
+  // ------------------------------- the two modules stage 0 moved, and read.ts
+  {
+    /** Publicly reachable and fenced by nothing until now: an import of
+     *  lib/studio here would drag the auth library into a public route one
+     *  level down. ./notes.md#why-the-publicly-reachable-lib-modules-are-fenced-too */
+    files: ["lib/time/**/*.ts", "lib/place/**/*.ts", "lib/pod/read.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@inrupt/*", "**/lib/studio", "**/lib/studio/**"],
+              message:
+                "This module is imported by public routes. Importing lib/studio or an Inrupt package here puts the auth library in the public bundle indirectly — the same failure the app/(public) fence prevents, one level down.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+```
+
+That block's docblock carries a `./notes.md#` pointer, so add the anchor to `notes.md` **beside `eslint.config.mjs`** — the repository root's `notes.md`, which the config's other pointers already use:
+
+```markdown
+## Why the publicly reachable lib modules are fenced too
+
+`app/(public)/**` and `components/public/**` are fenced from `lib/studio`, but the modules they
+*import* were not. Phase 4 stage 0 moved `lib/time/offsets.ts` and `lib/place/precision.ts` out of
+`lib/studio` precisely so the public timeline could reach them — which means a later edit adding
+`import { session } from "@/lib/studio/session"` to either one would put
+`@inrupt/solid-client-authn-browser` in a public bundle, with every fence above it still green.
+
+`lib/pod/read.ts` has had exactly this property since phase 1, and nothing had noticed: it is
+imported by every public page and restricted by nothing. `size:public`'s marker scan would catch
+the leak at build time, which is why this was never a live defect — but `eslint.config.mjs`'s own
+docblock says the point of these rules is to catch the same mistake earlier.
+
+Three paths rather than a glob over `lib/**`, deliberately. `lib/media`, `lib/pod/write.ts` and
+`lib/pod/access.ts` are studio-only and *must* import Inrupt packages; a blanket rule would fence
+the modules whose job it is.
+```
+
+- [ ] **Step 4: Run them and watch all six pass**
 
 ```sh
 npx vitest run test/guardrails.test.ts
 ```
 
-Expected: PASS, both cases. Then lint the config and the guardrail suite **on disk**, which is what catches a selector that breaks the very file proving it works:
+Expected: PASS, all six new cases. Then lint the config, the guardrail suite, and the two moved modules **on disk** — which is what catches a rule that breaks the very files proving it works:
 
 ```sh
-npx eslint eslint.config.mjs test/guardrails.test.ts
+npx eslint eslint.config.mjs test/guardrails.test.ts lib/time lib/place lib/pod/read.ts
 ```
 
-Expected: clean, no output.
+Expected: clean, no output. If `lib/pod/read.ts` errors, the belt's group is catching something it already imports legitimately — read the error before widening the rule, and report rather than loosening it.
 
-- [ ] **Step 5: Prove it on a real file, then remove the proof**
+- [ ] **Step 5: Prove it on real files, then remove the proof**
 
-The virtual-path cases above trust ESLint's `filePath` argument. Confirm the glob matches a real path too:
+The cases above trust ESLint's `filePath` argument. Confirm the globs match real paths too — and note the probe directory is `components/public/`, which does not exist yet:
 
 ```sh
-mkdir -p 'app/(public)/__probe'
-printf 'import maplibregl from "maplibre-gl";\nexport const a = maplibregl;\n' > 'app/(public)/__probe/static.ts'
-printf 'export async function load() {\n  const m = await import("maplibre-gl");\n  return m.default;\n}\n' > 'app/(public)/__probe/dynamic.ts'
-npx eslint 'app/(public)/__probe/static.ts' 'app/(public)/__probe/dynamic.ts'
+mkdir -p 'components/public/__probe'
+printf 'import maplibregl from "maplibre-gl";\nexport const a = maplibregl;\n'        > 'components/public/__probe/p1.ts'
+printf 'import mod from "maplibre-gl/dist/maplibre-gl.mjs";\nexport const a = mod;\n' > 'components/public/__probe/p2.ts'
+printf 'import "maplibre-gl/dist/maplibre-gl.css";\nexport const a = 1;\n'            > 'components/public/__probe/p3.ts'
+printf 'export type M = import("maplibre-gl").Map;\n'                                 > 'components/public/__probe/p4.ts'
+npx eslint 'components/public/__probe/p*.ts'
 ```
 
-Expected: exactly one error, on `static.ts`, naming `no-restricted-imports`. Then:
+Expected: exactly two errors, on `p1.ts` and `p2.ts`, both `no-restricted-imports`. `p3.ts` and `p4.ts` clean. Then:
 
 ```sh
-rm -rf 'app/(public)/__probe'
-git status --porcelain    # expect only eslint.config.mjs and test/guardrails.test.ts
+rm -rf 'components/public'
+git status --porcelain    # expect only eslint.config.mjs, notes.md and test/guardrails.test.ts
 ```
+
+`rm -rf 'components/public'` and not just the probe directory — `components/public/` is created by stage 2, and leaving an empty one behind makes `check:structure`'s component walk read a directory that is not a component yet.
 
 - [ ] **Step 6: Run the full suite and commit**
 
@@ -464,27 +638,40 @@ git status --porcelain    # expect only eslint.config.mjs and test/guardrails.te
 npx vitest run
 npm run lint
 npm run typecheck
+npm run check:structure
 ```
 
+`check:structure` matters here: it resolves the new `#why-the-publicly-reachable-lib-modules-are-fenced-too` anchor. Watch the slug — `scripts/check-structure.ts` lowercases, drops `[^\w\s-]` and hyphenates each space, so punctuation vanishes rather than becoming a hyphen.
+
 ```sh
-git add eslint.config.mjs test/guardrails.test.ts
-git commit -m "The public fence gains maplibre-gl, statically only
+git add eslint.config.mjs notes.md test/guardrails.test.ts
+git commit -m "The public fence gains maplibre-gl, and the two moved modules gain a belt
 
 BANNED_DEPS has listed maplibre-gl since phase 0.5, but the eslint public block
 never has, so lint permitted an import the bundle check refuses and the mistake
 surfaced at build time instead of edit time. eslint.config.mjs's own docblock
 says that is backwards.
 
-Static only, and measured rather than assumed: no-restricted-imports flags
-\`import maplibregl from \"maplibre-gl\"\` and does not reach
-\`await import(\"maplibre-gl\")\`. That asymmetry is what makes the rule usable,
-since the map's whole design is the dynamic form — so the dynamic case is
-asserted too, as a control. Without it, a later move to no-restricted-syntax on
-ImportExpression would ban the map outright and nothing would say so until
-stage 2.
+The obvious spelling was wrong. A patterns group of [\"maplibre-gl\",
+\"maplibre-gl/**\"] also refuses dist/maplibre-gl.css — the stylesheet the
+attribution control needs, which CLAUDE.md forbids removing — and a !-negated
+pattern does not rescue it, because gitignore semantics refuse to re-include
+under an excluded parent. So: an exact-specifier paths entry, plus a patterns
+group scoped to dist/*.{js,mjs} to close the deep-path hole. Eight import
+shapes measured on real files; four are now cases in guardrails.test.ts.
 
-Its own patterns entry rather than appended to the exifreader group, whose
-message is about image processing.
+Types come through import(\"maplibre-gl\").Map rather than import type. The base
+rule has no allowTypeImports and only @typescript-eslint's version does, and
+putting two rules on one job to permit a spelling we can avoid is worse than
+using the spelling — which is also the honest one, since the module genuinely
+is only available dynamically.
+
+The belt is the gap Tasks 1 and 2 opened: lib/time and lib/place are now
+publicly reachable and were fenced by nothing, so an import of lib/studio there
+would put the auth library in a public bundle with every fence above it green.
+lib/pod/read.ts has had that property since phase 1 and nothing had noticed.
+Three named paths rather than lib/**, because lib/media and lib/pod/write.ts
+must import Inrupt packages.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -500,7 +687,15 @@ Nothing imports it — confirm that before removing it, because this task's only
 **Files:**
 - Modify: `package.json`, `package-lock.json`
 - Modify: `docs/decisions.md` — new §25
+- Modify: `docs/versions.md` — annotate the pinned-versions row
+- Modify: `.claude/agents/nextjs-specialist.md` — **ask the owner before this one**
 - Modify: `TODO.md` — annotate the phase 0.5 pin; add a Stage 0 line under `## Phase 4`
+
+**Two files beyond `package.json` name this library, and one of them briefs the agent that
+implements stages 2–5.** `.claude/agents/nextjs-specialist.md` says "`maplibre-gl` 6.6.0 with
+`react-map-gl` 8.1.2", and `docs/versions.md` carries it as a pinned-versions row. Leaving either
+produces exactly the failure §25's own "Rejected" paragraph is about: the next agent reads a
+sanctioned wrapper that is no longer in the lockfile, one commit after the decision rejecting it.
 
 **Interfaces:**
 - Consumes: nothing.
@@ -534,9 +729,13 @@ npm run lint
 
 Expected: all three clean, with the same passed count as Task 3 left. If `typecheck` fails naming `react-map-gl`, Step 1's grep missed something — restore with `npm install react-map-gl@8.1.2` and report.
 
-- [ ] **Step 4: Record the decision**
+- [ ] **Step 4: Record the decision, and reserve the next number**
 
-Append to `docs/decisions.md`, following the format of the numbered sections above it — a claim, the reasoning, a **Consequences** paragraph and a **Rejected** paragraph:
+Append to `docs/decisions.md`, following the format of the numbered sections above it — a claim,
+the reasoning, a **Consequences** paragraph and a **Rejected** paragraph. The highest existing
+section is **24**, so this is 25. **§27 lands in stage 1 and §26 in stage 4**, so the reservation
+line at the end is load-bearing: without it, 27 arrives first and the next doc-writing agent
+either appends 28 or slots 26 in out of order.
 
 ```markdown
 ---
@@ -564,7 +763,12 @@ style, the GeoJSON builders, the leg derivation, the dash expression, the cluste
 needs no browser and no library to test.
 
 **Rejected:** keeping the dependency installed but unused. A pinned library nothing imports reads
-to the next agent as sanctioned.
+to the next agent as sanctioned — which is why this landed alongside edits to `docs/versions.md`
+and `.claude/agents/nextjs-specialist.md`, the two other places that named it.
+
+**§26 is reserved** for the public map sheet, landing in phase 4 stage 4. It withdraws decision
+11's sentence about the Drawer providing the mobile map layout's snap-point sheet. Do not reuse
+the number.
 ```
 
 - [ ] **Step 5: Annotate the phase 0.5 pin rather than deleting it**
@@ -648,9 +852,16 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Done when
 
-- `lib/time/offsets.ts` and `lib/place/precision.ts` exist, and `grep -rn 'lib/studio/time'` over the tree returns nothing.
-- A public-path file can import both without a lint error, and cannot statically import `maplibre-gl`.
-- `test/guardrails.test.ts` asserts that fence in both directions, and the static half was watched failing before the rule existed.
-- `react-map-gl` is gone from `package.json` and the lockfile; `docs/decisions.md` §25 records why.
-- All nine definition-of-done commands pass, plus `test:e2e`, each run separately and each log read — and the integration suites were proven to have run by the dead-port control.
-- No test file was edited for content. `git diff HEAD~4 -- '**/*.test.ts' '**/*.test.tsx'` shows only import specifiers and one relocated describe block.
+- `lib/time/offsets.ts` and `lib/place/precision.ts` exist, and this **source-scoped** grep returns nothing (unscoped it never can — it matches `TODO.md`, the stage-B plan, the spec and this file):
+
+  ```sh
+  grep -rn 'lib/studio/time' --include='*.ts' --include='*.tsx' \
+    . --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git
+  ```
+
+- `test/guardrails.test.ts` carries six new cases, and the two `maplibre-gl` reject-cases were watched failing before the rule existed. The four allow-cases each assert `fatals(msgs)` is empty, so none of them can pass on a snippet that was never linted.
+- The fence's eight measured shapes hold, on real files as well as virtual paths: the bare and deep JS imports refused, the `.css` subpath and both dynamic forms allowed.
+- `lib/time/**`, `lib/place/**` and `lib/pod/read.ts` are fenced from `@inrupt/*` and `lib/studio`, and `npx eslint lib/time lib/place lib/pod/read.ts` is clean.
+- `react-map-gl` is gone from `package.json` and the lockfile, and from `docs/versions.md` and `.claude/agents/nextjs-specialist.md`; `docs/decisions.md` §25 records why and reserves §26.
+- All nine definition-of-done commands pass, plus `test:e2e`, each run separately and each log read — and the integration suites were proven to have run because the passed count dropped when the Pod was stopped.
+- No test file was edited for content. `git diff main -- '**/*.test.ts' '**/*.test.tsx'` shows only import specifiers, one relocated describe block, and the six added guardrail cases.

@@ -41,10 +41,11 @@ the same split the media-pipeline spec used.
 - **`lib/studio/time/offsets.ts` and `lib/studio/place/place.ts` exist**, extracted from
   `EntryEditor` during the code-structure refactor with docblocks that say phase 4's timeline
   wants them. §2 makes them reachable, which they currently are not.
-- **`IndexEntry` already carries everything the map needs** — `lat`, `long`, `precisionMeters`,
+- **`IndexEntry` carries almost everything the map needs** — `lat`, `long`, `precisionMeters`,
   `thumbnail`, `travelModeFrom`, `sortOrder`, `title`, `slug` — and `TripIndex` carries `bbox`
-  and `center`. One fetch, which is §7.4's stated purpose. No data-model change is needed and
-  none is made.
+  and `center`. One fetch, which is §7.4's stated purpose. **No data-model change is made by any
+  of the six stages.** The one thing it does not carry is a blur placeholder, and §6 says what
+  that costs and why closing it is the owner's call rather than stage 3's.
 - **`app/(public)/trips/[slug]/page.tsx` renders a plain `<ol>` of entry links.** That list is
   what becomes the timeline; the page's `Suspense` shape and its four not-found guards stay as
   they are.
@@ -72,11 +73,38 @@ dynamic import is therefore neither weighed nor scanned.
 So lazy-mounting is the intended answer and the mechanism works. Two consequences follow, and the
 second is the one that matters.
 
-**The eslint fence gains a line, which is a tightening.** `eslint.config.mjs`'s public block does
-not name `maplibre-gl` today, so lint permits the static import the bundle check would refuse.
-Measured with the real config: adding `"maplibre-gl"` to the `no-restricted-imports` group flags
-`import maplibregl from "maplibre-gl"` and does **not** flag `await import("maplibre-gl")`. One
-line makes lint agree with the bundle check while permitting exactly the shape the map needs.
+**The eslint fence gains an entry, which is a tightening — and the shape of it matters.**
+`eslint.config.mjs`'s public block does not name `maplibre-gl` today, so lint permits the static
+import the bundle check would refuse. The obvious spelling, a `patterns` group of
+`["maplibre-gl", "maplibre-gl/**"]`, **also refuses `maplibre-gl/dist/maplibre-gl.css`** — the
+stylesheet that positions the canvas and renders the attribution control this project may never
+remove — and a `!`-negated pattern does not rescue it, because gitignore semantics refuse to
+re-include under an excluded parent. So the fence is an exact-specifier `paths` entry plus a
+`patterns` group closing the deep-JS hole. Eight import shapes, all measured against the real
+config on real files:
+
+| Shape | Verdict |
+|---|---|
+| `import maplibregl from "maplibre-gl"` | refused |
+| `import { Marker } from "maplibre-gl"` | refused |
+| `import type { Map } from "maplibre-gl"` | refused |
+| `import mod from "maplibre-gl/dist/maplibre-gl.mjs"` | refused |
+| `import "maplibre-gl/dist/maplibre-gl.css"` | allowed |
+| `await import("maplibre-gl")` | allowed |
+| `import("maplibre-gl").Map`, as a type | allowed |
+| `import type … from "@maplibre/maplibre-gl-style-spec"` | allowed |
+
+Types therefore come through the inline `import("maplibre-gl").X` form rather than `import type`,
+which is the honest spelling: the module genuinely is only available dynamically. The base rule
+has no `allowTypeImports`, and reaching for `@typescript-eslint/no-restricted-imports` to permit
+a spelling that can simply be avoided would put two rules on the same job.
+
+**The moves in §2 open a gap worth a belt.** After them, `lib/time/**` and `lib/place/**` are
+publicly reachable and fenced by nothing, so a future edit importing `@/lib/studio/session` there
+would drag the auth library into a public route indirectly — the shape the `lib/studio` fence
+exists to stop, one level down. `lib/pod/read.ts` has had this property all along and
+`size:public`'s marker scan is the backstop. Stage 0 adds the cheap belt: a block over
+`lib/time/**`, `lib/place/**` and `lib/pod/read.ts` restricting `@inrupt/*` and `**/lib/studio/**`.
 
 **`size:public` goes quiet on the map, and that is the half-check this repository keeps hitting.**
 With the library lazy, the check passes identically whether the map is correct or entirely absent —
@@ -107,8 +135,9 @@ how the ACL primitive list nearly failed.
   `notes.md` and `offsets.test.ts` move with it. `nowWithOffset` and `wallClockNow` are write-side
   only and move anyway: splitting a nine-function arithmetic module to keep two functions on the
   other side of a fence costs more than it protects.
-- **`lib/studio/place/place.ts` splits.** `precisionLabel` moves to a new `lib/place/precision.ts`
-  together with the coordinate formatting §7 needs. `placeFor`, `placeTextOf`, `gridOf` and
+- **`lib/studio/place/place.ts` splits.** `precisionLabel` moves to a new `lib/place/precision.ts`.
+  Only that one function: the coordinate-decimal count §6 needs lands in the same module in stage
+  3, where it has a consumer. `placeFor`, `placeTextOf`, `gridOf` and
   `PRECISION_GRIDS` stay in `lib/studio/place/`, following the precedent `eslint.config.mjs`
   already sets for `entry-model.ts`: a write-shaped module stays fenced even when it is pure,
   because nothing public has any business assembling a `Place`.
@@ -131,10 +160,9 @@ and the wrapper's value was that it would not be.
 which a layout provides — but having both a declarative and an imperative route to the same map is
 how a one-instance rule rots. There is one way to touch the map.
 
-**What is given up, honestly.** `<Marker>` and `<Source>`/`<Layer>` would remove roughly seventy
-lines of marker DOM reconciliation. That is a real cost and it is accepted, because §6's clustering
-needs `querySourceFeatures` on `render` regardless, so the imperative loop exists either way and
-the wrapper would sit beside it rather than replace it.
+**What is given up is real**, and §6's clustering needs `querySourceFeatures` on `moveend` and
+`sourcedata` regardless, so the imperative reconcile loop exists either way and the wrapper would
+have sat beside it rather than replaced it.
 
 Everything interesting is pure and lives in `lib/map/`, testable with no browser and no library:
 the style, the two GeoJSON builders, the leg derivation, the dash expression, the cluster threshold
@@ -224,8 +252,17 @@ Three files, mirroring the shape the studio already proved:
 ```
 app/(public)/trips/[slug]/layout.tsx           server: reads the index, renders shell + map + children
 components/public/trip-map/trip-map.tsx        "use client": container, IntersectionObserver
+components/public/trip-map/index.ts            the one-line barrel the layout rule requires
+components/public/trip-map/notes.md            the reasoning behind the anchors below
 components/public/trip-map/hooks/use-map-instance.ts   the dynamic import, create, destroy
 ```
+
+The barrel and the `notes.md` are not optional: `componentFoldersAreOwn()` in
+`scripts/check-structure.ts` fails a `.tsx` with no `index.ts` beside it, and every `./notes.md#`
+pointer the component carries must resolve. `maplibre-gl/dist/maplibre-gl.css` is imported here,
+in `trip-map.tsx` rather than inside the lazy chunk, so the map's chrome is styled before the
+instance arrives. It costs nothing against the budget — `measurePages` matches only `.js`
+references — and §1's fence permits that one subpath deliberately.
 
 **The layout is the mechanism for "never remounted".** The bundled Next 16 docs state that on
 navigation layouts preserve state, remain interactive and do not rerender
@@ -258,7 +295,8 @@ requires that bar to be cleared by measurement rather than asserted, and this cl
 way the media pipeline's uploaded bytes did.
 
 **`components/public/**` and `lib/map/**` join the e2e gate globs** in `CLAUDE.md` and
-`docs/testing-gates.md`.
+`docs/testing-gates.md`. That edits the project's own rules rather than its code, so it wants the
+owner's sign-off in the stage rather than arriving inside a commit.
 
 ## 6. Stage 3 — markers, clustering, route
 
@@ -277,12 +315,23 @@ as `accent-deep` circles carrying their count. **Leaves are HTML markers**, reco
 `querySourceFeatures` on `moveend` and `sourcedata`. Below the threshold `cluster` is false, every
 feature is a leaf, and the cluster layers never fire.
 
-Three reasons the thumbnails are HTML and not a symbol layer, in descending order of force: a
-thumbnail is a Pod URL and `map.addImage` needs a CORS-loaded bitmap where an `<img>` needs
-nothing; `dy:blurDataUrl` rides in the index and gives each marker a placeholder for free; and
+Two reasons the thumbnails are HTML and not a symbol layer: a thumbnail is a Pod URL and
+`map.addImage` needs a CORS-loaded bitmap where an `<img>` needs nothing; and
 `dy:precisionMeters` → pin versus soft circle is a CSS distinction, which is what the brief asks
 for when it says the typography should tell the truth about the data. `lib/place/precision.ts`
 owns the coordinate-decimal count for the same reason.
+
+**There is no blur placeholder on a marker, and that is a gap rather than a solved problem.** An
+earlier draft of this section claimed `dy:blurDataUrl` "rides in the index"; it does not.
+`IndexEntry` carries eleven fields and no blur, `lib/pod/index-model.ts` serialises none, and the
+normative §7.4 fixture lists none — the term lives on `Photo`, i.e. on the entry resource.
+Stage 3 therefore ships markers with no placeholder. **Adding `dy:blurDataUrl` to the index is a
+change to the normative read model and must be put to the owner before stage 3 starts**, not
+decided by whoever hits the gap: nothing mechanical would stop it, since `check:vocab` passes (the
+term is already in `lib/vocab.ts`), `validate:fixtures` passes (it is an `xsd:string`), and
+`size:public` is indifferent. §7.4's own rule is "keep it strictly to what those views need", and
+the alternative — fetching each entry for its blur — destroys the one-fetch purpose the index
+exists for.
 
 **The route is two layers over one source.** Legs are consecutive index entries ordered by
 `sortOrder` then `occurredAt`; each leg takes its mode from its **destination** entry, because
@@ -299,6 +348,12 @@ dashed `accent` line on top reads as the mode. Dashing both would only produce a
 expression on one layer. Mapbox GL JS makes it constant-only, which is what most training data
 reflects and what would have produced eight filtered layers. Read out of
 `@maplibre/maplibre-gl-style-spec`'s `latest.json`, not remembered.
+
+Two constraints come with it, from the same reference and easy to trip over: **each `match` arm
+must be `["literal", [a, b]]`**, because that is the only way to write an array value in an
+expression, and a zoom-dependent dash expression **is evaluated only at integer zoom levels**. The
+per-mode dash is feature-driven rather than zoom-driven, so the second does not bite here — but a
+later attempt to taper dashes with zoom would find it does.
 
 `dy:track` — the GeoJSON or GPX file a trip may point at — is out of scope. The route drawn here is
 derived from the index, which is what the deliverable asks for.
@@ -318,9 +373,13 @@ without echoing back. The map applies it with `setFeatureState`, so highlighting
 never re-renders one.
 
 **The sheet is hand-rolled**, in `components/public/map-sheet/`, with three snap points. `vaul`
-stays studio-only: `docs/decisions.md` §11, the eslint public group and `BANNED_DEPS` all say so,
-and phase 0.5's line calling the shadcn drawer "the mobile map sheet" is the odd one out — it is
-corrected rather than honoured. Carving `vaul` out would open the exact hole the composition scan
+stays studio-only — but **§26 has to retract a sentence rather than merely cite agreement**, and
+the earlier draft of this paragraph got that wrong. The eslint public group and `BANNED_DEPS` do
+fence `vaul`, and `docs/decisions.md` §11 does say "None of it may reach public reading pages" —
+yet the same decision also says its Drawer "provides the snap-point sheet the mobile map layout
+needs". §11 is internally inconsistent, and `TODO.md`'s phase 0.5 line is echoing it rather than
+being the sole odd one out. So §26 must quote and withdraw that clause of §11 explicitly;
+landing §26 beside an unamended §11 leaves two decisions contradicting each other. Carving `vaul` out would open the exact hole the composition scan
 exists to close, on a library last published in 2024-12 whose snap-point API `TODO.md` already
 flags as unverified. Recorded as `docs/decisions.md` §26.
 
@@ -364,9 +423,12 @@ drew anything, which is why the e2e asserts the canvas rather than the container
 
 ## 10. Three decisions.md entries
 
-- **§25** — raw MapLibre, not react-map-gl. §3.
-- **§26** — the public sheet is hand-rolled; `vaul` stays studio-only. §7.
+- **§25** — raw MapLibre, not react-map-gl. §3. Lands in stage 0.
+- **§26** — the public sheet is hand-rolled; `vaul` stays studio-only, and §11's contrary sentence
+  is withdrawn. §7. Lands in stage 4, so **§25 reserves the number in writing** — otherwise §27
+  arrives first and the next doc-writing agent appends 28 or slots 26 in out of order.
 - **§27** — the basemap style is authored in-repo; `MAP_STYLE_URL` is a wholesale override. §4.
+  Lands in stage 1.
 
 ## 11. Out of scope, and stated so it is not re-decided
 

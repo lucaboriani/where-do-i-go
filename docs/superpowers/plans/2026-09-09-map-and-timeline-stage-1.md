@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Node 22.** `nvm use`, then confirm `node -v` prints `v22.x`. If `nvm` is not on `PATH`: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Every command below runs and passes on Node 20 too, which is why checking is a step you do.
-- **`npm test` needs a Pod.** `npm run pod:dev &` first, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran with the dead-port control before closing the stage.
+- **`npm test` needs a Pod.** `npm run pod:dev &` first, or the two integration suites skip themselves and the run is green having never executed them. Prove they ran by the **passed count dropping** when the Pod is stopped — measured 2026-09-09, a Pod-less run prints no "skipped" line at all and simply reports fewer passing tests (1420 across 62 files). Do this once, before closing the stage.
 - **`npm run test:e2e` is NOT required by this stage's diff** — it touches `lib/map/**`, `lib/config.ts`, `app/globals.css`, `.env.example` and `docs/`, none of which are among the six paths `CLAUDE.md`'s path-scoped gate names. Do not run it, and do not add those paths to the gate here; stage 2 does that, when there is a public component to gate.
 - **No network in any test.** `test/network-guard.test.ts` pins a guard that fails a test on a real `fetch`, and it was decorative for as long as nothing tested it. Everything in this stage is offline: `validateStyleMin` is a local function, and the OpenFreeMap URLs are asserted as strings, never fetched.
 - **MapLibre cannot parse `oklch()`.** Measured 2026-09-09: `Color.parse("oklch(0.185 0.008 250)")` returns `undefined`, and `validateStyleMin` rejects it with `color expected, "oklch(0.185 0.008 250)" found`. Every colour in the style is a 6-digit hex string. Do not "modernise" one to `oklch()`; the style will silently stop rendering that layer.
@@ -32,11 +32,11 @@
 | `lib/map/tokens.ts` | the six map-relevant palette colours as hex, plus the CSS custom property each mirrors |
 | `lib/map/tokens.test.ts` | the drift check: every hex equals the one `app/globals.css` records for that token |
 | `lib/map/style.ts` | `buildBasemapStyle()`, and the four layer-group functions it composes |
-| `lib/map/style.test.ts` | spec validation, the fontstack check, and the palette-only check |
+| `lib/map/style.test.ts` | nine cases: spec validation, the OpenFreeMap literals, no API key, palette used, channel spread, fontstack, hex-only, no accent, label order |
 | `lib/map/notes.md` | why hex and not oklch, what the drift check does not catch, why seventeen layers |
 | `app/globals.css` | hex comments added to the three `--color-map-*` lines, matching the convention the other eight already follow |
 | `lib/config.ts` | `mapStyleUrl` getter |
-| `lib/config.test.ts` | its three cases — unset, set, and `""` |
+| `lib/config.test.ts` | five cases — unset, set, blank, trimmed, and the `.env.example` regression |
 | `lib/notes.md` | the override's reasoning, behind a new anchor |
 | `.env.example` | `MAP_STYLE_URL` commented out, with both meanings written down |
 | `package.json`, `package-lock.json` | `@maplibre/maplibre-gl-style-spec` promoted from transitive to declared devDependency |
@@ -191,8 +191,8 @@ Create `lib/map/tokens.ts`:
  */
 
 /** Basemap, then the two-step accent the route and markers use. Roads and
- *  boundaries are NOT here: they are achromatic steps off `land`, computed in
- *  `style.ts`, because the brief bans a saturated hue in the basemap. */
+ *  boundaries are NOT here: they are near-achromatic greys hand-stepped off
+ *  `land` in `style.ts`, and `style.test.ts` bounds their channel spread. */
 export const MAP_COLORS = {
   land: "#101316",
   water: "#152026",
@@ -236,9 +236,12 @@ Expected: PASS, 4 tests.
 
 A drift check that cannot fail is worse than none. Break each side once, watch it fail, and put it back:
 
+**Every recipe below is guarded, because a `sed` that matches nothing exits 0 and leaves the test green** — which looks exactly like a check that works. Anchor on the bare hex rather than the whole comment, so the wording of Step 3's comment cannot break the recipe:
+
 ```sh
 # The stylesheet's side.
-sed -i '' 's|/\* #101316 landmass, near-neutral \*/|/* #101317 landmass, near-neutral */|' app/globals.css
+sed -i '' 's|#101316|#101317|' app/globals.css
+grep -q '#101317' app/globals.css || { echo "SED DID NOT APPLY — stop"; exit 1; }
 npx vitest run lib/map/tokens.test.ts   # expect FAIL: "#101317" vs "#101316"
 git checkout -- app/globals.css
 ```
@@ -246,6 +249,7 @@ git checkout -- app/globals.css
 ```sh
 # The module's side, and the shape guard.
 sed -i '' 's|land: "#101316"|land: "oklch(0.185 0.008 250)"|' lib/map/tokens.ts
+grep -q 'land: "oklch' lib/map/tokens.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
 npx vitest run lib/map/tokens.test.ts   # expect FAIL on two cases: the hex compare AND the /^#…$/ shape
 git checkout -- lib/map/tokens.ts
 ```
@@ -311,7 +315,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `MAP_COLORS` from `@/lib/map/tokens` (Task 1).
 - Produces:
   - `TILES_URL = "https://tiles.openfreemap.org/planet"`, `GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"`, `FONTSTACK = ["Noto Sans Regular"]`.
-  - `buildBasemapStyle(options?: { tiles?: string; glyphs?: string }): StyleSpecification`.
+  - `buildBasemapStyle(): StyleSpecification` — **no parameters.** An earlier draft took
+    `{ tiles?, glyphs? }`, and nothing could ever reach it: stage 1 adds only
+    `config.mapStyleUrl`, stage 2 passes only that, and §27's own "Also considered" *rejects* a
+    `MAP_TILES_URL`. A dead parameter plus a test whose name asserts "a deployer can self-host
+    tiles" is a product claim the stage does not ship. The endpoints are module constants, so
+    adding the parameter later is a one-line change if anyone asks for it.
   - `SOURCE_ID = "openmaptiles"` — stage 3 adds its own sources beside it and needs to not collide.
 
 - [ ] **Step 1: Declare `@maplibre/maplibre-gl-style-spec`, because it is currently transitive**
@@ -372,24 +381,60 @@ describe("buildBasemapStyle", () => {
   });
 
   it("draws from OpenFreeMap, which needs no key, no account and no cookies", () => {
+    // The LITERAL host, not TILES_URL — comparing the output against the
+    // module's own constants is a tautology that stays green if someone
+    // repoints them at a keyed provider, which is invariant 6 breaking.
     const style = buildBasemapStyle();
-    expect(style.sources[SOURCE_ID]).toEqual({ type: "vector", url: TILES_URL });
-    expect(style.glyphs).toBe(GLYPHS_URL);
+    expect(style.sources[SOURCE_ID]).toEqual({
+      type: "vector",
+      url: "https://tiles.openfreemap.org/planet",
+    });
+    expect(style.glyphs).toBe(
+      "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    );
+    // And the constants are what the style actually uses, so the two halves
+    // of this file cannot disagree.
+    expect(TILES_URL).toBe("https://tiles.openfreemap.org/planet");
+    expect(GLYPHS_URL).toBe(style.glyphs);
   });
 
-  it("takes an override for both endpoints, so a deployer can self-host tiles", () => {
-    const style = buildBasemapStyle({ tiles: "https://tiles.example/planet", glyphs: "https://f.example/{fontstack}/{range}.pbf" });
-    expect(style.sources[SOURCE_ID]).toEqual({ type: "vector", url: "https://tiles.example/planet" });
-    expect(style.glyphs).toBe("https://f.example/{fontstack}/{range}.pbf");
-    expect(validateStyleMin(style).map((e) => e.message)).toEqual([]);
+  it("carries no API key, token or placeholder for one, anywhere", () => {
+    // Invariant 6 is "zero required API keys", and it is a product feature.
+    expect(JSON.stringify(buildBasemapStyle())).not.toMatch(
+      /\{?(key|access[_-]?token|api[_-]?key|apikey)\}?/i,
+    );
   });
 
-  it("names only a fontstack the glyph endpoint serves", () => {
-    // Measured 2026-09-09: every text-font in OpenFreeMap's own dark style is
-    // ["Noto Sans Regular"], and there is no offline way to enumerate the rest.
-    for (const layer of buildBasemapStyle().layers) {
-      const font = layer.type === "symbol" ? layer.layout?.["text-font"] : undefined;
-      if (font !== undefined) expect(font, layer.id).toEqual(FONTSTACK);
+  it("uses land, water and label — a ban on the accent is not proof it used the palette", () => {
+    const json = JSON.stringify(buildBasemapStyle()).toUpperCase();
+    for (const key of ["land", "water", "label"] as const) {
+      expect(json, key).toContain(MAP_COLORS[key].toUpperCase());
+    }
+  });
+
+  it("keeps every road and boundary achromatic, which is the brief's actual rule", () => {
+    // "Any saturated hue in the basemap competes with the route." 32 is
+    // measured, not chosen: ./notes.md#the-achromatic-bound-is-32-and-why
+    const inks = JSON.stringify(buildBasemapStyle()).match(/"#[0-9a-fA-F]{6}"/g) ?? [];
+    expect(inks.length, "no colours found means this loop asserts nothing").toBeGreaterThan(10);
+    const palette = new Set(Object.values(MAP_COLORS).map((h) => h.toUpperCase()));
+    for (const quoted of inks) {
+      const hex = quoted.slice(2, -1).toUpperCase();
+      if (palette.has(`#${hex}`)) continue;
+      const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      expect(Math.max(r, g, b) - Math.min(r, g, b), `#${hex}`).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it("names only a fontstack the glyph endpoint serves, on every symbol layer", () => {
+    // NO `if (font !== undefined)` GUARD, and that is the whole case. A missing
+    // text-font is spec-legal — validateStyleMin returns [] — and MapLibre then
+    // falls back to a fontstack OpenFreeMap does not serve, so every place
+    // label silently disappears. A guarded loop skips exactly that failure.
+    const symbols = buildBasemapStyle().layers.filter((l) => l.type === "symbol");
+    expect(symbols.length, "no symbol layer means the loop below asserts nothing").toBe(5);
+    for (const layer of symbols) {
+      expect(layer.layout?.["text-font"], layer.id).toEqual(FONTSTACK);
     }
   });
 
@@ -398,10 +443,11 @@ describe("buildBasemapStyle", () => {
     expect(colours).toBeNull();
   });
 
-  it("keeps the basemap achromatic apart from land and water", () => {
+  it("spends no accent colour in the basemap, because the route needs all three", () => {
     // The brief: "any saturated hue in the basemap competes with the route".
     // The accent trio belongs to the route and the markers, which stage 3 adds
-    // imperatively — so none of it may appear in the basemap.
+    // imperatively — so none of it may appear here. Narrower than the channel
+    // -spread case above and kept beside it: this one names the three hexes.
     const json = JSON.stringify(buildBasemapStyle());
     for (const key of ["accent", "accentBright", "accentDeep"] as const) {
       expect(json.toUpperCase(), key).not.toContain(MAP_COLORS[key].toUpperCase());
@@ -428,9 +474,7 @@ Create `lib/map/style.ts`. This is the validated content:
 
 ```ts
 /**
- * The dark desaturated basemap, authored here rather than fetched and
- * recoloured: `docs/design-brief.md` calls it the project's highest-leverage
- * visual decision and puts it in the style JSON.
+ * The dark desaturated basemap, authored rather than recoloured.
  * ./notes.md#seventeen-layers-and-what-was-left-out
  */
 import type { LayerSpecification, StyleSpecification } from "@maplibre/maplibre-gl-style-spec";
@@ -629,15 +673,13 @@ function labelLayers(): LayerSpecification[] {
 }
 
 /** The style, in paint order: ground, roads, boundaries, labels. */
-export function buildBasemapStyle(
-  options: { tiles?: string; glyphs?: string } = {},
-): StyleSpecification {
+export function buildBasemapStyle(): StyleSpecification {
   return {
     version: 8,
     name: "Travel diary — dark",
-    glyphs: options.glyphs ?? GLYPHS_URL,
+    glyphs: GLYPHS_URL,
     sources: {
-      [SOURCE_ID]: { type: "vector", url: options.tiles ?? TILES_URL },
+      [SOURCE_ID]: { type: "vector", url: TILES_URL },
     },
     layers: [...groundLayers(), ...roadLayers(), ...boundaryLayers(), ...labelLayers()],
   };
@@ -665,7 +707,31 @@ because a count in this repository goes stale the first time the list moves:
     landcover_wood        highway_motorway      place_state
     landcover_glacier     railway
 
-Roads carry no casing, unlike OpenFreeMap's, which draws a casing and an inner
+## The achromatic bound is 32, and why
+
+`docs/design-brief.md` requires that "roads and boundaries stay achromatic",
+and `style.test.ts` enforces it as a bound on each colour's RGB channel spread
+— `max - min` — which is zero for a true grey and large for a saturated hue.
+
+The number is measured, not chosen. The nine `INK` values span **6 to 15**
+(`wood` 6, `park` 6, `roadMinor` 8, `glacier` 9, `rail` 9, `roadMajor` 10,
+`roadMotorway` 12, `boundaryState` 13, `boundaryCountry` 15). The accent trio
+spans **121 to 234** (`accentBright` 121, `accentDeep` 135, `accent` 234). So
+32 sits in a gap 106 wide, 17 above the highest ink and 89 below the lowest
+accent.
+
+The inks are not literally achromatic and are not meant to be: the brief gives
+the whole palette a cool cast at hue 250 so the accent "reads as belonging to
+the palette instead of sitting on top of it". A bound of 12 was the first
+guess and it fails on both boundary colours.
+
+`MAP_COLORS` values are skipped rather than bounded. `map-water` measures 17 —
+deliberately tinted to hue 235 — and the accent trio is banned outright by the
+case beside this one, which names the three hexes.
+
+## Roads carry no casing
+
+Unlike OpenFreeMap's, which draws a casing and an inner
 line per class. The brief wants exactly one cased line on the map — the route —
 and a cased road at the same zoom reads as a competing route.
 
@@ -678,25 +744,80 @@ like a tile problem.
 
 Run: `npx vitest run lib/map/style.test.ts`
 
-Expected: PASS, 7 tests. If the spec-validation case fails, read the messages — each names a layer index and a property, and the fix is in this file rather than in the test.
+Expected: PASS, 9 tests. If the spec-validation case fails, read the messages — each names a layer **index** and a property, never the layer id, and the fix is in this file rather than in the test.
 
-- [ ] **Step 6: Prove the spec check is not vacuous**
+- [ ] **Step 6: Prove the four load-bearing cases are not vacuous**
 
-The first case is the one carrying the whole file. Make the style invalid once and watch it fail:
+Four mutations, each guarded. **The validator names the layer INDEX, never the layer id** — the spec-validation case is the one carrying the whole file, so read its message rather than pattern-matching on a name:
 
 ```sh
+# 1. Spec validation. Expect: layers[10].paint.line-width: number expected, string found
 sed -i '' 's|"line-width": 0.7,|"line-width": "0.7",|' lib/map/style.ts
-npx vitest run lib/map/style.test.ts   # expect FAIL naming boundary_state and line-width
+grep -q '"line-width": "0.7"' lib/map/style.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
 git checkout -- lib/map/style.ts
 ```
-
-And confirm the achromatic case can fail, since it would otherwise pass on any style at all:
 
 ```sh
+# 2. The accent ban. Expect: the accent case fails, the channel-spread case does not
+#    (#1295FC is in the palette set, so the spread loop skips it).
 sed -i '' 's|"line-color": INK.boundaryCountry,|"line-color": MAP_COLORS.accent,|' lib/map/style.ts
-npx vitest run lib/map/style.test.ts   # expect FAIL on the achromatic case
+grep -q 'MAP_COLORS.accent' lib/map/style.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
 git checkout -- lib/map/style.ts
 ```
+
+```sh
+# 3. The fontstack case — the one that matters most, because a MISSING text-font
+#    is spec-legal and kills every label. Expect: the fontstack case fails and
+#    validateStyleMin still returns [].
+sed -i '' 's|      "text-font": FONTSTACK,||' lib/map/style.ts
+grep -q '"text-font": FONTSTACK' lib/map/style.ts && { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
+git checkout -- lib/map/style.ts
+```
+
+```sh
+# 4. The oklch ban, which "Done when" claims was watched failing. Mutating
+#    tokens.ts reddens TWO style cases plus the token shape guard: six spec
+#    errors (background-color and five text-halo-color) and a non-null oklch match.
+sed -i '' 's|  land: "#101316",|  land: "oklch(0.185 0.008 250)",|' lib/map/tokens.ts
+grep -q 'land: "oklch' lib/map/tokens.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts lib/map/tokens.test.ts
+git checkout -- lib/map/tokens.ts
+```
+
+```sh
+# 5. A saturated ink. Expect: only the channel-spread case fails.
+sed -i '' 's|roadMajor: "#20252a",|roadMajor: "#2050a0",|' lib/map/style.ts
+grep -q '#2050a0' lib/map/style.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
+git checkout -- lib/map/style.ts
+```
+
+```sh
+# 6. A keyed tile endpoint — invariant 6. Expect TWO cases: the OpenFreeMap
+#    literals and the key scan.
+sed -i '' 's|"https://tiles.openfreemap.org/planet"|"https://tiles.example.com/planet?api_key={key}"|' lib/map/style.ts
+grep -q 'api_key' lib/map/style.ts || { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
+git checkout -- lib/map/style.ts
+```
+
+```sh
+# 7. The palette-used case. NOTE THE `g` — MAP_COLORS.water is used TWICE, by
+#    `water` and by `waterway`, so a single-site swap leaves the hex in the JSON
+#    and the suite stays at 9 passed. Measured: that looks exactly like a
+#    vacuous test and is not one.
+sed -i '' 's|MAP_COLORS.water|INK.rail|g' lib/map/style.ts
+grep -q 'MAP_COLORS.water' lib/map/style.ts && { echo "SED DID NOT APPLY — stop"; exit 1; }
+npx vitest run lib/map/style.test.ts
+git checkout -- lib/map/style.ts
+```
+
+**All seven were run on 2026-09-09 against this plan's own code**, and each reddens exactly the cases named: 3 → the fontstack case alone; 2 → the accent case alone; 1 → the spec case alone; 4 → the spec case and the hex case; 5 → the spread case alone; 6 → the literals case and the key scan; 7 → the palette-used case alone. With the style intact: **9 passed**.
+
+Mutation 3 is the reason this step exists. An earlier draft of the fontstack case guarded on `if (font !== undefined)`, which skipped exactly this failure: with `text-font` deleted from all five symbol layers the suite reported **9 passed** and `validateStyleMin` returned **0 errors**, while MapLibre falls back to a fontstack OpenFreeMap does not serve and every place label vanishes.
 
 - [ ] **Step 7: Run the checks and commit**
 
@@ -764,9 +885,12 @@ The variable stays, because decision 7's consequence is explicit: *"The style UR
 ```ts
 /**
  * `MAP_STYLE_URL` is an override rather than a default, and `undefined` is the
- * signal that means "use the in-repo style": ./notes.md#mapstyleurl-is-an-override-not-a-default
+ * signal that means "use the in-repo style".
+ * ./notes.md#the-map-style-url-is-an-override-not-a-default
  */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { config } from "@/lib/config";
 
@@ -777,20 +901,54 @@ afterEach(() => {
   else process.env.MAP_STYLE_URL = original;
 });
 
+const SET = "https://tiles.example/styles/mine";
+
+/** Each case asserts the getter is LIVE before asserting what it answers.
+ *  Without that, "expected undefined" passes against a `config` object with no
+ *  such property at all — green for the wrong reason, in the exact shape
+ *  CLAUDE.md names. */
 describe("config.mapStyleUrl", () => {
   it("is undefined when unset, which is what selects the in-repo style", () => {
+    process.env.MAP_STYLE_URL = SET;
+    expect(config.mapStyleUrl, "the getter is live").toBe(SET);
     delete process.env.MAP_STYLE_URL;
     expect(config.mapStyleUrl).toBeUndefined();
   });
 
   it("is the value verbatim when set, so a deployer's own style wins whole", () => {
-    process.env.MAP_STYLE_URL = "https://tiles.example/styles/mine";
-    expect(config.mapStyleUrl).toBe("https://tiles.example/styles/mine");
+    process.env.MAP_STYLE_URL = SET;
+    expect(config.mapStyleUrl).toBe(SET);
   });
 
-  it("treats an empty value as unset, because a blank line in a .env is not a URL", () => {
+  it("treats an empty or blank value as unset, because a blank .env line is not a URL", () => {
+    process.env.MAP_STYLE_URL = SET;
+    expect(config.mapStyleUrl, "the getter is live").toBe(SET);
     process.env.MAP_STYLE_URL = "";
     expect(config.mapStyleUrl).toBeUndefined();
+    process.env.MAP_STYLE_URL = "   ";
+    expect(config.mapStyleUrl, "whitespace is blank too").toBeUndefined();
+  });
+
+  it("trims what it returns, so a stray leading space is not part of the URL", () => {
+    process.env.MAP_STYLE_URL = ` ${SET} `;
+    expect(config.mapStyleUrl).toBe(SET);
+  });
+});
+
+/**
+ * The regression decision 27 exists for, pinned so it cannot come back. Nothing
+ * under `test/` or `scripts/` reads `.env.example`, so without this the only
+ * guard was a `grep -c` in a plan nobody re-runs. The precedent for a test
+ * reading a non-source file is `lib/map/tokens.test.ts` on `app/globals.css`.
+ */
+describe(".env.example", () => {
+  it("ships no MAP_STYLE_URL value, because a copied .env.local would swap the palette", () => {
+    const env = readFileSync(
+      fileURLToPath(new URL("../.env.example", import.meta.url)),
+      "utf8",
+    );
+    expect(env, "the file was found and is not empty").toContain("MAP_STYLE_URL");
+    expect(env).not.toMatch(/^\s*MAP_STYLE_URL=.+$/m);
   });
 });
 ```
@@ -809,17 +967,17 @@ In `lib/config.ts`, inside the `config` object, after `siteUrl`:
 
 ```ts
   /** Unset means the in-repo basemap; set means load that URL wholesale.
-   *  `""` is unset: ./notes.md#mapstyleurl-is-an-override-not-a-default */
+   *  `""` is unset: ./notes.md#the-map-style-url-is-an-override-not-a-default */
   get mapStyleUrl() {
-    const url = process.env.MAP_STYLE_URL;
-    return url === undefined || url.trim() === "" ? undefined : url;
+    const url = process.env.MAP_STYLE_URL?.trim();
+    return url === undefined || url === "" ? undefined : url;
   },
 ```
 
 Add the anchor to `lib/notes.md`:
 
 ```markdown
-## MAP_STYLE_URL is an override, not a default
+## The map style URL is an override, not a default
 
 `.env.example` used to *set* this to `https://tiles.openfreemap.org/styles/dark`,
 and its own first line tells you to copy the file to `.env.local`. So the
@@ -850,7 +1008,7 @@ prop from a server component, the way `ownerWebId` already does. There is no
 
 Run: `npx vitest run lib/config.test.ts`
 
-Expected: PASS, 3 tests.
+Expected: PASS, 5 tests — four on the getter, one on `.env.example`.
 
 - [ ] **Step 5: Rewrite the `.env.example` block**
 
@@ -918,7 +1076,26 @@ tiles — rejected for now as a third variable serving a case nobody has asked f
 without breaking anything if someone does.
 ```
 
-In `TODO.md`, tick phase 4's first deliverable and say what landed:
+**First, two lines in the phase 0.5 checklist that would reintroduce the defect.** `TODO.md`
+prescribes `MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark` inside its ticked
+"`.env.example`, committed, with every variable" item, and carries an unticked "Verify the
+OpenFreeMap style URL against their current docs before committing it as the default" — which
+stage 1 is precisely the answer to. Anyone rebuilding `.env.example` from that checklist puts the
+value straight back. Annotate the first the way `react-map-gl` is annotated, and resolve the
+second:
+
+```markdown
+      **The `MAP_STYLE_URL=` value above was removed on 2026-09-09** — see `docs/decisions.md`
+      §27. Left here as the record of what phase 0.5 committed. `.env.example` now ships the
+      variable commented out, because a copied `.env.local` otherwise replaced the brief's
+      palette with OpenFreeMap's and nothing said so.
+- [x] **Resolved 2026-09-09: there is no default style URL to verify.** The project builds its
+      own style from OpenFreeMap's vector tiles (`lib/map/style.ts`), validated against the real
+      style spec. The endpoint that now needs checking on an upgrade is the tile TileJSON and the
+      glyph URL, both asserted in `lib/map/style.test.ts`.
+```
+
+Then tick phase 4's first deliverable and say what landed:
 
 ```markdown
 - [x] Dark desaturated map style built to the tokens in `docs/design-brief.md` — landed
@@ -989,16 +1166,20 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Done when
 
-- `npx vitest run lib/map lib/config.test.ts` passes: 4 token cases, 7 style cases, 3 config cases.
-- `validateStyleMin(buildBasemapStyle())` returns no errors, and that case was watched failing under a stringified `line-width`.
-- The drift check was watched failing from **both** sides, and the shape guard failed when handed an `oklch()` string.
-- No colour anywhere in the style is `oklch()`, and no accent colour appears in the basemap — both asserted, both watched failing.
-- `.env.example` sets no `MAP_STYLE_URL`, and `config.mapStyleUrl` is `undefined` for unset and for `""`.
+- `npx vitest run lib/map lib/config.test.ts` passes **18 cases**: 4 token, 9 style, 5 config.
+- `validateStyleMin(buildBasemapStyle())` returns no errors, and that case was watched failing under a stringified `line-width` — reading the message, which names `layers[10]` and not `boundary_state`.
+- The drift check was watched failing from **both** sides, and the shape guard failed when handed an `oklch()` string. Every mutation recipe was guarded, so a `sed` that matched nothing could not be mistaken for a passing check.
+- **The fontstack case was watched failing with `text-font` deleted**, not merely with a wrong value. That is the mutation the case exists for: a missing `text-font` is spec-legal, so `validateStyleMin` stays green while every place label disappears.
+- All seven mutation recipes in Task 2 Step 6 were run and each reddened the cases it names — including recipe 7, whose `g` flag is load-bearing because `MAP_COLORS.water` is used twice.
+- No colour anywhere in the style is `oklch()`, no accent colour appears in the basemap, every non-palette colour's channel spread is ≤ 32, and `land`, `water` and `label` are all actually used — a ban is not proof of use.
+- `.env.example` sets no `MAP_STYLE_URL`, pinned by a test rather than by a `grep` in this plan; `config.mapStyleUrl` is `undefined` for unset, `""` and whitespace, and trims what it returns.
+- `TODO.md`'s two phase-0.5 lines are annotated and resolved, so the checklist cannot reintroduce the value.
 - `docs/decisions.md` §27 exists; `TODO.md`'s first phase-4 deliverable is ticked with what landed.
-- All ten definition-of-done commands pass, each run separately and each log read, and the integration suites were proven to have run by the dead-port control. `size:public` unchanged, `maplibre-gl` absent.
+- All ten definition-of-done commands pass, each run separately and each log read, and the integration suites were proven to have run because the passed count dropped with the Pod down. `size:public` unchanged, `maplibre-gl` absent, and `@maplibre/maplibre-gl-style-spec` absent from every public chunk.
 
 ## What stage 2 needs from this
 
-- `buildBasemapStyle()` and `config.mapStyleUrl`. The map island receives the style URL as a prop and calls `buildBasemapStyle()` when it is `undefined`.
+- `buildBasemapStyle()` — no arguments — and `config.mapStyleUrl`. The map island receives the style URL as a prop and calls `buildBasemapStyle()` when it is `undefined`.
+- The maplibre stylesheet is imported in `components/public/trip-map/trip-map.tsx`, not inside the lazy chunk. Stage 0's fence permits that one subpath and refuses every other static form; the eight measured shapes are in stage 0 Task 3.
 - `MAP_COLORS.accent`, `.accentBright` and `.accentDeep` are unused by the basemap on purpose. Stage 3's route and markers are their only consumers, and `style.test.ts` asserts the basemap does not touch them.
 - `SOURCE_ID` is `"openmaptiles"`. Stage 3's point and leg sources must not collide with it.
