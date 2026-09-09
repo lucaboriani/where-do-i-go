@@ -339,3 +339,20 @@ already present in that snapshot (`node_modules/@next/env/dist/index.js`, `proce
 
 And because nothing here goes through a dotenv parser, the `#` in `OWNER_WEBID` cannot be eaten as
 a comment — see the note in `e2e/environment.ts`.
+
+## why the publicly reachable lib modules are fenced too
+
+`app/(public)/**` and `components/public/**` are fenced from `lib/studio`, but the modules they
+*import* were not. Phase 4 stage 0 moved `lib/time/offsets.ts` and `lib/place/precision.ts` out of
+`lib/studio` precisely so the public timeline could reach them — which means a later edit adding
+`import { session } from "@/lib/studio/session"` to either one would put
+`@inrupt/solid-client-authn-browser` in a public bundle, with every fence above it still green.
+
+`lib/pod/read.ts` has had exactly this property since phase 1, and nothing had noticed: it is
+imported by every public page and restricted by nothing. `size:public`'s marker scan would catch
+the leak at build time, which is why this was never a live defect — but `eslint.config.mjs`'s own
+docblock says the point of these rules is to catch the same mistake earlier.
+
+Three paths rather than a glob over `lib/**`, deliberately. `lib/media`, `lib/pod/write.ts` and
+`lib/pod/access.ts` are studio-only and *must* import Inrupt packages; a blanket rule would fence
+the modules whose job it is.

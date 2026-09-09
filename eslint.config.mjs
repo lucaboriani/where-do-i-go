@@ -168,6 +168,15 @@ const eslintConfig = defineConfig([
               message:
                 "Access control goes through lib/pod/access.ts only — and a public route must not touch it at all.",
             },
+            {
+              // EXACT SPECIFIER, not a pattern. "maplibre-gl/**" would also
+              // refuse dist/maplibre-gl.css, which the attribution control
+              // needs, and no negation re-includes it under gitignore
+              // semantics. Measured across eight import shapes.
+              name: "maplibre-gl",
+              message:
+                "maplibre-gl must never be statically imported by a public route — 252.8 kB gzip against a 190 kB budget. The map is lazy: `await import(\"maplibre-gl\")` inside the intersection handler, typed with `import(\"maplibre-gl\").Map`, so the chunk is one the prerendered HTML never names (CLAUDE.md, Map). The stylesheet subpath is deliberately still allowed.",
+            },
           ],
           patterns: [
             {
@@ -238,6 +247,47 @@ const eslintConfig = defineConfig([
               group: ["exifreader", "**/lib/media", "**/lib/media/**"],
               message:
                 "Image-processing code is studio-only; it must not weigh down the public bundle.",
+            },
+            {
+              // The bare specifier above does not cover a deep path, and
+              // dist/maplibre-gl.mjs is the same 252.8 kB by another name.
+              // Scoped to JS so the .css subpath stays reachable.
+              group: ["maplibre-gl/dist/*.js", "maplibre-gl/dist/*.mjs"],
+              message:
+                "Import maplibre-gl lazily, not by a deep path: `await import(\"maplibre-gl\")`. Only the stylesheet subpath may be imported statically.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ------------------------------- the two modules stage 0 moved, and read.ts
+  {
+    /** Publicly reachable and fenced by nothing until now: an import of
+     *  lib/studio here would drag the auth library into a public route one
+     *  level down. ./notes.md#why-the-publicly-reachable-lib-modules-are-fenced-too */
+    files: ["lib/time/**/*.ts", "lib/place/**/*.ts", "lib/pod/read.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          // Flat config REPLACES a rule's options per file, not merges them, so
+          // this block would silently drop the ACL ban above for lib/pod/read.ts
+          // unless it repeats it — caught by the primitive-sweep tests below.
+          paths: [
+            {
+              name: "@inrupt/solid-client",
+              importNames: ACL_PRIMITIVES,
+              message:
+                "Access control goes through lib/pod/access.ts only — the four-method interface in docs/data-model.md §5. Mechanisms differ per server (WAC vs ACP) and are not reliably detectable; see decisions.md §19.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@inrupt/*", "**/lib/studio", "**/lib/studio/**"],
+              message:
+                "This module is imported by public routes. Importing lib/studio or an Inrupt package here puts the auth library in the public bundle indirectly — the same failure the app/(public) fence prevents, one level down.",
             },
           ],
         },

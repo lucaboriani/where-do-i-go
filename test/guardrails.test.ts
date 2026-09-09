@@ -947,6 +947,68 @@ describe("guardrails actually fire", () => {
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
   });
+
+  it("rejects a static maplibre-gl import from a public route", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import maplibregl from "maplibre-gl";\nexport const a = maplibregl;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(msgs.map((m) => m.message).join()).toMatch(/lazy/i);
+  });
+
+  it("rejects the same bytes reached by a deep path", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import mod from "maplibre-gl/dist/maplibre-gl.mjs";\nexport const a = mod;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  it("allows the maplibre stylesheet, which the attribution control needs", async () => {
+    // An exact-specifier `paths` entry is what makes this possible: a
+    // "maplibre-gl/**" pattern refuses it and no negation re-includes it.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import "maplibre-gl/dist/maplibre-gl.css";\nexport const a = 1;\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("allows a dynamic maplibre-gl import and an inline type, which is how the map mounts", async () => {
+    // The asymmetry is the whole point: no-restricted-imports reaches neither
+    // an ImportExpression nor a TSImportType, and the map is a chunk the
+    // prerendered HTML never names.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `export type M = import("maplibre-gl").Map;\n` +
+        `export async function load() {\n  const m = await import("maplibre-gl");\n  return m.default;\n}\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("allows a public route to import the two modules stage 0 moved out of lib/studio", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { offsetOf } from "@/lib/time/offsets";\n` +
+        `import { precisionLabel } from "@/lib/place/precision";\n` +
+        `export const a = [offsetOf, precisionLabel];\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("still refuses the paths they moved from, so the fence did not simply widen", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { offsetOf } from "@/lib/studio/time/offsets";\n` +
+        `import { placeFor } from "@/lib/studio/place/place";\n` +
+        `export const a = [offsetOf, placeFor];\n`,
+    );
+    expect(msgs.filter((m) => m.ruleId === "no-restricted-imports")).toHaveLength(2);
+  });
 });
 
 /**
