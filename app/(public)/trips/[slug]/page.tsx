@@ -26,13 +26,10 @@ export async function generateMetadata({
   };
 }
 
-/**
- * The page itself does NOT await params. Reading URL data here would block the
- * static shell, which is what makes a navigation feel slow — Next's
- * instant-navigation validation flags exactly that. Instead the promise is
- * passed down and awaited inside <Suspense>, so the shell is served instantly
- * and the Pod-dependent content streams in behind it.
- */
+/** The page itself does NOT await params: reading URL data here would block the
+ *  static shell, which is what makes a navigation feel slow and is what Next's
+ *  instant-navigation validation flags. The promise is passed down and awaited
+ *  inside <Suspense>, so the shell is served instantly. */
 export default function TripPage(props: { params: Promise<{ slug: string }> }) {
   return (
     <main className="mx-auto max-w-2xl p-8">

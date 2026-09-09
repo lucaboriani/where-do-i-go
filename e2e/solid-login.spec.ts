@@ -6,7 +6,7 @@ import { signInAsOwner } from "./sign-in";
  * The Solid login redirect — the one flow Playwright exists for in this project.
  *
  * WHY A BROWSER IS NECESSARY HERE AND NOWHERE ELSE. Everything else the studio
- * does is already pinned by fast tests: test/studio-shell.test.tsx covers
+ * does is already pinned by fast tests: components/studio/studio-shell/studio-shell.test.tsx covers
  * restoring, signed-out, owner, not-owner and the expiry subscription against
  * an injected plain-object session, and test/session.test.ts covers signIn's
  * arguments. What none of them can reach is what an actual identity provider

@@ -179,7 +179,7 @@ this was renamed on 2026-09-06 rather than left: the condition it named — "if 
 change it has to change *before* that write" — still held. **Nothing had ever written a
 `privacy.ttl`**: `initialiseContainers()` creates `/travel/settings/` and deliberately writes no
 document into it (§5, §9), the studio has no control that writes one, and the only `privacy.ttl`
-in existence is the one `test/pod-access.integration.test.ts` PUTs into a disposable local
+in existence is the one `test/integration/pod-access.integration.test.ts` PUTs into a disposable local
 Community Solid Server. Agreed with the owner before the edit, per CLAUDE.md.
 
 That window is now closed for all four terms. The next thing to write one of these is the studio,
@@ -1071,7 +1071,7 @@ end to end.
   first write, and revision 4's own note said the rename had to happen before that write or not
   at all. Nothing has written a `privacy.ttl`: `initialiseContainers()` creates
   `/travel/settings/` and writes no document into it (§5), the studio has no control that writes
-  one, and the only instance anywhere is the fixture `test/pod-access.integration.test.ts` PUTs
+  one, and the only instance anywhere is the fixture `test/integration/pod-access.integration.test.ts` PUTs
   into a disposable local Community Solid Server. The `dy:` namespace is also still
   `example.org`, so no live Pod holds one either.
 - No other predicate, class, datatype or fixture changed. §3's naming note now records the

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
@@ -13,7 +14,7 @@ import { Photo } from "@/lib/pod/schema";
  * because every guardrail here is path-scoped. Linting the right code at the
  * wrong path proves nothing.
  *
- * A SECOND describe at the foot of this file is deliberately not a lint case.
+ * THE LAST describe at the foot of this file is deliberately not a lint case.
  * It guards a constant that a lint fence forced to be duplicated; its own
  * comment says why it lives here.
  */
@@ -82,7 +83,7 @@ describe("guardrails actually fire", () => {
    *
    *     JSXAttribute[name.name='className'] Literal[value=/[a-z0-9]-\[[^\]]+\]/]
    *
-   * components/studio/entry-editor.tsx does not write its classes that way. Its
+   * components/studio/entry-editor/entry-editor.tsx does not write its classes that way. Its
    * nine controls share two module-level constants, CONTROL and BUTTON, spent as
    * `className={CONTROL}` — an Identifier, not a Literal — so the rule never
    * looks at the strings at all. Measured against the real config before this was
@@ -129,13 +130,13 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a direct string initialiser",
       `const CONTROL = "w-full border border-hairline bg-[#222] px-3 py-2";\n` +
         `export default function T() { return <input className={CONTROL} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a concatenation of two literals — entry-editor.tsx's BUTTON, verbatim but for one value",
       `const BUTTON =\n` +
         `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
@@ -143,13 +144,13 @@ describe("guardrails actually fire", () => {
         `export default function T() { return <button className={BUTTON} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a concatenation of three, where the offender is a grandchild",
       `const BUTTON = "border " + "px-4 " + "p-[3px]";\n` +
         `export default function T() { return <button className={BUTTON} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "a template literal initialiser",
       "const CARD = `w-full p-[3px]`;\n" +
         "export default function T() { return <div className={CARD} />; }\n",
@@ -221,14 +222,14 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "entry-editor.tsx's real CONTROL — tokens only, with disabled: variants",
       `const CONTROL =\n` +
         `  "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";\n` +
         `export default function T() { return <input className={CONTROL} />; }\n`,
     ],
     [
-      "components/studio/entry-editor.tsx",
+      "components/studio/entry-editor/entry-editor.tsx",
       "entry-editor.tsx's real BUTTON — a concatenation, tokens only, hover: and disabled: variants",
       `const BUTTON =\n` +
         `  "cursor-pointer border border-hairline bg-surface px-4 py-2 hover:bg-hairline " +\n` +
@@ -458,6 +459,31 @@ describe("guardrails actually fire", () => {
     ).toContain(moduleSpecifier);
   });
 
+  /**
+   * THE TWO SPELLINGS THE 2026-09-08 FOLDER MOVE CREATED, measured rather than
+   * reasoned. `@/components/studio/entry-editor` named a FILE until that move
+   * and now names a directory with an index.ts — the very resolution the
+   * group's docblock says `**\/x/**` misses for a bare `@/x`. The move also puts
+   * a second door in: the deep path past the barrel.
+   */
+  it.each([
+    ["the barrel, which now resolves to an index.ts", "@/components/studio/entry-editor"],
+    ["the deep path past the barrel", "@/components/studio/entry-editor/entry-editor"],
+  ])("rejects %s from a public page", async (_shape, moduleSpecifier) => {
+    // The control: the specifier really has the shape this case claims. Without
+    // it, both rows pin a ban on a path that resolves to nothing.
+    expect(existsSync(resolve("components/studio/entry-editor/index.ts"))).toBe(true);
+    expect(existsSync(resolve("components/studio/entry-editor.tsx"))).toBe(false);
+    const msgs = await lint(
+      "app/(public)/thing.tsx",
+      `import E from "${moduleSpecifier}";\nexport default function T() { return <div>{String(E)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
   /** The allow-case: the studio importing its own modules is the normal case. */
   it("allows a studio page to import another (studio) module", async () => {
     const msgs = await lint(
@@ -471,7 +497,7 @@ describe("guardrails actually fire", () => {
   /**
    * And the allow-case for the components/studio half, which is the whole
    * point of it being a fence rather than a ban: app/(studio)/studio/page.tsx
-   * → the "use client" wrapper → components/studio/studio-shell.tsx IS the
+   * → the "use client" wrapper → components/studio/studio-shell/studio-shell.tsx IS the
    * three-file shape CLAUDE.md mandates. Widen the group past the public block
    * and the studio can no longer render itself.
    *
@@ -481,7 +507,7 @@ describe("guardrails actually fire", () => {
    */
   it.each([
     ["app/(studio)/studio/page.tsx", "@/components/studio/studio-shell"],
-    ["components/studio/studio-shell.tsx", "@/components/studio/entry-editor"],
+    ["components/studio/studio-shell/studio-shell.tsx", "@/components/studio/entry-editor"],
   ])("allows %s to import %s — the studio has to be able to render itself", async (path, moduleSpecifier) => {
     const msgs = await lint(
       path,
@@ -659,7 +685,7 @@ describe("guardrails actually fire", () => {
   it.each([
     ["app/(studio)/studio/page.tsx", "@/lib/pod/save-entry"],
     ["app/(studio)/studio/page.tsx", "@/lib/pod/entry-model"],
-    ["components/studio/entry-editor.tsx", "@/lib/pod/save-entry"],
+    ["components/studio/entry-editor/entry-editor.tsx", "@/lib/pod/save-entry"],
     ["test/entry-write.test.ts", "@/lib/pod/save-entry"],
     // The real, present-tense imports inside lib/pod itself.
     ["lib/pod/save-entry.ts", "./entry-model"],
@@ -920,6 +946,92 @@ describe("guardrails actually fire", () => {
         `export default function NotFound() { return <Link href="/">{String(readDiary)}</Link>; }\n`,
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+});
+
+/**
+ * The two hard bounds from CLAUDE.md's "Code structure" — 200 for a render, 80
+ * for a util, and a test FILE ceiling of 1000 with no bound on a test body.
+ * Every case lints at a path where the bound is supposed to apply.
+ */
+describe("function length", () => {
+  /** 210 statements: over the 200 hard bound for a render, and over lib's 80. */
+  const longRender = `export function C() {\n${"  let x = 0;\n".repeat(210)}  return null;\n}\n`;
+  /** 90 statements: over lib's 80 hard bound, under a render's 200. */
+  const longUtil = `export function f() {\n${"  let x = 0;\n".repeat(90)}  return 1;\n}\n`;
+
+  it("rejects a render function past the hard bound", async () => {
+    const msgs = await lint("components/studio/thing/thing.tsx", longRender);
+    expect(ruleIds(msgs)).toContain("max-lines-per-function");
+    expect(msgs.map((m) => m.message).join()).toMatch(/too many lines/);
+  });
+
+  it("allows a render function that is merely long, because 130 is a tendency", async () => {
+    const merely = `export function C() {\n${"  let x = 0;\n".repeat(140)}  return null;\n}\n`;
+    const msgs = await lint("components/studio/thing/thing.tsx", merely);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  it("rejects a lib function past the hard bound", async () => {
+    const msgs = await lint("lib/pod/thing.ts", longUtil);
+    expect(ruleIds(msgs)).toContain("max-lines-per-function");
+  });
+
+  it("holds lib tighter than a render at the very same length", async () => {
+    expect(ruleIds(await lint("lib/pod/thing.ts", longUtil))).toContain("max-lines-per-function");
+    expect(ruleIds(await lint("components/studio/thing/thing.tsx", longUtil))).not.toContain(
+      "max-lines-per-function",
+    );
+  });
+
+  it("counts code and not prose: 300 comment lines change nothing", async () => {
+    const prose =
+      `export function f() {\n${"  // a line of prose\n".repeat(300)}` +
+      `${"  let x = 0;\n".repeat(40)}  return 1;\n}\n`;
+    const msgs = await lint("lib/pod/thing.ts", prose);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  it("limits a test FILE but never a test function body", async () => {
+    const bigIt = `it("x", () => {\n${"  let x = 0;\n".repeat(300)}});\n`;
+    const msgs = await lint("lib/pod/thing.test.ts", bigIt);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+    expect(ruleIds(msgs)).not.toContain("max-lines");
+  });
+
+  it("rejects a test file past its own 1000-line ceiling", async () => {
+    const huge = `${"let x = 0;\n".repeat(1010)}`;
+    expect(ruleIds(await lint("lib/pod/thing.test.ts", huge))).toContain("max-lines");
+  });
+
+  /**
+   * A multi-line `-- reason` directive is version-sensitive ESLint behaviour and
+   * is the exemption shape CLAUDE.md mandates, so it is pinned rather than
+   * assumed. Measured working on ESLint 9.39.5.
+   */
+  it("honours a multi-line disable with a reason, which is the shape CLAUDE.md mandates", async () => {
+    const exempted =
+      `/* eslint-disable-next-line max-lines-per-function --\n` +
+      `   reason on its own line, removal condition on another */\n` +
+      `export function f() {\n${"  let x = 0;\n".repeat(90)}  return 1;\n}\n`;
+    const msgs = await lint("lib/pod/thing.ts", exempted);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("max-lines-per-function");
+  });
+
+  /**
+   * A deliberate asymmetry: components/ui/** is exempt from the folder rule, the
+   * comment rule and the arbitrary-Tailwind fence, but NOT from this one. The
+   * answer to a vendored monolith is an exemption with a reason, not a widening.
+   */
+  it("holds components/ui to the render bound, since the shadcn CLI rewrites that directory", async () => {
+    const longUi = `export function C() {\n${"  let x = 0;\n".repeat(210)}  return null;\n}\n`;
+    expect(ruleIds(await lint("components/ui/thing.tsx", longUi))).toContain(
+      "max-lines-per-function",
+    );
   });
 });
 

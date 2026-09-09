@@ -1,14 +1,7 @@
 #!/usr/bin/env tsx
-/**
- * Seed a local Community Solid Server with the §7 fixtures, so the app has
- * something to read during development. Phase 1 works "against hand-written
- * Turtle placed in the Pod manually" — this is that, automated.
- *
- * Local CSS data is disposable, which is why using the still-unresolved
- * example.org dy: namespace is fine here and would not be on a live Pod.
- *
- * Usage: npm run pod:dev  (in another terminal), then: npm run pod:seed
- */
+/** Seed a local Community Solid Server with the §7 fixtures. Disposable data,
+ *  so the unresolved example.org dy: namespace is fine here and would not be
+ *  on a live Pod. ./notes.md#seeding-a-local-pod */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

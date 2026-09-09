@@ -1,3 +1,14 @@
+# MANDATORY RULES
+
+1. **BE CONCISE UNLESS OTHERWISE STATED.**
+2. **SIMPLICITY BEATS CLEVERNESS.**
+
+They outrank everything below. A shorter answer and a plainer implementation are the defaults;
+length and cleverness have to be asked for. When a rule further down this file could be read two
+ways, these two decide it.
+
+---
+
 # AGENTS.md
 
 Project rules for this repository live in **`CLAUDE.md`**. Read that first — it carries the

@@ -1,16 +1,7 @@
 #!/usr/bin/env tsx
-/**
- * Keep CLAUDE.md's Commands block and package.json's scripts from drifting, in
- * BOTH directions. CLAUDE.md is the contract; package.json implements it.
- *
- *   forward   every command CLAUDE.md names must exist in package.json.
- *   backward  every script package.json defines must be named in CLAUDE.md.
- *
- * The backward direction was missing, and the drift it would have caught was
- * already there: CI runs `npm run size`, and the Commands block named neither
- * `size` nor `start`. Rename either script and CI breaks while this check
- * stays green — an undocumented script is one no check is holding onto.
- */
+/** Keep CLAUDE.md's Commands block and package.json's scripts from drifting,
+ *  in BOTH directions. The backward half was missing and CI was already
+ *  drifted: ./notes.md#why-the-drift-check-runs-in-both-directions */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,15 +24,8 @@ const afterHeading = claude.slice(start + "## Commands".length);
 const nextHeading = afterHeading.indexOf("\n## ");
 const section = nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading);
 
-/**
- * Walk the fences line by line rather than matching them with a regex.
- *
- * A regex cannot do this: the CLOSING fence of a tagged block is spelled
- * exactly like the OPENING fence of an untagged one (```), so
- * `/```\n([\s\S]*?)```/` happily starts capturing at the end of a ```sh block
- * and returns the prose that follows it. That is not a hypothetical — it is
- * what this script did on the first attempt at an earlier fix.
- */
+/** Walked, not matched: a tagged block's CLOSING fence is spelled like an
+ *  untagged one's OPENING fence. ./notes.md#why-the-fences-are-walked-and-not-matched */
 function untaggedFences(markdown: string): string[] {
   const found: string[] = [];
   let open: string | undefined;
@@ -63,26 +47,9 @@ function untaggedFences(markdown: string): string[] {
   return found;
 }
 
-/**
- * The scripts list is the ONE untagged fence in the Commands section. Every
- * other code block there is tagged (```sh), which is both better markdown and
- * what makes this unambiguous.
- *
- * WHY AMBIGUITY IS FATAL RATHER THAN RESOLVED BY GUESSING. This used to take
- * the FIRST untagged fence and then "prove" it was the right one by requiring
- * it to contain `test` and `build`. That sentinel did not close the hole its own
- * comment claimed it closed: an untagged decoy above the real list — "the three
- * you run most: test, build, lint" — satisfies it, gets graded instead of the
- * list, and the script reports "All 3 commands in CLAUDE.md exist in
- * package.json" having never looked at the other nine. A check that grades a
- * quarter of the contract and says "all" is worse than one that is simply
- * absent, because it occupies the slot where the real check would go.
- *
- * There is no reliable way to tell a decoy from the list — they are both fences
- * full of script names — so this does not try. Two untagged fences in the
- * Commands section means the maintainer has to say which is which, by tagging
- * the other one.
- */
+/** The scripts list is the ONE untagged fence in the Commands section. Two of
+ *  them is FATAL, never guessed - the old sentinel graded a decoy and said
+ *  "all": ./notes.md#why-two-untagged-fences-is-fatal-rather-than-guessed */
 const fences = untaggedFences(section);
 if (fences.length === 0) {
   console.log("Could not find an untagged command block in CLAUDE.md's Commands section.");

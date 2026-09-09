@@ -167,20 +167,28 @@ cached-and-invalidated model expects.
       `npm run`** — a script ran happily on v20.20.0 with the flag set — so `node -v` before
       the definition-of-done commands stays a manual step. CI is already safe: the workflow
       pins via `node-version-file: .nvmrc`.
-- [x] **A package manager of your choice** — pnpm, npm, yarn or bun. Whichever you pick, use it
-      for everything in this checkout and commit its lockfile; never mix two. The commands below
-      are written with pnpm, so substitute the equivalent (`npm run <script>`, `yarn <script>`,
-      `bun run <script>`; `npx` or `bunx` for `pnpm dlx`).
+- [x] **A package manager of your choice** — npm, pnpm, yarn or bun. Whichever you pick, use it
+      for everything in this checkout and commit its lockfile; never mix two.
+
+      **The commands below are written with npm, because `package-lock.json` is the lockfile
+      this tree actually commits** — `.npmrc` is npm's file, and CI runs `npm ci`. They were
+      written with pnpm until 2026-09-08, which made every one of them a paste-and-edit for
+      everybody working in this checkout, for no gain: `docs/decisions.md` §21's reason for the
+      pnpm dialect was "something has to be written down". Something did; it should be the one
+      in the tree.
+
+      Substitute freely if your checkout picked differently — `pnpm <script>`, `yarn <script>`,
+      `bun run <script>`, and `pnpm dlx` or `bunx` for `npx`.
 - [ ] Docker is optional. The local Pod runs fine without it (see below).
 
 ### Scaffold
 
 - [x] Create the app:
 
-      pnpm create next-app@16.3.4 . --ts --app --tailwind --eslint \
-        --use-pnpm --no-src-dir --import-alias "@/*" --no-agents-md
+      npx create-next-app@16.3.4 . --ts --app --tailwind --eslint \
+        --use-npm --no-src-dir --import-alias "@/*" --no-agents-md
 
-      Swap `--use-pnpm` for `--use-npm`, `--use-yarn` or `--use-bun` to match your choice —
+      Swap `--use-npm` for `--use-pnpm`, `--use-yarn` or `--use-bun` to match your choice —
       the flag decides which lockfile the scaffold generates.
 
 - [x] **Set TypeScript to 6.0.3.** This is a move *up* from the scaffold default, not a
@@ -189,7 +197,7 @@ cached-and-invalidated model expects.
       `typescript-eslint@8.69.0`'s peer range (`>=4.8.4 <6.1.0`), so nothing is broken on
       arrival and nothing is urgent here:
 
-      pnpm add -D typescript@6.0.3
+      npm install -D typescript@6.0.3
 
       TypeScript's `latest` is 7.0.2, but nothing in this scaffold reaches for it. Do not
       install it — it falls outside the typescript-eslint peer range. See `docs/versions.md`.
@@ -200,7 +208,7 @@ cached-and-invalidated model expects.
 
 - [x] Install, exact versions:
 
-      pnpm add maplibre-gl@6.6.0 react-map-gl@8.1.2 \
+      npm install maplibre-gl@6.6.0 react-map-gl@8.1.2 \
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
@@ -213,7 +221,7 @@ cached-and-invalidated model expects.
 
 - [x] Install:
 
-      pnpm add -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
+      npm install -D vitest@4.1.11 @vitest/coverage-v8@4.1.11 \
         @testing-library/react@16.3.3 @testing-library/jest-dom@7.0.1 jsdom@30.0.1 \
         @playwright/test@1.62.1 msw@2.15.0 \
         typescript-eslint@8.69.0 prettier@3.9.6 tsx@4.23.13 \
@@ -223,7 +231,7 @@ cached-and-invalidated model expects.
       bundle-budget item below. Left in this command as the historical record of what phase 0.5
       installed; do not reinstall them.
 
-- [x] `pnpm exec playwright install chromium` — only Chromium is needed, for the login flow.
+- [x] `npx playwright install chromium` — only Chromium is needed, for the login flow.
 
       **The earlier "verified installed (`chromium-1223`)" here was wrong, and it is the
       reason this looked done for two days.** A browser in the Playwright cache is only
@@ -238,14 +246,14 @@ cached-and-invalidated model expects.
 
 - [x] Initialise:
 
-      pnpm dlx shadcn@latest init
+      npx --yes shadcn@latest init
 
       Template `next`, base colour `neutral`. **Not** `npx shadcn-ui` — that package name is
       dead.
 
 - [x] Add only what the studio needs. Resist adding the whole registry:
 
-      pnpm dlx shadcn@latest add button input textarea select dialog drawer \
+      npx --yes shadcn@latest add button input textarea select dialog drawer \
         tabs popover command switch tooltip sonner
 
 - [x] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
@@ -490,7 +498,7 @@ cached-and-invalidated model expects.
 
 - [x] Run Community Solid Server pinned, no Docker needed:
 
-      pnpm dlx @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
+      npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data
 
 - [x] Add `.pod-data/` to `.gitignore`.
 - [x] Wire it as the `pod:dev` script and use it for all development and CI. Do not develop against
@@ -1264,6 +1272,234 @@ In progress on branch `phase-2-studio`.
       derivative anyway, and an original at a public URL keeps full GPS and device metadata.
       Uploading originals with metadata intact was never a third option. If archival originals
       are ever wanted, they are stripped too.
+
+## Code structure — a refactor between phases 3 and 4
+
+Asked for on 2026-09-08, before phase 4, after `components/studio/entry-editor.tsx` passed 3,000
+lines. Rules in `CLAUDE.md` `## Code structure`; reasoning in
+`docs/superpowers/specs/2026-09-08-code-structure-conventions-design.md`. Three stages.
+
+- [x] **Stage A — conventions, enforcement, and the moves. Zero logic change.** Plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-a.md`, seven tasks. All ten checks
+      green on the merged branch, run unchained so no failure could hide behind an earlier one:
+      `npm test` **1060 passed / 2 todo / 0 skipped / 31 files**; `lint` (now
+      `--max-warnings 0`); `typecheck`; `validate:fixtures`; `check:vocab`; `check:commands`
+      (14 both directions); `check:structure` (103 files scanned, Structure OK); `build`;
+      `size:public` **176.4 kB of 190**, every studio-only dependency absent; and the gated
+      `npm run test:e2e` **6 passed**, since the diff touches `components/studio/**`.
+
+      The integration suites were proven to have RUN, not skipped, by a control rather than a
+      count: `TEST_POD=http://localhost:3999` flips the same 33 to `33 skipped`.
+
+      What landed: three studio components each in their own folder with a named file and an
+      `index.ts` barrel; 20 module tests beside their subjects; the two Pod suites in
+      `test/integration/`; `max-lines-per-function` at 200/80 and `max-lines` at 1000 for tests;
+      and `scripts/check-structure.ts` for what ESLint cannot express — folder layout, test
+      placement, `notes.md` anchor resolution, and a comment ratchet.
+
+      **Two enforcement decisions worth not re-litigating.** The bounds are two-tier because the
+      maintainer's numbers are "tend to": ESLint fails at 200/80, `check:structure` reports
+      130/50 and fails on neither. And the comment bound is a **ratchet** — 788 blocks over six
+      lines exist today and the sweep is Stage C, so it fails only when the count rises. A flat
+      bound would have blocked every merge in Stages A and B on deferred work.
+
+      **Four exemptions, each naming the stage that removes it**: `EntryEditor` (941 lines),
+      `entry-editor.test.tsx` (6,514), `serialiseEntry` (111), `check-public-bundle.ts :: main`
+      (94). `reportUnusedDisableDirectives` is active and `lint` runs at `--max-warnings 0`, so a
+      run at zero warnings is itself evidence all four still suppress a live violation, and each
+      fails the build the day its function is decomposed.
+
+      **Both review passes found defects that would have shipped**, and they are the shapes worth
+      remembering:
+
+      - **A hand-rolled line counter disagreed with the tool that enforces the rule.** It
+        reported nine long functions and `EntryEditor` at 1,275 lines; ESLint says twelve and
+        941. It over-counted by a third and missed three spans in `lib/pod/read.ts` entirely.
+        Every threshold in the spec was rewritten from the enforcing tool's output.
+      - **`check:structure` could not have exited 0 on the day it landed**, because the comment
+        rule's backlog is a Stage C job. Caught before it went into CI.
+      - **The folder rule as first written would have banned Stage B's own design** — it scanned
+        `.ts` as well as `.tsx`, failing the ten plain modules the reducer plan puts in `state/`
+        and `hooks/`.
+      - **Three separate "reports zero and looks fine" bugs.** `driftReport` without `cwd: ROOT`
+        (ESLint answers an out-of-basePath file with one `ruleId: null` message the filter drops);
+        `@typescript-eslint/parser` having no `.default` under tsx, so ESLint silently fell back
+        to espree and every file returned a parse error that was likewise dropped; and
+        `allowInlineConfig` left on, which let the 941-line `EntryEditor` hide behind its own
+        exemption — 9 reported where there are 12.
+      - **A prefix-based comment scanner had 17 false negatives, every one in
+        `entry-editor.tsx`**, including a 47-line block, because that file's house style is the
+        JSX `{/* … */}` form whose lines begin with `{`. Replaced with the parser's comment
+        ranges, which also stops a markdown list in a template literal counting as comments.
+      - **`slug()` disagreed with GitHub in both directions** on em-dash headings — the house
+        style in `docs/data-model.md` — so it would have rejected anchors copied from GitHub and
+        accepted anchors GitHub cannot resolve.
+
+- [x] **Stage B — `EntryEditor`.** Landed 2026-09-08, 15 commits on
+      `refactor/code-structure-conventions`, plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-b.md`. **941 code lines → 195**, and
+      one file → 63. All nine checks plus the gated e2e:
+      `npm test` **1332 passed / 2 todo / 0 skipped / 60 files** (from 1060 at Stage A's close);
+      `lint` at `--max-warnings 0`; `typecheck`; `validate:fixtures`; `check:vocab`;
+      `check:commands`; `check:structure` **Structure OK, ratchet 788, two exemptions**; `build`;
+      `size:public` **176.4 kB of 190** with every studio-only dependency absent; and
+      `E2E_PORT=3007 npm run test:e2e` **6 passed**. The integration suites were proven to have
+      RUN, not skipped, by the `TEST_POD=http://localhost:3999` control on every task.
+
+      **`EntryEditor`'s exemption came out on its designed signal**, not by anyone remembering:
+      at 195 lines `npm run lint` reported `Unused eslint-disable directive` and failed at
+      `--max-warnings 0`. `check:structure` now lists **two** exemptions, both Stage C's.
+
+      The order was risk-ascending and the first task was the point of it. **Task 1 wrote the test
+      the 6,514-line suite could not express**: two photos picked in ONE `change` event. Every
+      other two-photo case awaited the first photo's `<img>`, so React had fully re-rendered
+      between them — but the picker is `multiple` and runs
+      `for (const file of picked) void attach(file)`, and `offerTimestamp` reads
+      `occurredAuthor.current` **synchronously** in `attach`'s continuation. The decodes serialise;
+      the continuations do not. Proven by mutation before it was committed: moving the ref reads
+      before the `await` put the *second* photo's `2026-04-12T18:20` in the clock and accepted its
+      `+12:45` beside the first photo's time — §11.5's instant that happened nowhere, reproduced
+      on demand. The suite also had to wrap the fake pipeline to serialise, because `fakePipeline`
+      does not and the real one does.
+
+      **What the stage is: 63 files.** A harness plus thirteen suites split at the eighteen section
+      banners the original already carried; five presentational field groups behind 44 **named**
+      props and no spreads; four hooks holding every `useState`, `useRef` and effect; a reducer
+      over 20 of the 27 state values with the first-writer-wins guard as a branch **inside** the
+      transition; and the offset arithmetic and place logic moved to `lib/studio/time/` and
+      `lib/studio/place/`, where phase 4's timeline can reach them.
+
+      **Four things measurement corrected, all of them in the plan rather than the code:**
+
+      - **"~120 lines when the stage ends" was not reachable by moving state, and 195 says so.**
+        ~55 of it is composition and ~140 is JSX in one `return`. Relatedly, the plan predicted the
+        exemption would come out after Task 5; at that point the editor was still **633** lines,
+        because "~990 lines of JSX" was a *raw* span roughly two-thirds comment and
+        `max-lines-per-function` runs with `skipComments: true`. The bound never saw mostly markup.
+      - **A `{ kind: "slots"; slots }` action would have lost a photo.** A wholesale set must be
+        built from a list a *render* held — the stale read the guard forbids — so two photos in one
+        pick would each append to the same array and one would vanish. `slot-added` /
+        `slot-settled` instead; `applyRestore` still replaces wholesale, because it replaces rather
+        than appends.
+      - **Two of the plan's own test fixtures would have verified nothing.** `fillNewEntry()` types
+        an `occurredAt`, making the *owner* the clock's author so no photo can ever fill — the
+        control's `not.toBe("")` would have passed on the owner's own typing. And
+        `jpegWithGps("clockless.jpg", …)` is not clockless: `EXIF_BASE` carries a
+        `dateTimeOriginal`.
+      - **An exemption assertion was half a check.** `toContain("lib/pod/entry-model.ts")` over the
+        whole of stdout passes because every exemption path also appears in the drift report, so it
+        would have passed whatever the exemptions block held. It now parses the
+        `active exemptions — N:` block.
+
+      **Two stale claims found in code that predated this work**, both recorded rather than
+      silently fixed: `CONTROL`'s docblock says the arbitrary-Tailwind guardrail "does not reach
+      these two constants" — it does, re-measured, and has since the rule grew three arms
+      *because of* those constants; and `test/studio-trip-loading`'s successor still cites line
+      numbers that were already wrong at HEAD.
+
+      **Reported, not failing:** `EntryEditor` at 195 and `useEntryDraft` at 142 are over the 130
+      tendency; three suites are over the 600 test-file tendency. The unsaved-draft banner (~32
+      lines) would qualify as a sixth field group by Task 5's own argument and was deliberately
+      left — an unasked-for extraction inside the commit that removes an exemption is how a
+      reviewable diff stops being one.
+
+      **One flake to watch, not caused by this work.** Section 12m's third case
+      (`refuses an offset-only second photo beside the first photo's clock`) failed once at
+      `de7658b` **before** that task's changes, under full-suite parallel load, and has been green
+      in every run since — four full suites and five of that file in isolation at the stage's
+      close. Timing-sensitive rather than wrong; watch it rather than act on it.
+
+- [x] **Stage C — the long functions, and the comment sweep.** Landed 2026-09-09, plan at
+      `docs/superpowers/plans/2026-09-08-code-structure-stage-c.md`. All nine checks plus the
+      gated e2e, run unchained and each log read: `npm test` **1420 passed / 2 todo / 0 skipped /
+      62 files**; `lint` at `--max-warnings 0`; `typecheck`; `validate:fixtures`; `check:vocab`;
+      `check:commands`; `check:structure` **Structure OK, 162 files scanned**; `build`;
+      `size:public` **176.4 kB of 190** with every studio-only dependency absent; and
+      `E2E_PORT=3007 npm run test:e2e` **6 passed**. The integration suites were proven to have
+      RUN, not skipped, by the dead-port control on every task: 36 passed, then 36 skipped.
+
+      **No length bound anywhere is suppressed.** `active exemptions — 0`. Both of Stage A's
+      remaining `eslint-disable` directives left on their own signal — `npm run lint` reporting
+      `Unused eslint-disable directive` at `--max-warnings 0` — rather than because anyone
+      remembered them.
+
+      **The production comment bound is now a hard zero**, down from 279. Three sweeps moved
+      **277 blocks and deleted none**: `scripts/` 20, `lib/` 124 (the plan estimated ~90), and
+      `components/` + `app/` 133. Proved absolute by adding an eight-line block to `lib/config.ts`
+      and watching `check:structure` name the file and exit 1. Test docblocks stay **exempt but
+      ratcheted at 509** — the maintainer's decision on measurement, since 509 of the original 788
+      were test-side and this project's two real defects were both found *because* a test docblock
+      recorded which fixture could reach which branch. Exempt means not rewritten, never
+      unbounded.
+
+      **Eleven long functions became three, and the three are decisions rather than leftovers.**
+      `serialiseEntry` 111→29, `serialiseIndex` 57→20, `saveEntry` 69→23, `readTripIndexWithEtag`
+      64→10, `tripIndexOf` 55→23, `readEntry` 52→37, `setContainerAccess` 73→15,
+      `setDocumentPublicRead` 59→32, `verifyContainerAccess` 54→29,
+      `check-public-bundle.ts :: main` 94→20, `validate-fixtures.ts :: main` 59→24. What remains
+      is over the 130 *tendency* and under the 200 bound, each with its reason in the nearest
+      `notes.md`: `EntryEditor` **164** (the draft banner became a sixth field group; the three
+      further candidates are costed), `WhereFields` **161**, `useEntryDraft` **142**.
+
+      **`WhereFields` is the one worth reading, because the alternative was measured rather than
+      asserted.** The split along the §9 hold boundary is a real seam, and it comes to **199 lines
+      across three functions where there are 161 in one** — but the decisive argument is a test:
+      `holds the three coordinate controls when the settings cannot be read` asserts three
+      disabled and three live in a single render, which *is* §9's mitigation, and split in two the
+      only place left to render it is the harness, where the banner's own `fieldset disabled`
+      holds all six and confounds it. A tendency that would make the code worse is not followed.
+
+      **Four things this stage corrected in its own plan**, each found by doing the work:
+
+      - **The serialisers' seam is §7.3 and §7.4, not §10.** §10 is the write protocol — PUT with
+        `If-None-Match`, set ACL, recompute the index, revalidate — which is `saveEntry`'s
+        sequence. A pure serialiser implements no §10 clause, so following the citation literally
+        would have split them along a protocol they do not implement.
+      - **`access.ts` does not split per mechanism**, and the earlier draft citing `decisions.md`
+        §4 was citing "No drafts container". §19 is "Access control goes through one interface,
+        and never branches on mechanism". The axis actually present is document versus container.
+      - **A blank line inside a `/** */` does not split a comment run**, because the whole block
+        is one token. Several replacement pointers came in over the bound that way.
+      - **GitHub's heading slug removes punctuation rather than hyphenating it**, so a pointer at
+        `#…not-import-meta-main` did not resolve to a heading about `import.meta.main`. Caught by
+        `check:structure` going red, and missed first time by grepping its output for one line
+        instead of reading its exit status — a half-check in the shape this file warns about.
+
+      **Findings recorded rather than fixed**, each in a `notes.md` beside the code: an unreadable
+      ACL is indistinguishable from no ACL in `@inrupt/solid-client` 3.0.0, so a 403 on
+      `{container}.acl` reports "race" where the truth was a transient failure; a half-written
+      bbox is dropped silently, unlike `readPrivacySettings`' deliberate all-three-or-none;
+      `scripts/validate-fixtures.ts` cannot have a test file without changing `vitest.config.ts`
+      or `REPO_TESTS`; and `drafts.ts` requires the editor to render a shape-valid-but-unlisted
+      offset while the select in fact falls back silently — both claims are now in the notes,
+      unreconciled, because that contradiction is the open item.
+
+### The refactor, as one thing
+
+Three stages, 2026-09-08 to 2026-09-09, between phases 3 and 4. What a reader can now rely on:
+
+- **A component lives in its own folder** with a named file, a one-line `index.ts`, its test and
+  its `notes.md`. `EntryEditor` went from **941 code lines in one file to 164 in a folder of
+  sixty-odd**.
+- **A test sits beside its subject**, and the three kinds that have no subject are listed in
+  `CLAUDE.md` and enforced — including that a name on that list which no longer exists fails the
+  check.
+- **Prose lives behind a checked anchor.** A `see ./notes.md#anchor` that does not resolve fails
+  the build, which is what stops the line-number rot that went stale twice in one stage.
+- **Two bounds are enforced by a build and neither is suppressed**: 200/80 on function length at
+  `--max-warnings 0`, and a hard zero on production comment blocks. One `eslint-disable` remains
+  in the whole repository — `@next/next/no-img-element` in `photo-fields.tsx`, because
+  `next/image` cannot serve a Pod URL — and it is reported like any other.
+- **The tendencies are reported, never enforced** — 130/50 and 600 — because the maintainer's
+  instruction was "tend to, not a dictate", and a lint error cannot express that.
+
+Still open, and none of it caused by the refactor: the ~509 test-side comment blocks are exempt
+rather than swept; `OFFSET_SHAPE`'s width is unpinned; the "exact" precision option needs a §9
+decision, because `GeoPoint.precisionMeters` is `.positive()` and its own docblock argues against
+0; `rebuildIndex` still lacks ACL verification and needs the `write.ts` ↔ `access.ts` cycle broken
+first; and the fifteen phase-3 follow-ups above are untouched.
+
+**Phase 4 next.**
 
 ## Phase 4 — map and timeline
 

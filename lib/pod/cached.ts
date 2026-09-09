@@ -1,31 +1,8 @@
 /**
- * The cached read layer.
- *
- * decisions.md §22: Cache Components is on, so uncached data access outside a
- * Suspense boundary blocks prerendering — and every public page reads from the
- * Pod, so this is the main render path, not an edge case.
- *
- * The choice made here is `use cache` + cacheTag, invalidated by the studio's
- * revalidation hook calling revalidateTag after each save. The alternative,
- * Suspense around every Pod read, streams instead of caching and puts a Pod
- * round-trip on every view — giving up the edge-cached public site the whole
- * architecture is arranged around.
- *
- * ONE DELIBERATE EXCEPTION TO "A TYPED VALUE OR A STRUCTURED ERROR, NEVER A
- * THROW". The getters these functions read — `config.podRoot`,
- * `config.ownerWebId` — throw when their env var is unset, so a misconfigured
- * deployment makes them reject rather than return a `PodError`.
- *
- * That is the intended behaviour, not an oversight to tidy away. A missing
- * POD_ROOT is a deployment fault, not a runtime condition to render a fallback
- * for: `lib/config.ts` says as much in the error itself — "the site reads its
- * content from a Solid Pod and cannot start without knowing which one". With
- * Cache Components on, these run at build time, so the throw fails the BUILD,
- * which is where a missing env var should fail. Catching it here would instead
- * produce a site that deploys green and serves an error fallback on every page.
- *
- * So: structured errors are for what the Pod does — 404, a bad shape, an
- * unreachable host. A throw here means the deployment is wrong.
+ * The cached read layer: `use cache` plus `cacheTag`, invalidated by the
+ * studio's revalidation hook (`docs/decisions.md` §22). ONE DELIBERATE
+ * EXCEPTION to "never a throw" lives here, and it fails the build on purpose.
+ * ./notes.md#one-deliberate-exception-to-a-typed-value-or-a-structured-error-never-a-throw
  */
 import { cacheTag } from "next/cache";
 import { config } from "@/lib/config";
@@ -43,13 +20,9 @@ import { TAGS } from "./tags";
 import type { Result } from "./result";
 import type { Diary, Entry, OwnerProfile, Trip, TripIndex } from "./schema";
 
-/**
- * Re-exported, not defined here. The tags moved to `./tags` because `saveEntry`
- * needs them in the browser and this module is server-only — it imports
- * `next/cache` and carries `"use cache"` functions. One definition, reachable
- * from both sides, and every existing `import { TAGS } from "@/lib/pod/cached"`
- * keeps working.
- */
+/** Re-exported, not defined here: the tags moved to `./tags` because
+ *  `saveEntry` needs them in the browser and this module is server-only.
+ *  ./notes.md#why-the-cache-tags-are-not-in-cachedts-where-they-used-to-live */
 export { TAGS };
 
 export async function getDiary(): Promise<Result<Diary>> {
@@ -82,20 +55,10 @@ export async function getEntry(slug: string, entrySlug: string): Promise<Result<
 }
 
 /**
- * The owner's WebID profile (§7.5) — issuer, storage, extended profile.
- *
- * Cached for the reason at the top of this file rather than because the studio
- * needs it fast: `/studio` prerenders as `○ (Static)`, and a bare
- * `readOwnerProfile` in the page is an uncached data access outside a Suspense
- * boundary, which silently demotes it. Only the route table would show it.
- *
- * Reads `config.ownerWebId`, never `config.podRoot`. They are different things
- * — on ESS identity and storage are different hosts entirely — and where the
- * Pod is comes from `pim:storage` inside the document, not from configuration.
- *
- * `config.ownerWebId` throws when OWNER_WEBID is unset, which sits oddly beside
- * "never a throw" — see the note on that at the top of this file. Deliberate,
- * and the same for `getDiary` through `config.podRoot`.
+ * The owner's WebID profile (§7.5) — issuer, storage, extended profile. Reads
+ * `config.ownerWebId` and NEVER `config.podRoot`: on ESS identity and storage
+ * are different hosts, and `pim:storage` inside the document says where the Pod
+ * is. ./notes.md#why-the-read-layer-is-cached-rather-than-streamed
  */
 export async function getOwnerProfile(): Promise<Result<OwnerProfile>> {
   "use cache";
@@ -104,12 +67,10 @@ export async function getOwnerProfile(): Promise<Result<OwnerProfile>> {
 }
 
 /**
- * Every (trip, entry) pair for prerendering.
- *
- * Entries are knowable at build time because the index exists precisely to list
- * them (§7.4) — so this needs no container enumeration and no authentication.
- * An entry published after the build is served the App Shell and upgraded in
- * the background by partialPrefetching, so publishing never needs a redeploy.
+ * Every (trip, entry) pair for prerendering. Entries are knowable at build time
+ * because the index exists precisely to list them (§7.4), so this needs no
+ * container enumeration and no authentication.
+ * ./notes.md#why-the-read-layer-is-cached-rather-than-streamed
  */
 export async function allEntryParams(): Promise<{ slug: string; entry: string }[]> {
   const slugs = await allTripSlugs();
@@ -123,13 +84,9 @@ export async function allEntryParams(): Promise<{ slug: string; entry: string }[
 }
 
 /**
- * Published trip slugs, as a Result.
- *
- * This is what the render path uses. `result.ts` opens with "a thrown exception
- * is not a structured error … failures are values, not control flow", and
- * proxy.ts deliberately fails open on exactly this condition — so a Pod that is
- * briefly unreachable must render the same fallback the home page already has,
- * not a 500 from an error boundary.
+ * Published trip slugs, as a Result — this is what the render path uses, and
+ * `proxy.ts` fails open on exactly this condition.
+ * ./notes.md#one-deliberate-exception-to-a-typed-value-or-a-structured-error-never-a-throw
  */
 export async function publishedTripSlugs(): Promise<Result<string[]>> {
   "use cache";
@@ -157,15 +114,9 @@ export async function publishedTripSlugs(): Promise<Result<string[]>> {
 
 /**
  * Trip slugs for prerendering. THROWS on purpose — use only from
- * generateStaticParams, never from a render path.
- *
- * generateStaticParams must return at least one param — an empty array raises
- * `empty-generate-static-params` — and dynamicParams is unsupported. So a
- * deployer whose Pod has no trips yet would get a failed build rather than an
- * empty site, which is a terrible first run for "fork it and deploy".
- *
- * We fail, but loudly and with the fix in the message, rather than shipping a
- * placeholder trip that would appear on a real site.
+ * generateStaticParams, never from a render path, and fail loudly with the fix
+ * in the message rather than shipping a placeholder trip.
+ * ./notes.md#one-deliberate-exception-to-a-typed-value-or-a-structured-error-never-a-throw
  */
 export async function allTripSlugs(): Promise<string[]> {
   const result = await publishedTripSlugs();

@@ -1,13 +1,8 @@
 /**
- * Every IRI in this project, as a named constant.
- *
- * This is the highest-value rule in docs/data-model.md §11: no predicate string
- * literals anywhere else in the codebase, or you end up with three spellings of
- * the same property scattered across your Pod. Enforced by the
- * `no-restricted-syntax` rule in eslint.config.mjs, which exempts this file.
- *
- * Generated from docs/data-model.md §3. A CI check asserts this file and that
- * document agree in both directions — see scripts/check-vocab.ts.
+ * Every IRI in this project, as a named constant. §11's highest-value rule: no
+ * predicate string literals anywhere else, or a property ends up with three
+ * spellings scattered across a Pod. `no-restricted-syntax` enforces it and
+ * exempts this file; `scripts/check-vocab.ts` checks §3 in both directions.
  */
 
 /* --------------------------------------------------------------------------
@@ -30,13 +25,10 @@ export const NS = {
   foaf: "http://xmlns.com/foaf/0.1/",
 
   /**
-   * BLOCKED: still example.org. This is a permanent identifier baked into every
-   * triple, hardcoded and never read from an environment variable — if each
-   * deployer used their own namespace, two diaries could not be read by the
-   * same code and the interoperability premise collapses (§2 rule 4).
-   *
-   * Nothing may be written to a live Pod until the real project domain replaces
-   * this. Local Community Solid Server data is disposable; spike there freely.
+   * BLOCKED, still example.org: NOTHING MAY BE WRITTEN TO A LIVE POD until the
+   * real project domain replaces this. A permanent identifier baked into every
+   * triple, hardcoded and never an env var (§2 rule 4). Local Community Solid
+   * Server data is disposable; ./notes.md#the-dy-namespace-is-hardcoded-and-blocked
    */
   dy: "https://example.org/ns/traveldiary#",
 } as const;
@@ -126,22 +118,10 @@ export const DY = {
   track: dy("track"),
   tag: dy("tag"),
 
-  /* ------------------------------------------------------------------------
-   * Privacy settings (§3, §7.6). The ONLY dy: terms in this file that are never
-   * publicly readable — they live in one owner-only resource, because the home
-   * region is the thing being protected and publishing its centre and radius
-   * would hand a reader the answer the fuzzing exists to withhold.
-   *
-   * `homeLong`, matching `long` and `centerLong` above. It was `homeLon` until
-   * 2026-09-06 — deliberately, and this comment used to say so — and the rename
-   * happened for the reason the old note gave: a predicate is permanent the
-   * moment anything writes one, and nothing had. There is no writer for
-   * `privacy.ttl` in this codebase, `initialiseContainers()` deliberately
-   * creates the container empty, and `dy:` is still example.org so no live Pod
-   * holds one. §3 and §14 record the decision, which was the owner's.
-   *
-   * That window is closed now. All four of these are fixed.
-   * --------------------------------------------------------------------- */
+  /* Privacy settings (§3, §7.6): the ONLY dy: terms here that are never
+   * publicly readable. All four names are fixed now — the `homeLon` rename
+   * window closed on 2026-09-06;
+   * see ./notes.md#the-privacy-predicates-and-the-closed-rename-window */
 
   /** xsd:decimal, never float — the home centre, stored at FULL precision.
    *  The one coordinate in this project that is not fuzzed before the write,
@@ -159,13 +139,10 @@ export const DY = {
   defaultPrecisionMeters: dy("defaultPrecisionMeters"),
 } as const;
 
-/* -------------------------------------------------------------------------- */
-/* Borrowed vocabularies                                                      */
-/*                                                                            */
-/* schema.org only where the property is genuinely in the type's domain, since */
-/* Google validates structured data (§2 rule 1). dcterms for provenance: DCMI  */
-/* terms assert no rdfs:domain, so they are safe on custom classes.            */
-/* -------------------------------------------------------------------------- */
+/* Borrowed vocabularies. schema.org only where the property is genuinely in
+ * the type's domain, since Google validates structured data (§2 rule 1).
+ * dcterms for provenance: DCMI terms assert no rdfs:domain, so they are safe
+ * on custom classes. */
 
 export const SCHEMA = {
   TouristTrip: schema("TouristTrip"),

@@ -1,33 +1,12 @@
 /// <reference lib="webworker" />
-// The reference marks the execution context; it is not what supplies the types.
-// Measured 2026-09-06: tsconfig's lib is ["dom","dom.iterable","esnext"], which
-// already declares OffscreenCanvas, createImageBitmap and ImageBitmap, and
-// typecheck is clean with the line removed. What the line DOES do is load
-// lib.webworker.d.ts alongside lib.dom.d.ts, whose 34 collision errors are
-// invisible only because skipLibCheck is true — turn that off and they appear
-// inside lib.dom.d.ts, nowhere near this file. `self` still resolves to
-// `Window & typeof globalThis` (dom wins), which is why postMessage below needs
-// the cast: Window.postMessage takes a targetOrigin, Worker.postMessage does not.
+// Marks the execution context; it is not what supplies the types, and it is
+// why postMessage needs a cast below. Measured 2026-09-06:
+// ./notes.md#the-webworker-reference-and-the-postmessage-cast
+
 /**
- * Bytes in, derivatives and metadata out. STUDIO ONLY.
- *
- * DELIBERATELY THIN. A worker is the least testable place in this project, so
- * everything decidable without pixels lives in ./targets.ts and ./exif.ts and
- * is unit-tested there. What is left here is decode, draw, encode — and that
- * is verified in a real browser by e2e/media-pipeline.spec.ts.
- *
- * THE RE-ENCODE IS THE EXIF STRIP. A canvas holds pixels and nothing else, so
- * metadata is dropped as a consequence of drawing and re-encoding rather than
- * by a separate step. DO NOT add a "it is already small enough, pass the
- * original through" shortcut: it reads as an optimisation and it uploads the
- * user's GPS to a publicly readable container.
- *
- * ORIENTATION IS HANDLED BY THE DECODER. `imageOrientation: "from-image"`
- * means the bitmap arrives already rotated, so every target is computed from
- * bitmap.width/height and this file does no orientation maths at all. An
- * orientation-6 photo is stored 4032x3024 and displays 3024x4032; computing
- * targets from the file's recorded size gets both the aspect ratio and the
- * stored schema:width/height wrong.
+ * Bytes in, derivatives and metadata out. STUDIO ONLY, deliberately thin, and
+ * doing no orientation maths — every target comes from bitmap.width/height.
+ * ./notes.md#the-worker-is-thin-and-where-the-decisions-live
  */
 import { readMetadata } from "./exif";
 import { TARGETS, fitWithin, withinBlurBudget } from "./targets";
@@ -73,6 +52,11 @@ async function encode(
   return { blob, width, height };
 }
 
+// THE RE-ENCODE IS THE EXIF STRIP. A canvas holds pixels and nothing else, so
+// there is no separate strip to skip. DO NOT add an "it is already small
+// enough, pass the original through" shortcut: it reads as an optimisation and
+// it uploads the owner's GPS into a publicly readable container.
+// ./notes.md#the-re-encode-is-the-exif-strip
 async function run(file: Blob): Promise<TransferableResult> {
   const bytes = await file.arrayBuffer();
   const metadata = readMetadata(bytes);

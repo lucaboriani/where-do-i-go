@@ -1,9 +1,8 @@
 /**
- * Unauthenticated Pod reads. Imported by BOTH the public site and the studio.
- *
+ * Unauthenticated Pod reads, imported by BOTH the public site and the studio.
  * Every function returns a typed object or a structured error — never a thrown
- * exception and never raw triples (docs/data-model.md §11). Callers render a
- * fallback for the failure instead of losing the whole page.
+ * exception and never raw triples (§11), so a caller renders a fallback for the
+ * failure instead of losing the whole page.
  */
 import * as z from "zod";
 import {
@@ -118,6 +117,35 @@ function placeOf(quads: Quad[], placeIri: string | undefined, url: string) {
   );
 }
 
+/**
+ * §7.3's `<#photo-n>` shape. The image IRIs come from the caller — `<#it>`'s
+ * `schema:image` links — as `placeOf` takes the place IRI: the document picks
+ * the subject, the parser reads what hangs off it. Raw, not `Photo`-validated;
+ * the whole `Entry` is validated in one pass (§6.4's blur budget included).
+ */
+export function photosOf(quads: Quad[], imageIris: string[], url: string) {
+  return guard(() =>
+    imageIris
+      .map((iri) => viewOf(quads, iri))
+      .filter((p) => p.exists)
+      .map((p) => ({
+        contentUrl: p.one(SCHEMA.contentUrl),
+        thumbnailUrl: p.one(SCHEMA.thumbnailUrl),
+        caption: langText(p, SCHEMA.caption),
+        width: take(integer(p, SCHEMA.width, url)),
+        height: take(integer(p, SCHEMA.height, url)),
+        sortOrder: take(integer(p, DY.sortOrder, url)),
+        // Plain literals, both of them: a media type is a code and base64 is
+        // not prose, so neither carries a language tag and `langText` would be
+        // the wrong reader for either.
+        encodingFormat: p.typed(SCHEMA.encodingFormat)?.value,
+        dateCreated: take(offsetDateTime(p, SCHEMA.dateCreated, url)),
+        blurDataUrl: p.typed(DY.blurDataUrl)?.value,
+      }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+  );
+}
+
 /* -------------------------------------------------------------------- slugs */
 
 /** The container segment IS the slug — that is what makes /trips/[slug]
@@ -152,22 +180,10 @@ export const tripIndexUrl = (podRoot: string, slug: string) =>
 export const diaryUrl = (podRoot: string) => new URL("travel/diary.ttl", podRoot).toString();
 
 /**
- * The owner-only privacy settings (§7.6).
- *
- * NOT `{storage}settings/publicTypeIndex.ttl`. Same segment name, different
- * container, opposite access requirement — the type index lives at the Pod root
- * and must be publicly readable (§7.5), this one lives under `travel/` and must
- * never be. Revision 2 of the data model already moved the type index out of
- * `/travel/settings/` once; §4 says do not merge them.
- *
- * THIS ONE NORMALISES THE ROOT AND THE OTHERS ABOVE DO NOT, deliberately.
- * `new URL("travel/…", "https://host/pod")` — a root with no trailing slash —
- * resolves against the PARENT of `pod`, so on a multi-pod server (CSS hosts
- * every account under one origin) it addresses a stranger's storage. For
- * `diaryUrl` that is a 404. For this resource it is a read of, and eventually a
- * write to, someone else's home coordinates. `config.podRoot` appends the slash
- * so nothing in the app reaches here without one; this is the belt to that
- * braces, at the one URL where being wrong is not merely a missing page.
+ * The owner-only privacy settings (§7.6), and NOT the public type index (§4).
+ * THIS ONE NORMALISES THE ROOT and the others above do not: without the
+ * trailing slash it addresses a stranger's storage.
+ * ./notes.md#privacyttl-is-not-the-type-index-and-its-url-is-normalised
  */
 export const privacySettingsUrl = (podRoot: string) =>
   new URL("travel/settings/privacy.ttl", podRoot.endsWith("/") ? podRoot : `${podRoot}/`).toString();
@@ -221,25 +237,7 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
 
-    const photos = v
-      .all(SCHEMA.image)
-      .map((iri) => viewOf(quads, iri))
-      .filter((p) => p.exists)
-      .map((p) => ({
-        contentUrl: p.one(SCHEMA.contentUrl),
-        thumbnailUrl: p.one(SCHEMA.thumbnailUrl),
-        caption: langText(p, SCHEMA.caption),
-        width: take(integer(p, SCHEMA.width, url)),
-        height: take(integer(p, SCHEMA.height, url)),
-        sortOrder: take(integer(p, DY.sortOrder, url)),
-        // Plain literals, both of them: a media type is a code and base64 is
-        // not prose, so neither carries a language tag and `langText` would be
-        // the wrong reader for either.
-        encodingFormat: p.typed(SCHEMA.encodingFormat)?.value,
-        dateCreated: take(offsetDateTime(p, SCHEMA.dateCreated, url)),
-        blurDataUrl: p.typed(DY.blurDataUrl)?.value,
-      }))
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const photos = take(photosOf(quads, v.all(SCHEMA.image), url));
 
     if (!v.types().includes(DY_CLASS.Entry)) {
       throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });
@@ -276,37 +274,18 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
 }
 
 /**
- * The index, plus the ETag of the response it was parsed from.
- *
- * §10 step 3 is "read `entries.ttl`, insert the index entry, recompute … write
- * back with `If-Match`", and the ETag that makes that safe is the one from the
- * read that produced the state being edited. Splitting it into a HEAD for the
- * ETag and a GET for the body opens a window in which the two disagree: HEAD
- * first and the write fails with 412 for no reason, GET first and a concurrent
- * change is silently overwritten by a precondition that has already been
- * satisfied. So one request returns both.
- *
- * `readTripIndex` is this function with the ETag dropped, rather than a second
- * copy of the extraction — there is one parser for this resource.
+ * §7.4's `<#e-slug>` row shape, validated one row at a time. The IRIs are the
+ * caller's — `<#it>`'s `dy:entry` links — as `photosOf` takes the image IRIs.
+ * Flat, and reading `dy:` geo terms rather than `schema:` ones, deliberately:
+ * §7.4 is a private read model with no interop obligations.
  */
-export async function readTripIndexWithEtag(
+export function indexRowsOf(
+  quads: Quad[],
+  entryIris: string[],
   url: string,
-  opts?: ReadOptions,
-): Promise<Result<{ index: TripIndex; etag: string | null }>> {
-  const fetched = await fetchTurtle(url, opts);
-  if (!fetched.ok) return fetched;
-  const { quads, etag } = fetched.value;
-
-  const parsed = guard(() => {
-    const v = viewOf(quads, itOf(url));
-    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
-
-    if (!v.types().includes(DY_CLASS.TripIndex)) {
-      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.TripIndex}`] });
-    }
-
-    const entries = v
-      .all(DY.entry)
+): Result<IndexEntry[]> {
+  return guard(() =>
+    entryIris
       .map((iri) => viewOf(quads, iri))
       .filter((e) => e.exists)
       .map((e) =>
@@ -331,35 +310,93 @@ export async function readTripIndexWithEtag(
         ),
       )
       // Parse order carries no meaning; dy:sortOrder is why it exists (§6).
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+  );
+}
 
+/**
+ * §7.4's derived half, less the count: bbox and centre are functions of the
+ * entry set, which is why they live on the index. All four corners or no bbox —
+ * a half-written one would fit the map to a lie, and `rebuildIndex` is what
+ * regenerates the lot. Both sit on `<#it>`, so this takes its view.
+ */
+export function boundsOf(view: View, url: string) {
+  return guard(() => {
     const bboxParts = {
-      west: take(decimal(v, DY.bboxWest, url)),
-      south: take(decimal(v, DY.bboxSouth, url)),
-      east: take(decimal(v, DY.bboxEast, url)),
-      north: take(decimal(v, DY.bboxNorth, url)),
+      west: take(decimal(view, DY.bboxWest, url)),
+      south: take(decimal(view, DY.bboxSouth, url)),
+      east: take(decimal(view, DY.bboxEast, url)),
+      north: take(decimal(view, DY.bboxNorth, url)),
     };
-    const centerLat = take(decimal(v, DY.centerLat, url));
-    const centerLong = take(decimal(v, DY.centerLong, url));
+    const centerLat = take(decimal(view, DY.centerLat, url));
+    const centerLong = take(decimal(view, DY.centerLong, url));
 
-    return validate(
-      TripIndex,
-      {
-        iri: itOf(url),
-        indexOf: v.one(DY.indexOf),
-        schemaVersion: schemaVersionOf(v, url),
-        entryCount: take(integer(v, DY.entryCount, url)),
-        bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
-        center: centerLat !== undefined && centerLong !== undefined
-          ? { lat: centerLat, long: centerLong }
-          : undefined,
-        entries,
-        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
-      },
-      url,
-    );
+    return {
+      bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
+      center: centerLat !== undefined && centerLong !== undefined
+        ? { lat: centerLat, long: centerLong }
+        : undefined,
+    };
   });
+}
 
+/**
+ * §7.4 parsed out of quads — the index's `<#it>`, with the row shape and the
+ * derived half each behind their own parser. Named rather than an anonymous
+ * arrow inside `readTripIndexWithEtag`, so that it can be cited, tested
+ * directly and reported by name; it was "Arrow function" until 2026-09-08.
+ */
+function tripIndexOf(quads: Quad[], url: string): TripIndex {
+  const v = viewOf(quads, itOf(url));
+  if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+
+  if (!v.types().includes(DY_CLASS.TripIndex)) {
+    throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.TripIndex}`] });
+  }
+
+  // Rows before bounds before `<#it>`'s own fields, which is the order the one
+  // inline block had: on a document with two faults, the error reported is
+  // still the first of them rather than a new one.
+  const entries = take(indexRowsOf(quads, v.all(DY.entry), url));
+  const bounds = take(boundsOf(v, url));
+
+  return validate(
+    TripIndex,
+    {
+      iri: itOf(url),
+      indexOf: v.one(DY.indexOf),
+      schemaVersion: schemaVersionOf(v, url),
+      entryCount: take(integer(v, DY.entryCount, url)),
+      bbox: bounds.bbox,
+      center: bounds.center,
+      entries,
+      modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+    },
+    url,
+  );
+}
+
+/** The same parse, as the Result this module promises its callers — nothing
+ *  here throws, so the Bail-throwing form above stays private and this is what
+ *  a caller holding a parsed body rather than a URL reaches for. */
+export function parseTripIndex(quads: Quad[], url: string): Result<TripIndex> {
+  return guard(() => tripIndexOf(quads, url));
+}
+
+/**
+ * The index, plus the ETag of the response it was parsed from — ONE request
+ * returns both, because a HEAD and a GET can disagree (§10 step 3).
+ * ./notes.md#one-request-returns-the-index-and-its-etag
+ */
+export async function readTripIndexWithEtag(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<{ index: TripIndex; etag: string | null }>> {
+  const fetched = await fetchTurtle(url, opts);
+  if (!fetched.ok) return fetched;
+  const { quads, etag } = fetched.value;
+
+  const parsed = parseTripIndex(quads, url);
   return parsed.ok ? ok({ index: parsed.value, etag }) : parsed;
 }
 
@@ -397,62 +434,10 @@ export async function readDiary(url: string, opts?: ReadOptions): Promise<Result
 
 
 /**
- * The owner's privacy settings (§7.6) — the home region and the default grid,
- * read before any coordinate is written (§9).
- *
- * Modelled on `readOwnerProfile`, which is the other read here that is not part
- * of the public render path. FIVE THINGS DIFFER, and each is something a later
- * "make these consistent" pass would get exactly backwards. Each is pinned by a
- * test in test/privacy-settings.test.ts.
- *
- * 1. THE SUBJECT IS `<#it>`. `readOwnerProfile` uses the whole WebID, fragment
- *    included, because a WebID *is* a fragment IRI naming a person and the
- *    fragment is not ours to choose. This is our own resource, so §6's rule
- *    applies unchanged: "every subject is a fragment, never a bare document
- *    URL, never a blank node".
- *
- * 2. `dy:schemaVersion` IS CHECKED. `readOwnerProfile` deliberately skips it —
- *    the WebID document is not ours and will never carry our version. This
- *    resource is ours, so §11's "check it on every top-level read" applies in
- *    full. It matters more here than elsewhere: a settings document written by
- *    a later version of this app could mean something different by the same
- *    four predicates, and acting on a misread home radius is not a rendering
- *    glitch.
- *
- * 3. DATATYPES ARE ENFORCED — `xsd:decimal` for the coordinate pair (never
- *    float), `xsd:integer` for the two distances (§6). `readOwnerProfile` reads
- *    only IRIs and enforces nothing. Without this a `"3000"^^xsd:string` radius
- *    reads back as the number 3000 with nothing complaining.
- *
- * 4. IT NEEDS AN AUTHENTICATED FETCH. `readOwnerProfile` is unauthenticated by
- *    design; this resource is owner-only, so a caller without a session gets
- *    401 — and on ESS an anonymous 401 does not even distinguish private from
- *    missing (§13). Both arrive here as a structured `http` error, which is the
- *    right answer either way: see below.
- *
- * 5. THERE ARE NO DEFAULTS, ANYWHERE. This is the fail-closed contract in §9,
- *    and it is the whole reason this function exists rather than a config
- *    lookup. Absent, unreadable, wrong version, half-written home region — all
- *    of them are errors, and every caller publishes NO coordinate on any error.
- *    An absent `dy:homeRadiusMeters` read as zero is a home region of no area,
- *    i.e. no protection, reported as success.
- *
- * NO `rdf:type` GATE, which it shares with `readOwnerProfile` but for a
- * different reason. There is no class for this resource: §3's four privacy
- * terms are the four that were agreed with the owner, and a class would be a
- * fifth (CLAUDE.md, "ask before doing"). §7.6 records that, and records that
- * adding one later is purely additive. `dy:schemaVersion` plus the shape is the
- * gate — which is what it would have to be regardless, since a type triple
- * never protected against a document that parses and means something else.
- *
- * ON THE COMMON CASE, WHICH IS AN ERROR. A Pod that has never had a
- * `privacy.ttl` returns 404 here, and `initialiseContainers()` creates the
- * container but deliberately writes no document into it (§5). So every fresh
- * deployment fails this read until the owner sets a home region, and §9 makes
- * that mean "no coordinates are published". That is intended. It is also
- * something the studio has to SAY — an entry silently losing its map pin
- * becomes a bug report, whereas "you have not set a home region yet" is a
- * one-time setup step with an obvious fix.
+ * The owner's privacy settings (§7.6), read before any coordinate is written
+ * (§9). NO DEFAULTS, ANYWHERE: absent, unreadable or half-written is an error
+ * and the caller then publishes no coordinate. Five deliberate differences:
+ * ./notes.md#readprivacysettings-against-readownerprofile-five-differences-all-deliberate
  */
 export async function readPrivacySettings(
   url: string,
@@ -470,13 +455,11 @@ export async function readPrivacySettings(
     const long = take(decimal(v, DY.homeLong, url));
     const radiusMeters = take(integer(v, DY.homeRadiusMeters, url));
 
-    // ALL THREE OR NONE, and the difference is decided here rather than in the
-    // schema, because Zod cannot tell "absent" from "absent" once the object
-    // has been built. None of them present is a legitimate setting — "I have no
-    // home to protect" — and fuzzing still applies to every coordinate; it just
-    // never drops one. ANY of them present commits to a home region, so a
-    // missing sibling is a shape error naming the field rather than a silent
-    // downgrade to no protection at all.
+    // ALL THREE OR NONE, decided here rather than in the schema because Zod
+    // cannot tell "absent" from "absent" once the object is built. ANY of them
+    // present commits to a home region, so a missing sibling is a shape error
+    // rather than a silent downgrade to no protection.
+    // ./notes.md#readprivacysettings-against-readownerprofile-five-differences-all-deliberate
     const declaresHome = lat !== undefined || long !== undefined || radiusMeters !== undefined;
 
     return validate(
@@ -494,35 +477,10 @@ export async function readPrivacySettings(
 }
 
 /**
- * The owner's WebID profile, read unauthenticated (§7.5).
- *
- * The studio's server component calls this to discover `solid:oidcIssuer` and
- * hand it to the client shell, because `session.login()` takes `oidcIssuer` as
- * a mandatory option and there is deliberately no OIDC_ISSUER env var: the
- * WebID document is the one place that reliably carries it.
- *
- * THREE THINGS HERE ARE DELIBERATELY UNLIKE EVERY OTHER READ IN THIS FILE.
- * Each looks like an omission. Each is load-bearing, and each is pinned by a
- * test in test/owner-profile.test.ts — do not "tidy" them away.
- *
- * 1. The subject is the WHOLE WebID, fragment included — `viewOf(quads, webId)`
- *    rather than `itOf(url)`. A WebID is a fragment IRI: the document fetched
- *    is the WebID with its fragment stripped, and the subject described inside
- *    it is the WebID in full. The fragment is not always `#me` (CSS and ESS
- *    both allow any), and it is never our `#it` convention — a profile may well
- *    carry an unrelated `<#it>` subject, and reading that hands `login()` the
- *    wrong identity provider.
- *
- * 2. NO `dy:schemaVersion` CHECK, though CLAUDE.md requires one on every
- *    top-level read. That rule is about *our* resources. The WebID document is
- *    not ours — on ESS the identity provider serves it and answers `PATCH` with
- *    405 — so it will never carry our version, and a version gate here would
- *    reject every real Pod. A profile declaring a version we would otherwise
- *    refuse is still read straight past.
- *
- * 3. NO `rdf:type` GATE. §7.5 types the subject `foaf:Agent`, but nothing here
- *    depends on it and plenty of real profiles omit it. What matters is the
- *    issuer, and its absence is caught by the schema.
+ * The owner's WebID profile, read unauthenticated (§7.5) — where the studio
+ * discovers `solid:oidcIssuer`, since there is deliberately no OIDC_ISSUER env
+ * var. THREE THINGS HERE ARE DELIBERATELY UNLIKE EVERY OTHER READ IN THIS FILE
+ * and each looks like an omission: ./notes.md#readownerprofile-three-things-unlike-every-other-read-here
  */
 export async function readOwnerProfile(
   webId: string,

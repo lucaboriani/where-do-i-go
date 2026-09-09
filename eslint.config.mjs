@@ -2,16 +2,10 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
-/**
- * Guardrails. These encode rules from CLAUDE.md and docs/data-model.md §11 that
- * cannot be inferred from the code, and they exist because an agent — or a
- * tired human — will otherwise rationalise past them.
- *
- * Note the honest limit: TODO.md observes that "an agent can rationalise past a
- * lint rule but not past a failing build". The size-limit budget on public
- * routes is the enforcement that really holds; these rules catch the mistake
- * earlier and explain it.
- */
+/** Guardrails: rules from CLAUDE.md and docs/data-model.md §11 that the code
+ *  cannot state itself. The honest limit is that the public bundle budget is
+ *  the enforcement which really holds; these catch the same mistake earlier.
+ *  ./notes.md#why-the-guardrails-exist-and-the-honest-limit */
 
 /** Raw vocabulary IRIs belong in lib/vocab.ts and nowhere else. */
 const NO_RAW_IRIS = {
@@ -21,21 +15,10 @@ const NO_RAW_IRIS = {
     "Import the IRI from lib/vocab.ts instead of writing it inline. Three spellings of the same predicate is how a Pod rots (docs/data-model.md §11).",
 };
 
-/**
- * Every access-control primitive @inrupt/solid-client exposes, banned outside
- * lib/pod/access.ts.
- *
- * The list IS the fence, so it has to be complete rather than representative:
- * an unlisted primitive is a hole, and a hole here means lib/pod/read.ts can
- * rewrite an ACL with no lint error at all. Nine names once covered the ones
- * the module happened to use, which is a different thing.
- *
- * Re-derive it on an upgrade from node_modules/@inrupt/solid-client/dist/index.d.ts:
- * everything exported from ./acl/acl, ./acl/agent, ./acl/group, ./acl/class and
- * ./acl/mock, plus getEffectiveAccess from ./resource/resource (it reads the
- * WAC-Allow header, i.e. it answers "is this public?" — that is getAccess's
- * job), and the universalAccess and acp_ess_2 namespaces.
- */
+/** Every access-control primitive @inrupt/solid-client exposes, banned outside
+ *  lib/pod/access.ts. THE LIST IS THE FENCE, so it must be complete rather
+ *  than representative: an unlisted primitive is a hole. Re-derive it on an
+ *  upgrade — ./notes.md#the-acl-primitive-list-is-the-fence-so-it-must-be-complete */
 const ACL_PRIMITIVES = [
   // ./acl/acl
   "hasAcl",
@@ -86,51 +69,11 @@ const ACL_PRIMITIVES = [
   "acp_ess_2",
 ];
 
-/**
- * Tailwind arbitrary values, e.g. w-[137px]. Banned outside components/ui.
- *
- * FOUR ARMS, BECAUSE ONE ONLY SAW HALF THE CODE. Until 2026-09-05 this was the
- * `JSXAttribute` arm alone, so it read a class string written INLINE in the
- * attribute and nothing else. `components/studio/entry-editor.tsx` keeps its
- * two shared class strings in module-level consts spent as `className={CONTROL}`
- * — an `Identifier`, not a `Literal` — and the rule was blind to both. Measured:
- * `disabled:bg-[#222]` inside `CONTROL` produced zero errors, the same string
- * inline produced one. Extracting a class string to a const is the ordinary way
- * to stop two controls drifting apart, so this was not an exotic dodge; it is
- * what the file already did.
- *
- * THE DEPTHS ARE DELIBERATELY ASYMMETRIC — child-anchored at the declarator,
- * descendant inside the concatenation — and both halves are load-bearing:
- *
- * - `VariableDeclarator > Literal` rather than `VariableDeclarator Literal`.
- *   The descendant form makes `test/guardrails.test.ts` UNLINTABLE: its own
- *   fixtures live inside `const msgs = await lint(…)`, which makes every
- *   deliberate violation a descendant of a declarator. Measured — the
- *   descendant shape flags that file twice and still passes every snippet
- *   case, so the tests would look fine while the guardrail broke the file that
- *   proves it works.
- * - ...but descendant WITHIN the `BinaryExpression`, because `+` nests to the
- *   left: in `"a " + "b " + "p-[3px]"` the offender is a grandchild, not a
- *   child, and a `> BinaryExpression > Literal` arm would pass a two-part
- *   concatenation and miss a three-part one.
- * - The `TemplateLiteral` arm exists because static template text is a
- *   `TemplateElement`, not a `Literal`. Without it the rule is bypassed by
- *   swapping a quote for a backtick, which is output both a formatter and an
- *   agent produce without thinking about it.
- *
- * Name-agnostic on purpose: a rule keyed to `CONTROL`/`BUTTON` is defeated by a
- * rename, and directory scoping would need a `files` list that rots. Repo-wide
- * this flags zero places outside `components/ui/**`, which is already exempt.
- *
- * The `-` in the pattern is what keeps `eslint.config.mjs` itself clean, not
- * the selector depth: this file holds two bare `[…]` strings, but none with an
- * alphanumeric immediately before the bracket. Do not "simplify" it away.
- *
- * NOT covered, and kept in view rather than pretended away: a class string held
- * in an object property or an array element, and `clsx`/`cva` argument
- * positions. Also note the `lib/vocab.ts` block below names this list
- * explicitly — new arms do not reach it unless that spread is kept in step.
- */
+/** Tailwind arbitrary values, e.g. w-[137px]. Banned outside components/ui.
+ *  FOUR ARMS AND TWO DIFFERENT DEPTHS, each measured against a dodge the
+ *  previous version passed — and the `-` in the pattern is what keeps this
+ *  file itself clean. Do not simplify either away; read why first:
+ *  ./notes.md#four-arms-against-arbitrary-tailwind-values-and-two-depths */
 const TW_ARBITRARY = "[a-z0-9]-\\[[^\\]]+\\]";
 const TW_MESSAGE =
   "Arbitrary Tailwind values are banned outside components/ui/**. Use a design token from app/globals.css (docs/design-brief.md).";
@@ -198,14 +141,10 @@ const eslintConfig = defineConfig([
 
   // --------------------------------------------------- the public/studio boundary
   {
-    // app/not-found.tsx and app/global-error.tsx are listed individually
-    // because they are public-facing pages that sit OUTSIDE app/(public)/**.
-    // Next requires them at the app root; not-found.tsx renders its own <html>
-    // precisely because there is no shared root layout to inherit. A read-only
-    // review found not-found.tsx could import the Solid auth library with no
-    // error at all, on a page every 404 renders. global-error.tsx does not
-    // exist yet and a files entry for an absent file is inert — it is here so
-    // that the day someone adds one, it is not another unfenced public page.
+    // app/not-found.tsx and app/global-error.tsx are listed individually:
+    // both are public-facing pages OUTSIDE app/(public)/**, and one of them
+    // could import the auth library with no error at all.
+    // ./notes.md#why-the-two-app-root-public-pages-are-listed-individually
     files: [
       "app/(public)/**",
       "components/public/**",
@@ -232,23 +171,11 @@ const eslintConfig = defineConfig([
           ],
           patterns: [
             {
-              // components/studio/** has NO PARENTHESES, so neither
-              // "**/app/(studio)/**" nor "**/(studio)/**" matched it and the
-              // whole media subsystem was reachable from a public page in one
-              // import. Measured, not inferred: at
-              // app/(public)/__fence-probe.tsx, `@/lib/media`,
-              // `@/lib/studio/session` and `@/app/(studio)/layout` were each
-              // reported while `@/components/studio/entry-editor` produced no
-              // output at all — and that one import drags lib/media/*,
-              // lib/pod/{write,save-entry,access} → @inrupt/solid-client,
-              // lib/studio/* → the auth library, and Radix into the public
-              // graph. Reusing `Field` or the tag parser out of the editor is
-              // the obvious move that trips it.
-              //
-              // The bare directory AND the subpath, for the gitignore-semantics
-              // reason spelled out at the lib/media entry below: "**/x/**" alone
-              // does not match a bare "@/x" import resolving to an index file.
-              // That exact hole was already found and closed once on this branch.
+              // components/studio/** HAS NO PARENTHESES, so the two (studio)
+              // globs missed it and the media subsystem sat one import from a
+              // public page. The bare directory AND the subpath, both measured:
+              // ./notes.md#the-parenthesis-hole-in-the-studio-fence
+              // ./notes.md#why-a-fence-names-the-bare-directory-as-well-as-the-subpath
               group: [
                 "**/app/(studio)/**",
                 "**/(studio)/**",
@@ -264,42 +191,18 @@ const eslintConfig = defineConfig([
                 "The public path is unauthenticated by design and uses plain fetch. No Solid auth library on public routes.",
             },
             {
-              // All three Radix spellings, because the one this project
-              // actually writes was the one missing. package.json depends on
-              // `radix-ui` ^1.6.7 — the unified package — and on no
-              // `@radix-ui/react-*` package directly; all seven Radix imports
-              // under components/ui/** are `from "radix-ui"`. So the group used
-              // to fence a scoped spelling that appears nowhere in the repo
-              // while the spelling someone would actually produce — copying a
-              // line out of components/ui/dialog.tsx — sailed through.
-              //
-              // On `radix-ui/*`, measured rather than assumed: ESLint matches
-              // these groups with gitignore-style semantics, not minimatch, so
-              // the bare `radix-ui` entry ALREADY covers `radix-ui/dialog` and
-              // deeper. The subpath entry is redundant today and kept anyway,
-              // because the subpath is genuinely reachable (the exports map has
-              // "./*" and dist/dialog.mjs exists) and this is the entry that
-              // would still fence it if that matcher ever changed. Do not read
-              // it as the thing doing the work — the bare name is.
-              //
-              // The scoped form stays on its own account: radix-ui depends on
-              // the scoped packages, so they sit in node_modules and a
-              // deliberate import, or one copied out of Radix's own docs,
-              // resolves today.
+              // All three spellings, because the one this project actually
+              // writes was the one missing. `radix-ui/*` is redundant today and
+              // kept deliberately — the bare name is what does the work:
+              // ./notes.md#the-three-radix-spellings-and-which-one-does-the-work
               group: ["radix-ui", "radix-ui/*", "@radix-ui/*", "vaul", "sonner", "cmdk"],
               message:
                 "shadcn/Radix is studio-only (decisions.md §11). Nothing from it may reach a public reading page.",
             },
             {
-              // next-themes arrives as a transitive concern of shadcn's sonner
-              // component (components/ui/sonner.tsx imports useTheme from it),
-              // so it is on disk and importable. Nothing public may want it:
-              // CLAUDE.md fixes the theme to dark, puts the palette at :root
-              // rather than under a .dark class, and rules out a theme toggle.
-              // A next-themes import on a public route is therefore either dead
-              // weight in the bundle or the start of a toggle that the design
-              // has already declined. Studio and components/ui keep it.
-              // Bare name only: per the note above it covers subpaths too.
+              // On disk via shadcn's sonner, and wanted by nothing public: the
+              // theme is fixed dark, at :root, with no toggle. Bare name only.
+              // ./notes.md#why-next-themes-is-fenced-from-public-routes
               group: ["next-themes"],
               message:
                 "The theme is fixed dark, with the palette at :root and no toggle (CLAUDE.md, Styling). next-themes is studio-only, where it arrives via shadcn's sonner.",
@@ -329,17 +232,9 @@ const eslintConfig = defineConfig([
             },
             {
               // The bare directory AND the subpath, matching the lib/studio
-              // fence above. no-restricted-imports matches these groups with
-              // gitignore semantics, not minimatch, so "**/lib/media/**" alone
-              // does NOT match a bare "@/lib/media" import resolving to an
-              // index file. Measured, not inferred: before this entry existed,
-              // linting `import * as m from "@/lib/media"` at
-              // app/(public)/__fence-probe.tsx reported nothing at all, while
-              // the same file importing "@/lib/media/resize" was reported —
-              // so the file was being linted and the fence simply did not
-              // match. There is no lib/media/index.ts today; this closes the
-              // hole before there is one, which is the only time it can be
-              // closed without a public bundle already carrying the weight.
+              // fence above: "**/lib/media/**" alone does NOT match a bare
+              // "@/lib/media". Measured, and closed before an index.ts exists:
+              // ./notes.md#why-a-fence-names-the-bare-directory-as-well-as-the-subpath
               group: ["exifreader", "**/lib/media", "**/lib/media/**"],
               message:
                 "Image-processing code is studio-only; it must not weigh down the public bundle.",
@@ -347,6 +242,43 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
+    },
+  },
+
+  // ------------------------------------------ function length, hard bounds only
+  /** 200/80 are the bounds CI refuses; CLAUDE.md's 130/50 are TENDENCIES, which
+   *  check:structure reports without failing. Own block per rule name, because
+   *  flat config REPLACES a rule's options rather than merging them:
+   *  ./notes.md#why-the-function-length-bounds-are-200-and-80-in-blocks-of-their-own */
+  {
+    files: ["components/**/*.{ts,tsx}", "app/**/*.{ts,tsx}"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 200, skipComments: true, skipBlankLines: true, IIFEs: true },
+      ],
+    },
+  },
+  {
+    files: ["lib/**/*.ts", "scripts/**/*.ts"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 80, skipComments: true, skipBlankLines: true, IIFEs: true },
+      ],
+    },
+  },
+  /**
+   * A test file has a ceiling; a test FUNCTION has none. A scenario test reads
+   * better whole than shredded into helpers whose names hide the arrangement,
+   * so `max-lines-per-function` is off here and `max-lines` takes its place.
+   * Last of the three: a components/ test file matches both, later block wins.
+   */
+  {
+    files: ["**/*.test.{ts,tsx}", "e2e/**/*.ts"],
+    rules: {
+      "max-lines-per-function": "off",
+      "max-lines": ["error", { max: 1000, skipComments: true, skipBlankLines: true }],
     },
   },
 ]);

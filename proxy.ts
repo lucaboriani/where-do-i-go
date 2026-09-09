@@ -1,30 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DY } from "@/lib/vocab";
 
-/**
- * Return a real 404 for trips that do not exist.
- *
- * Why here and not in the page: under Partial Prerendering the static shell is
- * flushed before the dynamic part resolves, so a `notFound()` inside the page
- * lands after the status line is committed and produces 200 carrying 404
- * content. Verified by measurement, not assumed — and `export const instant =
- * false` does not help (it governs instant-navigation validation), nor does
- * `force-dynamic` (a no-op now: every page is dynamic by default).
- *
- * Middleware runs before rendering, so it is the one place left that can set
- * the status. A soft 404 matters here because this site server-renders
- * specifically for SEO and share previews (decisions.md §2).
- *
- * No Node APIs: Netlify does not support them here (decisions.md §13).
- *
- * The docs warn that proxy code may be deployed to a CDN and should not rely on
- * shared modules or globals — so treat the module-scope cache below as a
- * best-effort optimisation that may simply never hit, not as a guarantee. The
- * correctness of this file does not depend on it.
- */
+/** A real 404 for trips that do not exist. Under PPR the shell is flushed
+ *  before the dynamic part resolves, so `notFound()` in the page yields a 200
+ *  carrying 404 content - measured. ./notes.md#why-the-middleware-returns-the-404 */
 
 const TTL_MS = 60_000;
-/** Best-effort only; see the note above about CDN deployment. */
+/** Best-effort only, never a guarantee: ./notes.md#the-module-scope-cache-is-best-effort-only */
 let cache: { slugs: Set<string>; at: number } | null = null;
 
 async function knownSlugs(): Promise<Set<string> | null> {
@@ -40,14 +22,10 @@ async function knownSlugs(): Promise<Set<string> | null> {
     if (!res.ok) return null;
     const body = await res.text();
 
-    // A regex, not a full parser: middleware must stay small, and this reads one
-    // predicate from one resource. lib/pod/read.ts remains the only validated
-    // reader — nothing downstream trusts what is extracted here.
-    // Check this IS a diary BEFORE extracting, and test for something that can
-    // actually be absent. The previous guard tested for the substring "trip",
-    // which any document containing a .../trips/x/trip.ttl link necessarily has
-    // — so it could never fail, and a non-diary 200 response would have cached
-    // an empty slug set and 404'd every real trip for a minute.
+    // A regex, not a parser: middleware stays small, and lib/pod/read.ts remains
+    // the only validated reader. The guard below tests for something that can
+    // actually be absent - the old one could never fail:
+    // ./notes.md#why-a-regex-and-not-a-parser-and-the-guard-that-could-never-fail
     if (!body.includes(DY.trip) && !/\bdy:trip\b/.test(body)) return null;
 
     const slugs = new Set<string>();

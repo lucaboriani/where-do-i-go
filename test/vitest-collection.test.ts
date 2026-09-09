@@ -2,13 +2,14 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { walkTestFiles } from "./support/walk";
 
 /**
  * Every test file on disk is actually collected.
  *
  * WHY THIS EXISTS. `vitest.config.ts` used to include only `**\/*.test.ts`, so
- * the repository's first `.tsx` test — test/studio-shell.test.tsx, 31 kB of it —
- * was silently never run. The suite reported "280 passed" both with and without
+ * the repository's first `.tsx` test — then test/studio-shell.test.tsx, 31 kB
+ * of it — was silently never run. The suite reported "280 passed" both with and without
  * it, byte for byte. That is this project's named failure mode in its purest
  * form: not a test that passes while verifying nothing, but a test file that
  * does not report at all.
@@ -45,12 +46,10 @@ function collectedFiles(): string[] {
   return files;
 }
 
-/** Every *.test.ts / *.test.tsx sitting in test/, top level only. */
+/** Every *.test.ts / *.test.tsx anywhere in the repository. NOT just test/ —
+ *  see ./support/notes.md#why-a-walker for what a one-deep scan cost. */
 function testFilesOnDisk(): string[] {
-  return readdirSync(new URL("../test", import.meta.url))
-    .filter((name) => /\.test\.tsx?$/.test(name))
-    .map((name) => `test/${name}`)
-    .sort();
+  return walkTestFiles(repoRoot);
 }
 
 describe("vitest collects every test file that exists", () => {
@@ -63,10 +62,14 @@ describe("vitest collects every test file that exists", () => {
     // include had been quietly reverted.
     expect(onDisk.filter((f) => f.endsWith(".test.ts")).length).toBeGreaterThan(10);
     expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(0);
-    expect(onDisk).toContain("test/studio-shell.test.tsx");
+    // Control, by COUNT not by path. This named test/studio-shell.test.tsx until
+    // it moved beside its subject on 2026-09-08; a path here goes stale on every
+    // move, and the thing being guarded is "the .tsx include still matches
+    // something", which a count says directly.
+    expect(onDisk.filter((f) => f.endsWith(".test.tsx")).length).toBeGreaterThan(2);
   });
 
-  it("runs every .test.ts and .test.tsx under test/", () => {
+  it("runs every .test.ts and .test.tsx in the repository, wherever it sits", () => {
     const missing = onDisk.filter((file) => !collected.includes(file));
     expect(
       missing,

@@ -1,13 +1,9 @@
 /**
- * The trip index, computed and serialised.
- *
- * Pure: no fetching, no writing. This is the part that has to be exactly right,
- * because `rebuildIndex` is three things at once — the recovery path when a
- * multi-step write half-failed, the migration tool when dy:schemaVersion
- * increments, and how a new deployer imports data written by an older version
- * of the app (§10).
+ * The trip index, computed and serialised. Pure: no fetching, no writing. This
+ * is the part that has to be exactly right, because `rebuildIndex` is three
+ * things at once (§10). ./notes.md#the-serialisers-are-pure-and-they-do-not-fuzz
  */
-import { DataFactory, Writer } from "n3";
+import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
   DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE,
 } from "@/lib/vocab";
@@ -37,13 +33,9 @@ export type ComputedIndex = {
   center?: { lat: number; long: number };
 };
 
-/**
- * A row before the two derived fields are assigned.
- *
- * `fragment` and `sortOrder` are NOT inputs: both are recomputed from the whole
- * set every time, which is what stops an incremental update from leaving
- * `dy:sortOrder` describing an order the set no longer has.
- */
+/** A row before the two derived fields are assigned. `fragment` and
+ *  `sortOrder` are NOT inputs — both are recomputed from the whole set;
+ *  see ./notes.md#fragment-and-sortorder-are-recomputed-never-carried */
 export type IndexRowInput = Omit<IndexRow, "fragment" | "sortOrder">;
 
 /** The row an entry contributes. No status check here — the caller decides what
@@ -64,13 +56,10 @@ export function rowOfEntry(entry: Entry): IndexRowInput {
 }
 
 /**
- * A row already in the index, back as an input.
- *
- * `saveEntry` reads `entries.ttl` and writes it back with one row inserted; the
- * rows it did not touch have to survive that round trip. Reading them through
- * the validated `IndexEntry` model rather than out of the raw triples is what
- * §11 guardrail 2 asks for, and it means a row this version cannot understand
- * fails the read loudly instead of being dropped on the next save.
+ * A row already in the index, back as an input — through the validated
+ * `IndexEntry` model rather than the raw triples (§11 guardrail 2), so a row
+ * this version cannot understand fails loudly instead of being dropped.
+ * ./notes.md#fragment-and-sortorder-are-recomputed-never-carried
  */
 export function rowOfIndexEntry(row: IndexEntry): IndexRowInput {
   return {
@@ -87,13 +76,10 @@ export function rowOfIndexEntry(row: IndexEntry): IndexRowInput {
 }
 
 /**
- * Only published entries reach the index. This is what makes the boundary hold:
- * the public site reads the index and therefore cannot leak a draft title, even
- * by accident, because the data is not there (§4).
- *
- * Note the narrower guarantee phase 0 established — draft *slugs* can still be
- * enumerated from a publicly readable container. That is a container-ACL
- * problem, not an index problem, and `initialiseContainers` owns it.
+ * Only published entries reach the index. This is what makes the publication
+ * boundary hold (§4) — though draft *slugs* can still be enumerated from a
+ * publicly readable container, which `initialiseContainers` owns.
+ * ./notes.md#only-published-entries-reach-the-index-and-what-that-does-not-cover
  */
 export function computeIndex(entries: readonly Entry[]): ComputedIndex {
   return computeIndexFromRows(entries.filter((e) => e.status === "published").map(rowOfEntry));
@@ -101,12 +87,8 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
 
 /**
  * The derived half of the index — ordering, numbering, count, bbox, centre —
- * computed from the row set and nothing else.
- *
- * `computeIndex` above is this function fed from entries; `saveEntry` feeds it
- * the surviving rows plus the one it is inserting. Both go through here so
- * there is exactly one implementation of "what the derived values are", which
- * is the difference between recomputing them and incrementing them.
+ * computed from the row set and nothing else, and the single implementation of
+ * it. ./notes.md#fragment-and-sortorder-are-recomputed-never-carried
  */
 export function computeIndexFromRows(inputs: readonly IndexRowInput[]): ComputedIndex {
   const rows: IndexRow[] = [...inputs]
@@ -151,22 +133,26 @@ export function computeIndexFromRows(inputs: readonly IndexRowInput[]): Computed
   };
 }
 
-/** Serialise to Turtle. Byte-level formatting is not normative (§11) — compare
- *  these graphs by triple set, never by bytes. */
-export async function serialiseIndex(
-  indexUrl: string,
-  tripIri: string,
-  computed: ComputedIndex,
-  modified: string,
-): Promise<string> {
-  const it = namedNode(`${indexUrl}#it`);
-  const quads = [
+/**
+ * §7.4's two subjects, `<#it>` and one `<#e-slug>` per row, plus the derived
+ * half of `<#it>` that §7.4 names separately — count, bbox and centre are
+ * functions of the entry set, which is why they live here and not on the trip.
+ */
+export function identityQuads(it: NamedNode, tripIri: string, modified: string): Quad[] {
+  return [
     quad(it, namedNode(RDF.type), namedNode(DY_CLASS.TripIndex)),
     quad(it, namedNode(DY.indexOf), namedNode(tripIri)),
+    // Written, never echoed: §11 guardrail 3, and nothing in a ComputedIndex
+    // could supply it. The read-side gate rejects what this did not stamp.
     quad(it, namedNode(DY.schemaVersion), int(SCHEMA_VERSION)),
     quad(it, namedNode(DCTERMS.modified), dt(modified)),
-    quad(it, namedNode(DY.entryCount), int(computed.entryCount)),
   ];
+}
+
+/** The derived values, all sharing the one `dcterms:modified` above. The count
+ *  is unconditional; bbox and centre exist only once something is placed. */
+export function derivedQuads(it: NamedNode, computed: ComputedIndex): Quad[] {
+  const quads: Quad[] = [quad(it, namedNode(DY.entryCount), int(computed.entryCount))];
 
   if (computed.bbox) {
     quads.push(
@@ -182,28 +168,48 @@ export async function serialiseIndex(
       quad(it, namedNode(DY.centerLong), dec(computed.center.long)),
     );
   }
+  return quads;
+}
 
-  for (const row of computed.rows) {
-    const node = namedNode(`${indexUrl}#${row.fragment}`);
-    quads.push(
-      quad(it, namedNode(DY.entry), node),
-      quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
-      quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
-      quad(node, namedNode(DCTERMS.title), text(row.title)),
-      quad(node, namedNode(DY.slug), literal(row.slug)),
-      quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
-    );
-    if (row.occurredAt) quads.push(quad(node, namedNode(DY.occurredAt), dt(row.occurredAt)));
-    if (row.lat !== undefined) quads.push(quad(node, namedNode(DY.lat), dec(row.lat)));
-    if (row.long !== undefined) quads.push(quad(node, namedNode(DY.long), dec(row.long)));
-    if (row.precisionMeters !== undefined) {
-      quads.push(quad(node, namedNode(DY.precisionMeters), int(row.precisionMeters)));
-    }
-    if (row.thumbnail) quads.push(quad(node, namedNode(DY.thumbnail), namedNode(row.thumbnail)));
-    if (row.travelModeFrom) {
-      quads.push(quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])));
-    }
+/** One `<#e-slug>` row. Flat, and using `dy:` geo terms deliberately (§7.4):
+ *  a private read model with no interop obligations, so flat wins. */
+export function rowQuads(it: NamedNode, indexUrl: string, row: IndexRow): Quad[] {
+  const node = namedNode(`${indexUrl}#${row.fragment}`);
+  const quads: Quad[] = [
+    quad(it, namedNode(DY.entry), node),
+    quad(node, namedNode(RDF.type), namedNode(DY_CLASS.IndexEntry)),
+    quad(node, namedNode(DY.entryResource), namedNode(row.entryResource)),
+    quad(node, namedNode(DCTERMS.title), text(row.title)),
+    quad(node, namedNode(DY.slug), literal(row.slug)),
+    quad(node, namedNode(DY.sortOrder), int(row.sortOrder)),
+  ];
+  if (row.occurredAt) quads.push(quad(node, namedNode(DY.occurredAt), dt(row.occurredAt)));
+  if (row.lat !== undefined) quads.push(quad(node, namedNode(DY.lat), dec(row.lat)));
+  if (row.long !== undefined) quads.push(quad(node, namedNode(DY.long), dec(row.long)));
+  if (row.precisionMeters !== undefined) {
+    quads.push(quad(node, namedNode(DY.precisionMeters), int(row.precisionMeters)));
   }
+  if (row.thumbnail) quads.push(quad(node, namedNode(DY.thumbnail), namedNode(row.thumbnail)));
+  if (row.travelModeFrom) {
+    quads.push(quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])));
+  }
+  return quads;
+}
+
+/** Serialise to Turtle. Byte-level formatting is not normative (§11) — compare
+ *  these graphs by triple set, never by bytes. */
+export async function serialiseIndex(
+  indexUrl: string,
+  tripIri: string,
+  computed: ComputedIndex,
+  modified: string,
+): Promise<string> {
+  const it = namedNode(`${indexUrl}#it`);
+  const quads: Quad[] = [
+    ...identityQuads(it, tripIri, modified),
+    ...derivedQuads(it, computed),
+    ...computed.rows.flatMap((row) => rowQuads(it, indexUrl, row)),
+  ];
 
   const writer = new Writer({
     prefixes: { xsd: NS.xsd, dcterms: NS.dcterms, dy: NS.dy },

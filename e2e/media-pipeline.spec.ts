@@ -33,7 +33,7 @@ import type { ExpandedTags } from "exifreader";
  * worked around.
  *
  *   1. THERE IS NO `/studio/entries/new` ROUTE. The editor is rendered by
- *      components/studio/studio-shell.tsx on the `owner` branch of `/studio`,
+ *      components/studio/studio-shell/studio-shell.tsx on the `owner` branch of `/studio`,
  *      and only once the trips enumeration has come back with at least one trip
  *      (§4: an entry lives inside a trip). `signInAsOwner` leaves the browser
  *      exactly there, so there is nothing to navigate to.
@@ -370,7 +370,7 @@ test.describe("the media pipeline in a real browser", () => {
    * worker compiles to prove one thing twice — which is the slow-duplicate rule
    * pointed the other way.
    *
-   * WHAT IS DELIBERATELY NOT HERE, because test/entry-editor.test.tsx sections
+   * WHAT IS DELIBERATELY NOT HERE, because components/studio/entry-editor/entry-editor.test.tsx sections
    * 11 and 12 own it against the fake pipeline and re-driving it in a browser
    * would cost minutes and find nothing: that a photo never overwrites the
    * owner's value, that the first photo wins, that a second photo's zone is
@@ -389,7 +389,7 @@ test.describe("the media pipeline in a real browser", () => {
    * GREEN RUN. Auto-fill already worked, so this passed the first time it ran,
    * which on its own is worth nothing. Both halves were then shown red
    * SEPARATELY, on 2026-09-07, by taking the worker's reading away from one
-   * offer at a time in components/studio/entry-editor.tsx:
+   * offer at a time in components/studio/entry-editor/entry-editor.tsx:
    *
    *   - `offerCoordinate(name, {})` — red at "the photo's latitude never
    *     reached the control", 44 polls of an `<input value="">`. Everything
@@ -557,7 +557,7 @@ test.describe("the media pipeline in a real browser", () => {
     ).not.toHaveValue("");
 
     /**
-     * THE SET OF HONEST SPELLINGS, as test/entry-editor.test.tsx's
+     * THE SET OF HONEST SPELLINGS, as components/studio/entry-editor/entry-editor.test.tsx's
      * `wallClockShapes` defines it: keeping the photo's seconds and truncating
      * them are both defensible and `LOCAL_DATETIME` accepts either. What is not
      * in the set is `""`, anything shifted by this machine's zone, and anything
@@ -672,7 +672,7 @@ async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void
  * The `Signed in as …` line discriminates OWNER FROM NOT-OWNER and nothing
  * else. That is worth having — it is what breaks when OWNER_WEBID loses its
  * `#me`, since `sameWebId` compares fragments — but it says nothing about the
- * editor. In components/studio/studio-shell.tsx that line is a SIBLING
+ * editor. In components/studio/studio-shell/studio-shell.tsx that line is a SIBLING
  * rendered ABOVE `<Writables>`, so a pending enumeration, a failed one and a
  * Pod with zero trips all render it and all render no editor.
  *
@@ -729,14 +729,14 @@ async function dimensionsOf(
   }, Array.from(bytes));
 }
 
-/** The same spelling as `PHOTOS_LABEL` in test/entry-editor.test.tsx, which is
+/** The same spelling as `PHOTOS_LABEL` in components/studio/entry-editor/entry-editor.test.tsx, which is
  *  the table an implementer changes when they reword the label. One constant,
  *  so the guard below and the pick above can never drift apart and leave the
  *  guard passing on a control the pick cannot find. */
 const PHOTOS = /photos?\b/i;
 
 /**
- * Test 4's three controls, spelled as `LABEL` in test/entry-editor.test.tsx
+ * Test 4's three controls, spelled as `LABEL` in components/studio/entry-editor/entry-editor.test.tsx
  * spells them, for `PHOTOS`'s reason: that object is the table an implementer
  * edits when they reword a label, and a second spelling here would go on
  * matching nothing while looking like an auto-fill that did not happen.
@@ -778,7 +778,7 @@ const control = (page: Page, label: RegExp) => page.getByLabel(label);
  * HOME_REGION_NOTE, and it is the reason test 4 stops at the fill. Saving would
  * put the SNAPPED pair on the wire for a coordinate outside the region and no
  * geometry at all for one inside it (§9 steps 2-3) — both worth asserting, and
- * both already asserted in test/entry-editor.test.tsx sections 11e and 11f
+ * both already asserted in components/studio/entry-editor/entry-editor.test.tsx sections 11e and 11f
  * against this same §7.6 document. Here it would add a second full save cycle
  * to the slowest test in the repository to re-prove them, and the value the
  * FILL puts in the controls — which is what this case exists for — is the
@@ -839,7 +839,7 @@ function declaredNumber(turtle: string, term: string): number {
 
 /**
  * THE COORDINATE CONTROLS ARE LIVE, AND THE SETTINGS ARE WHY — the e2e twin of
- * `awaitLiveCoordinateControls` in test/entry-editor.test.tsx, and load-bearing
+ * `awaitLiveCoordinateControls` in components/studio/entry-editor/entry-editor.test.tsx, and load-bearing
  * for the same reason: §9's fail-closed branch and a worker that read nothing
  * are the same empty box, so the gate has to be proved OPEN before a photo is
  * picked or every assertion after it is ambiguous.

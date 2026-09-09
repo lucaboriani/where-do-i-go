@@ -1,77 +1,17 @@
 /**
- * The ONLY module in this codebase that touches access control.
- *
- * Five exported operations: makePublic, makePrivate, getAccess,
- * createContainer, initialiseContainers. The first four of those are §5's
- * interface; createContainer is there because a container created without an
- * ACL of its own is publicly enumerable (see below). Enforced by
- * no-restricted-imports, which bans the ACL primitives everywhere else.
- *
- * Do not detect the mechanism and branch on it. Phase 0 showed CSS uses WAC and
- * Inrupt ESS uses ACP, but ESS advertises `rel="acl"` pointing at a separate
- * authorization host, and its control resource carries both acp# and acl#
- * vocabulary. Sniffing the link relation reports "WAC" for an ACP server.
- * `universalAccess` from @inrupt/solid-client handled both unchanged
- * (docs/decisions.md §19).
- *
- * initialiseContainers must also, per phase 0:
- *   - set inheritance explicitly; a pod root's public read does not cascade
- *   - close the container listing where the server allows it, or draft slugs
- *     leak via ldp:contains even though draft content is protected
- *   - verify the resulting access rather than assuming the writes took effect
- *
- * ---------------------------------------------------------------------------
- * HOW THAT IS IMPLEMENTED, AND WHERE THE EVIDENCE STOPS
- *
- * There is one branch in this file and it is on the RESOURCE KIND, never on the
- * server. A document and a container need different things said about them —
- * §5: "Containers carry the default; individual draft resources override it" —
- * and that is a property of LDP, true on WAC and ACP alike.
- *
- *   documents  -> universalAccess. Phase 0 granted public read through it on
- *                 both CSS and ESS with identical calling code (§19), so it is
- *                 the mechanism-agnostic path and it is used wherever it can
- *                 express what we mean.
- *
- *   containers -> `acl:default` WITHOUT `acl:accessTo`. universalAccess cannot
- *                 express this: setPublicAccess documents that "if the Resource
- *                 is a Container, the configured Access will not apply to
- *                 contained Resources", so on its own it produces a diary whose
- *                 pages are all 401 — while returning 2xx. The split shape is
- *                 the fix decisions.md §20 records as VERIFIED ON WAC and
- *                 explicitly UNVERIFIED ON ACP ("ACP has no accessTo/default
- *                 split of this shape").
- *
- * THE CONTAINER PATH REFUSES RATHER THAN GUESSES. Writing that shape means
- * writing a WAC ACL document, so it runs only when there is positive evidence
- * that the target IS a WAC ACL: `hasResourceAcl` or `hasFallbackAcl`, both of
- * which mean the library fetched an ACL document and parsed acl: rules out of
- * it. `hasAccessibleAcl` is NOT that evidence and is never used as it — it is
- * literally `typeof aclUrl === "string"`, i.e. "the server sent a rel=acl
- * link", which ESS does while pointing at its ACP authorization host (§19). On
- * ESS the library raises AclIsAcrError internally, reports neither a resource
- * nor a fallback ACL, and this module returns `accessUnverified`. That is a
- * refusal, not a mechanism branch: the same code path, the same question asked
- * of every server, and no server is identified. It does not fall back to a
- * wider grant either — the fallback would silently reopen the container listing
- * that §20 exists to close, and it would be untested code claiming a guarantee
- * nobody has measured.
- *
- * Every method verifies the RESULT rather than the status code. Two kinds of
- * evidence, and they are not equal:
- *
- *   "server" — the WAC-Allow header, i.e. the server's own evaluation of what
- *              an unauthenticated request would get. This is the strong one.
- *   "rules"  — the stored authorisations, read back from the server after the
- *              write. Proves the write persisted as written; does not prove the
- *              server enforces it.
- *
- * Neither is proof of enforcement. The only proof is a read that fails from a
- * logged-out context, which needs a fetch this module deliberately does not
- * have — the caller's fetch is the only fetch, so that a studio session can
- * never be silently downgraded to anonymous. That evidence lives in
- * test/pod-access.integration.test.ts against a real Community Solid Server.
+ * The ONLY module in this codebase that touches access control, and
+ * `no-restricted-imports` bans the ACL primitives everywhere else.
+ * ./notes.md#accessts-is-the-only-module-that-touches-access-control
  */
+
+// DO NOT DETECT THE MECHANISM AND BRANCH ON IT (decisions §19). The one branch
+// here is on the resource kind, and the container path REFUSES rather than
+// guesses. ./notes.md#document-versus-container-is-the-only-branch-and-never-the-server
+
+// Every method verifies the RESULT rather than the status code, and NEITHER
+// KIND OF EVIDENCE IS PROOF OF ENFORCEMENT: the only proof is a request from
+// the context that should be denied, which this module cannot make.
+// ./notes.md#two-kinds-of-evidence-and-neither-is-proof-of-enforcement
 import {
   createAclFromFallbackAcl,
   FetchError,
@@ -131,18 +71,10 @@ export type PublicAccess = {
   append: boolean;
   write: boolean;
   /**
-   * How `read`/`append`/`write` above were established.
-   *
-   * "server" — the WAC-Allow header: the server's own evaluation of what an
-   *            unauthenticated request would get.
-   * "rules"  — the stored authorisations, read back after the write.
-   *
-   * NEITHER VALUE PROVES ENFORCEMENT. "server" is the server's answer to a
-   * question asked over an authenticated connection, and "rules" is only what
-   * is stored. The single thing that proves a restriction is a request from the
-   * context that should be denied — which this module cannot make, because the
-   * caller's fetch is the only fetch it has (invariant 4). Do not render either
-   * value as a guarantee to the owner.
+   * How `read`/`append`/`write` were established: "server" is the WAC-Allow
+   * header, "rules" is what is stored. NEITHER VALUE PROVES ENFORCEMENT — do
+   * not render either as a guarantee to the owner.
+   * ./notes.md#two-kinds-of-evidence-and-neither-is-proof-of-enforcement
    */
   verifiedBy: "server" | "rules";
 };
@@ -153,15 +85,9 @@ export type AccessState = PublicAccess & {
   inherits: boolean;
   /**
    * How `inherits` was established — deliberately NOT the same field as
-   * `verifiedBy`, because it can never be as strong.
-   *
-   * "rules"         — the `acl:default` triple this module wrote, read back. No
-   *                   server header answers "what would an anonymous request to
-   *                   a CHILD of this container get?", so there is no "server"
-   *                   value available here and the type says so. The evidence
-   *                   that inheritance actually reaches a child is an anonymous
-   *                   GET of that child, in the integration suite.
-   * "notApplicable" — a document. It has no children.
+   * `verifiedBy`, because it can never be as strong. No server header answers
+   * "what would an anonymous request to a CHILD get?".
+   * ./notes.md#two-kinds-of-evidence-and-neither-is-proof-of-enforcement
    */
   inheritsVerifiedBy: "rules" | "notApplicable";
 };
@@ -179,31 +105,9 @@ const OWNER_FULL: Access = { read: true, append: true, write: true, control: tru
 
 /**
  * The §4 layout, with what the public may read inside each one.
- *
- * Media is one global container, outside any trip, so that publishing never has
- * to move binaries.
- *
- * `travel/settings/` IS THE ONE WITH `publicChildren: false`, and the flag is
- * the whole point of it being here rather than created on demand later. It
- * holds `privacy.ttl` — the owner's home coordinates and fuzzing radius (§7.6)
- * — and `acl:default` inherits recursively, so a container created below
- * `travel/` with no ACL of its own is covered by the parent's public default.
- * That is not a hypothesis: it is measured in this repository, on
- * `travel/trips/2026-japan/`, where an anonymous GET returned 200 and listed
- * the children.
- *
- * So the safe state for this container is NOT the state it arrives in, and the
- * failure mode is silent — the write returns 201, the studio works, and the
- * home coordinates are readable at a URL anyone can guess from §4. Creating it
- * here, at first run, is what makes the safe shape structural rather than
- * remembered by whoever writes the settings-editing UI.
- *
- * Verified rather than reasoned: before this entry existed, the integration
- * suite's anonymous GET of `travel/settings/privacy.ttl` returned **200 with
- * the home latitude in the body**, and `readPrivacySettings` with a plain
- * unauthenticated fetch returned `ok` carrying the full home region. Both are
- * 401 now. See test/pod-access.integration.test.ts, "the privacy settings
- * container".
+ * `travel/settings/` IS THE ONE WITH `publicChildren: false`, and that flag is
+ * why it is created at first run: its safe state is not the state it arrives in.
+ * ./notes.md#the-4-containers-and-why-travelsettings-is-created-at-first-run
  */
 const CONTAINERS: ReadonlyArray<{ segment: string; publicChildren: boolean }> = [
   { segment: "travel/", publicChildren: true },
@@ -212,13 +116,9 @@ const CONTAINERS: ReadonlyArray<{ segment: string; publicChildren: boolean }> = 
   { segment: "travel/settings/", publicChildren: false },
 ];
 
-/**
- * Report the URL the CALLER asked about, not the URL that happened to fail.
- *
- * A FetchError's `response.url` is empty for a synthesised Response, and an
- * inner failure on `{root}.acl` while initialising `{root}scoped/travel/` names
- * a resource the caller never mentioned. Both make the error unactionable.
- */
+/** Report the URL the CALLER asked about, not the URL that happened to fail —
+ *  both alternatives name a resource the caller never mentioned;
+ *  see ./notes.md#report-the-url-the-caller-asked-about-not-the-url-that-failed */
 function toPodError(url: string, cause: unknown): PodError {
   if (cause instanceof FetchError) return { kind: "http", url, status: cause.response.status };
   return { kind: "network", url, message: cause instanceof Error ? cause.message : String(cause) };
@@ -260,16 +160,10 @@ function serverPublicAccess(
 /* ------------------------------------------------------- containers, created */
 
 /**
- * Create a container if it is not already there. Idempotent, because §5 asks
- * for a first-run flow that is "safe to re-run" and this is the flow a deployer
- * retries after any failure.
- *
- * The create still carries `If-None-Match: *`. A 412 then means "someone else
- * got there first", which is the success case here, not a failure — and it is
- * why this is not a blind PUT even though it may run twice.
- *
- * Private on purpose: a container created through this alone has no ACL of its
- * own and is therefore publicly enumerable (see createContainer).
+ * Create a container if it is not already there. Idempotent (§5), and the
+ * create still carries `If-None-Match: *` — a 412 is the success case here.
+ * Private on purpose, so callers go through `createContainer`.
+ * ./notes.md#ensurecontainer-is-idempotent-and-still-carries-a-precondition
  */
 async function ensureContainer(fetch: PodFetch, url: string): Promise<Result<"created" | "existed">> {
   let head: Response;
@@ -291,22 +185,10 @@ async function ensureContainer(fetch: PodFetch, url: string): Promise<Result<"cr
 }
 
 /**
- * Create a container AND give it its own access control, as one operation.
- *
- * This exists because the two halves cannot safely be separate. `acl:default`
- * inherits recursively, so a container created below `travel/trips/` with no
- * ACL of its own is covered by the parent's default rule — including as a
- * resource in its own right, which makes its LISTING public. Measured against
- * CSS 7.2.0 on a Pod initialised by this module: an anonymous
- * `GET /travel/trips/2026-japan/` returned 200 with
- * `WAC-Allow: user="read",public="read"` and a body containing
- * `ldp:contains <entries/>, <trip.ttl>`. That is §20's leak one level down —
- * every studio-created trip and entries container, enumerable, with slugs
- * derived from titles.
- *
- * So: no code in this project creates a container any other way. Phase 2's
- * entry- and trip-creation paths call this. The rule is structural rather than
- * remembered, which is the only kind that survives a phase boundary.
+ * Create a container AND give it its own access control, as ONE operation: a
+ * container with no ACL of its own has a PUBLIC LISTING, measured on CSS 7.2.0.
+ * NO CODE IN THIS PROJECT CREATES A CONTAINER ANY OTHER WAY.
+ * ./notes.md#createcontainer-is-one-operation-because-the-halves-cannot-be-separate
  */
 export async function createContainer(
   url: string,
@@ -327,18 +209,10 @@ export async function createContainer(
 /* ------------------------------------------------ containers, access control */
 
 /**
- * Read a control document as an ACL, keeping the ETag OF THE SAME RESPONSE.
- *
- * The point is the pairing. An ETag taken from a later HEAD says nothing about
- * the body this module is editing: a change landing in between — two studio
- * tabs, makePublic racing makePrivate — would satisfy `If-Match` and be
- * overwritten. One GET, one ETag, one body, and §10's precondition means what
- * it says.
- *
- * `internal_accessTo` is what makes a SolidDataset an AclDataset: the resource
- * these rules govern. It is set to the server's own source IRI for that
- * resource, which is exactly what @inrupt/solid-client does when it fetches an
- * ACL itself (acl.internal.ts, internal_fetchResourceAcl).
+ * Read a control document as an ACL, keeping the ETag OF THE SAME RESPONSE. The
+ * point is the pairing: an ETag from a later HEAD says nothing about the body
+ * being edited, and would satisfy `If-Match` over someone else's change.
+ * ./notes.md#readacl-keeps-the-etag-of-the-same-response
  */
 async function readAcl(
   fetch: PodFetch,
@@ -368,23 +242,15 @@ async function readAcl(
 }
 
 /**
- * Write the container shape: public read that reaches the children, and a
- * listing that stays shut.
- *
- * `publicInherit: false` is the same shape with the public grant removed, which
- * is what makePrivate on a container has to do — universalAccess would clear
- * the resource rule and leave the `acl:default` rule standing, i.e. report
- * success while every child stayed public. Verified in a spike against CSS
- * 7.2.0: after `setPublicAccess(doc, { read: false })` the resulting ACL still
- * contained `acl:agentClass foaf:Agent; acl:mode acl:Read; acl:default …`.
+ * Step 1 of the container write: the ACL to edit and the precondition to write
+ * it under. Three answers — its own, an ancestor's copied, or a refusal; the
+ * module docblock argues for refusing rather than guessing, and an ACL that
+ * could not be READ is not one of the three: ./notes.md#an-unreadable-acl-looks-exactly-like-no-acl
  */
-async function setContainerAccess(
+export async function resolveContainerAcl(
+  fetch: PodFetch,
   url: string,
-  opts: AccessOptions,
-  publicInherit: boolean,
-): Promise<Result<AccessState>> {
-  const { fetch } = opts;
-
+): Promise<Result<{ acl: AclDataset; aclUrl: string; precondition: Precondition }>> {
   let withAcl: Awaited<ReturnType<typeof getResourceInfoWithAcl>>;
   try {
     withAcl = await getResourceInfoWithAcl(url, { fetch });
@@ -419,14 +285,9 @@ async function setContainerAccess(
     precondition = { etag: current.value.etag };
   } else if (hasFallbackAcl(withAcl) && hasAccessibleAcl(withAcl)) {
     // Positive evidence #2: no ACL of its own, but an ancestor's WAC ACL was
-    // fetched and parsed, and its `acl:default` rules are what currently apply.
-    // createAclFromFallbackAcl copies those rules onto this resource, which is
-    // what keeps the owner's Control when the parent's default stops applying.
-    //
-    // hasAccessibleAcl appears here ONLY as the type guard the library requires
-    // for the aclUrl to be a string. It is not evidence of anything and is not
-    // consulted alone: on an ACP server it is true and both clauses above are
-    // false, so this branch is unreachable there.
+    // fetched and parsed. hasAccessibleAcl appears here ONLY as the type guard
+    // the library requires for aclUrl to be a string — never as evidence.
+    // ./notes.md#document-versus-container-is-the-only-branch-and-never-the-server
     acl = createAclFromFallbackAcl(withAcl);
     aclUrl = getSourceUrl(acl);
     precondition = { create: true };
@@ -440,14 +301,30 @@ async function setContainerAccess(
     );
   }
 
+  return ok({ acl, aclUrl, precondition });
+}
+
+/**
+ * Step 2: the rules themselves, on the dataset step 1 resolved. Pure — it
+ * neither reads nor writes, so what it refuses it refuses before anything
+ * leaves the machine. Exported for its own tests.
+ */
+export function applyContainerRules(
+  url: string,
+  resolved: AclDataset,
+  webId: string | undefined,
+  publicInherit: boolean,
+): Result<AclDataset> {
+  let acl = resolved;
+
   // The owner, if the caller named one. Nothing else is carried over by hand:
-  // in the branch above either the ACL already holds every existing rule, or
+  // in step 1 either the ACL already holds every existing rule, or
   // createAclFromFallbackAcl copied them — including the agent-class and group
   // rules an agent-by-agent carry-over would have dropped, and without the
   // widening that comes of turning an accessTo-only rule into a default one.
-  if (opts.webId) {
-    acl = setAgentResourceAccess(acl, opts.webId, OWNER_FULL);
-    acl = setAgentDefaultAccess(acl, opts.webId, OWNER_FULL);
+  if (webId) {
+    acl = setAgentResourceAccess(acl, webId, OWNER_FULL);
+    acl = setAgentDefaultAccess(acl, webId, OWNER_FULL);
   }
 
   // The two halves of §20's fix. `default` without `accessTo`: children stay
@@ -455,17 +332,10 @@ async function setContainerAccess(
   acl = setPublicDefaultAccess(acl, publicInherit ? PUBLIC_READ : PUBLIC_NOTHING);
   acl = setPublicResourceAccess(acl, PUBLIC_NOTHING);
 
-  // Refuse to write an ACL that locks everyone out of it. On WAC an ACL with no
-  // Control rule cannot be repaired through the API that wrote it, so this is
-  // one of the few unrecoverable mistakes available here. Asked of the document
-  // about to be written, not of the server: a network failure or a 403 cannot
-  // masquerade as "nobody has Control" the way a swallowed read once did.
-  //
-  // Control held only by an agent CLASS or a group does not count here — this
-  // project's model is one owner plus the public (§5), and a shared Pod needs
-  // this thought about rather than assumed. The cost of being wrong is a
-  // refusal the caller can fix by passing `webId`, which the two callers that
-  // create containers already do.
+  // Refuse to write an ACL that locks everyone out of it: on WAC an ACL with no
+  // Control rule cannot be repaired through the API that wrote it. Asked of the
+  // document about to be written, not of the server, and an agent CLASS does
+  // not count. ./notes.md#an-acl-with-no-control-rule-is-refused
   const controllers = Object.values(getAgentResourceAccessAll(acl)).filter((a) => a.control);
   if (controllers.length === 0) {
     return err(
@@ -477,6 +347,22 @@ async function setContainerAccess(
     );
   }
 
+  return ok(acl);
+}
+
+/**
+ * Step 3. The control document is a resource, so §10's write protocol applies
+ * to it too: `If-Match: <etag>` to update, `If-None-Match: *` to create. There
+ * is no third case, and no degrading to `*`. Failures are reported ABOUT the
+ * container, never about `{container}.acl`. Exported for its own tests.
+ */
+export async function putAcl(
+  fetch: PodFetch,
+  url: string,
+  aclUrl: string,
+  acl: AclDataset,
+  precondition: Precondition,
+): Promise<Result<{ etag: string | null }>> {
   let body: string;
   try {
     body = await solidDatasetAsTurtle(acl);
@@ -488,13 +374,84 @@ async function setContainerAccess(
     });
   }
 
-  // The control document is a resource, so §10's write protocol applies to it
-  // too: `If-Match: <etag>` to update, `If-None-Match: *` to create. There is
-  // no third case, and no degrading to `*`.
   const written = await putGuarded(fetch, aclUrl, body, precondition);
-  if (!written.ok) return err(about(url, written.error));
+  return written.ok ? written : err(about(url, written.error));
+}
+
+/**
+ * Write the container shape: public read that reaches the children, and a
+ * listing that stays shut. `publicInherit: false` is the same shape with the
+ * public grant removed, which universalAccess CANNOT express — verified.
+ * ./notes.md#makeprivate-on-a-container-cannot-go-through-universalaccess
+ */
+async function setContainerAccess(
+  url: string,
+  opts: AccessOptions,
+  publicInherit: boolean,
+): Promise<Result<AccessState>> {
+  const { fetch } = opts;
+
+  const resolved = await resolveContainerAcl(fetch, url);
+  if (!resolved.ok) return err(resolved.error);
+  const { aclUrl, precondition } = resolved.value;
+
+  const ruled = applyContainerRules(url, resolved.value.acl, opts.webId, publicInherit);
+  if (!ruled.ok) return err(ruled.error);
+
+  const written = await putAcl(fetch, url, aclUrl, ruled.value, precondition);
+  if (!written.ok) return err(written.error);
 
   return verifyContainerAccess(url, fetch, publicInherit);
+}
+
+/**
+ * The "rules" evidence: the stored authorisations against what was asked for.
+ * Weak on its own — it proves the write persisted as written, and nothing about
+ * enforcement. Pure, and exported for its own tests: the verify step only ever
+ * sees an ACL it just wrote, so the leak it names is reachable no other way.
+ */
+export function storedRulesContradiction(
+  url: string,
+  acl: AclDataset,
+  publicInherit: boolean,
+): PodError | undefined {
+  const inherited = getPublicDefaultAccess(acl);
+  const direct = getPublicResourceAccess(acl);
+
+  if (inherited.read !== publicInherit) {
+    return unverified(
+      url,
+      `public read ${publicInherit ? "reaching" : "removed from"} the resources inside`,
+      `acl:default read=${inherited.read}`,
+    );
+  }
+  // "Public read, owner-only write" is the defining constraint (§5). Read
+  // granted one mode too wide is not a smaller bug.
+  if (inherited.write || inherited.append || inherited.control || direct.write || direct.append || direct.control) {
+    return unverified(url, "no public write anywhere on this container", "a public write grant");
+  }
+  if (direct.read) {
+    return unverified(url, "a closed listing (no public acl:accessTo)", "public read on the container itself");
+  }
+  return undefined;
+}
+
+/**
+ * The "server" evidence, and the only check here that is not "what we stored":
+ * an enumerable listing in spite of the rules means public draft slugs.
+ * `undefined` in means the server said nothing — a different fact from
+ * "nothing", and never a contradiction.
+ */
+export function serverListingContradiction(
+  url: string,
+  server: ReturnType<typeof serverPublicAccess>,
+): PodError | undefined {
+  if (!server || !(server.read || server.write || server.append)) return undefined;
+  return unverified(
+    url,
+    "the server to report no public access to the container itself",
+    `WAC-Allow public read=${server.read} append=${server.append} write=${server.write}`,
+  );
 }
 
 /** Read the access back. A 2xx on the write above is not evidence (phase 0). */
@@ -512,43 +469,13 @@ async function verifyContainerAccess(
   if (!hasResourceAcl(back)) {
     return err(unverified(url, "the container's own authorisations", "none, after writing them"));
   }
-  const acl = getResourceAcl(back);
-  const inherited = getPublicDefaultAccess(acl);
-  const direct = getPublicResourceAccess(acl);
 
-  if (inherited.read !== publicInherit) {
-    return err(
-      unverified(
-        url,
-        `public read ${publicInherit ? "reaching" : "removed from"} the resources inside`,
-        `acl:default read=${inherited.read}`,
-      ),
-    );
-  }
-  // "Public read, owner-only write" is the defining constraint (§5). Read
-  // granted one mode too wide is not a smaller bug.
-  if (inherited.write || inherited.append || inherited.control || direct.write || direct.append || direct.control) {
-    return err(unverified(url, "no public write anywhere on this container", "a public write grant"));
-  }
-  if (direct.read) {
-    return err(
-      unverified(url, "a closed listing (no public acl:accessTo)", "public read on the container itself"),
-    );
-  }
+  const stored = storedRulesContradiction(url, getResourceAcl(back), publicInherit);
+  if (stored) return err(stored);
 
-  // The server's own evaluation, where it offers one. This is the only check
-  // here that is not just "what we stored": if the listing is enumerable in
-  // spite of the rules, draft slugs are public and the deployer needs to know.
   const server = serverPublicAccess(back);
-  if (server && (server.read || server.write || server.append)) {
-    return err(
-      unverified(
-        url,
-        "the server to report no public access to the container itself",
-        `WAC-Allow public read=${server.read} append=${server.append} write=${server.write}`,
-      ),
-    );
-  }
+  const reported = serverListingContradiction(url, server);
+  if (reported) return err(reported);
 
   return ok({
     url,
@@ -563,14 +490,17 @@ async function verifyContainerAccess(
 
 /* -------------------------------------------------- documents, access control */
 
-/** Documents go through universalAccess, which phase 0 exercised on both WAC
- *  and ACP unchanged (§19). Publishing an entry is exactly this plus the
- *  dy:status flip — two operations, one transaction (§10). */
-async function setDocumentPublicRead(
+/**
+ * The apply half of the document write, and the "rules" evidence with it: what
+ * universalAccess reports back is the authorisations it stored, which is not
+ * enforcement. Every refusal on this path is decided here, before the caller's
+ * cross-check runs. Exported for its own tests.
+ */
+export async function applyDocumentPublicRead(
   url: string,
   fetch: PodFetch,
   read: boolean,
-): Promise<Result<AccessState>> {
+): Promise<Result<null>> {
   let applied: Awaited<ReturnType<typeof universalAccess.setPublicAccess>>;
   try {
     applied = await universalAccess.setPublicAccess(
@@ -608,6 +538,19 @@ async function setDocumentPublicRead(
       ),
     );
   }
+  return ok(null);
+}
+
+/** Documents go through universalAccess, which phase 0 exercised on both WAC
+ *  and ACP unchanged (§19). Publishing an entry is exactly this plus the
+ *  dy:status flip — two operations, one transaction (§10). */
+async function setDocumentPublicRead(
+  url: string,
+  fetch: PodFetch,
+  read: boolean,
+): Promise<Result<AccessState>> {
+  const applied = await applyDocumentPublicRead(url, fetch, read);
+  if (!applied.ok) return err(applied.error);
 
   // Cross-check against the server's own evaluation where it offers one, since
   // the above is still only the rules we just wrote, read back.
@@ -641,11 +584,9 @@ async function setDocumentPublicRead(
 /* ---------------------------------------------------------------- the §5 four */
 
 /**
- * Make a resource publicly readable.
- *
- * On a CONTAINER this means "read that reaches the children, without leaving
- * the container enumerable" — anything else publishes every draft slug in it
- * via ldp:contains, and slugs come from titles (decisions.md §20).
+ * Make a resource publicly readable. On a CONTAINER that means read that
+ * reaches the children without leaving the container enumerable (§20).
+ * ./notes.md#makeprivate-on-a-container-cannot-go-through-universalaccess
  */
 export function makePublic(url: string, opts: AccessOptions): Promise<Result<AccessState>> {
   return isContainerUrl(url)
@@ -662,15 +603,10 @@ export function makePrivate(url: string, opts: AccessOptions): Promise<Result<Ac
 }
 
 /**
- * What a logged-out reader actually gets.
- *
- * Prefers the server's own evaluation (WAC-Allow) over our reading of the
- * rules, because the studio's publish indicator is only useful if it answers
- * the second question — what is enforced — rather than the first.
- *
- * Returns an error, never `read: false`, when neither can be established.
- * "Not public" and "could not tell" are different facts and the owner acts on
- * what is shown.
+ * What a logged-out reader actually gets. Prefers the server's own evaluation
+ * over our reading of the rules, and returns an ERROR rather than `read: false`
+ * when neither can be established.
+ * ./notes.md#getaccess-prefers-the-servers-evaluation-and-errors-rather-than-saying-false
  */
 export async function getAccess(url: string, opts: AccessOptions): Promise<Result<PublicAccess>> {
   let server: ReturnType<typeof serverPublicAccess>;
@@ -704,22 +640,10 @@ export async function getAccess(url: string, opts: AccessOptions): Promise<Resul
 }
 
 /**
- * First-run setup: the §4 containers, with the access §5 intends.
- *
- * Idempotent and safe to re-run, because this is the flow a deployer retries
- * after any failure — a second run reporting "already exists" would make the
- * recovery path indistinguishable from the failure it recovers from.
- *
- * It does NOT create diary.ttl or any other content. Content is a write, and
- * writes carry the dy: namespace, which is still example.org (CLAUDE.md,
- * "Blocked until decided").
- *
- * That applies to `travel/settings/privacy.ttl` too, and there for a second
- * reason on top of the namespace: a default settings document would mean
- * choosing a home region on the owner's behalf, and every possible choice is
- * wrong. So a fresh Pod gets the container and no document, `readPrivacySettings`
- * returns a structured 404, and §9's fail-closed rule means entries are written
- * with no coordinate until the owner sets one. The studio has to say so.
+ * First-run setup: the §4 containers, with the access §5 intends. Idempotent
+ * and safe to re-run. It creates NO CONTENT — writes carry the `dy:` namespace,
+ * which is still example.org — and `privacy.ttl` least of all.
+ * ./notes.md#initialisecontainers-creates-no-content-and-privacyttl-least-of-all
  */
 export async function initialiseContainers(opts: {
   fetch: PodFetch;

@@ -63,6 +63,9 @@ jobs:
       - name: CLAUDE.md commands all exist in package.json
         run: npm run check:commands
 
+      - name: Structure
+        run: npm run check:structure
+
       - name: Build
         run: npm run build
 

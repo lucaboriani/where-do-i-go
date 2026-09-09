@@ -1,3 +1,14 @@
+# MANDATORY RULES
+
+1. **BE CONCISE UNLESS OTHERWISE STATED.**
+2. **SIMPLICITY BEATS CLEVERNESS.**
+
+They outrank everything below. A shorter answer and a plainer implementation are the defaults;
+length and cleverness have to be asked for. When a rule further down this file could be read two
+ways, these two decide it.
+
+---
+
 @AGENTS.md
 
 # CLAUDE.md
@@ -49,6 +60,11 @@ Never set `agentRules: false`. Next's own benchmarks show agents do better with 
 docs in context.
 
 ## Everything else here is authoritative
+
+**Keep this file rules, not reasoning.** It is read every session, so every line is paid for on
+every task. A rule belongs here; the measurement, the trap and the argument behind it belong in a
+file under `docs/` that this one points at. A section past roughly forty lines is the signal to
+split it rather than keep appending — and the reasoning is moved, never deleted.
 
 If `/init` or any other tool generates project rules, **merge into this file, never replace
 it.** These rules encode design intent that cannot be inferred by reading the code, and during
@@ -130,6 +146,7 @@ npm run typecheck         # tsc --noEmit
 npm run validate:fixtures # the normative Turtle in docs/data-model.md
 npm run check:vocab       # lib/vocab.ts vs the data model, both directions
 npm run check:commands    # this file's commands vs package.json
+npm run check:structure   # layout, comment length, notes.md pointers; reports drift
 npm run build             # reads the Pod; needs one running
 npm run size:public       # what a public page actually ships
 ```
@@ -137,7 +154,8 @@ npm run size:public       # what a public page actually ships
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
 integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
 skips rather than vacuous passes. But `npm test` then reports green having never run
-`test/pod-read.integration.test.ts` or `test/pod-access.integration.test.ts` at all, and the list
+`test/integration/pod-read.integration.test.ts` or
+`test/integration/pod-access.integration.test.ts` at all, and the list
 above put the Pod requirement only against `build`, six lines too late. With a Pod up they pass
 in a few seconds. They are real tests, not rot — which is precisely why a run that quietly omits
 them is the "half a check" this section warns about.
@@ -147,54 +165,20 @@ of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — th
 every time either file gains a case, and it was never the point. If a third integration file
 appears, name it here; do not reintroduce a total.
 
-**A ninth command, path-scoped rather than unconditional.** If the diff touches any of
+**A tenth command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts
 ```
 
-then `npm run test:e2e` must pass too. **Two seams, not one.**
+then `npm run test:e2e` must pass too, as
+`env -u CLAUDECODE -u AI_AGENT E2E_PORT=3007 npm run test:e2e`.
 
-The first line is the auth seam, and it is where this test's failures live: it drives a real
-Solid login round trip through the local Community Solid Server — redirect, consent,
-authorization code, `handleIncomingRedirect`, owner studio.
-
-`lib/media/**` is the media seam, added 2026-09-06 because the gate had a hole with a name.
-The pass-through shortcut — "the source is already small, skip the re-encode" — lives in
-`lib/media/pipeline.worker.ts`, and taking it uploads the owner's unstripped EXIF, GPS
-included, into a publicly readable container. A change to that file **alone** touches none of
-the four paths on the first line, so neither the gate nor CI would have asked for the one test
-that catches it, and it need never have run.
-
-`lib/pod/write.ts` is on the same seam for the same reason, added 2026-09-06 alongside it.
-`putGuarded` took a `Blob` body in phase 3, so it is now the single function every image
-derivative reaches the Pod through — the media path's last mile, and the one carrying the
-`If-None-Match: *` that makes a re-upload answer 412 instead of overwriting. It sits in
-`lib/pod/`, not `lib/media/`, so the media glob does not reach it, and a change confined to it
-would slip the gate exactly as the worker would have.
-
-That test is also the only place in this repository where the bytes that actually reach the Pod
-are read back and inspected. jsdom has no `createImageBitmap`, no `OffscreenCanvas` and no
-encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"undefined"` —
-measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
-order, and none of them can check one pixel or one EXIF tag.
-
-It is deliberately NOT in the list above. The eight run anywhere with a checkout and Node 22;
-this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
-infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
-reading the diff.
-
-Two things it needs, both of which fail loudly rather than skipping: `npm run pod:dev`, and
-`npx playwright install chromium`. A browser already in the Playwright cache is not enough —
-a cached revision only counts for the Playwright version that asks for it, and this repo has
-stale 1208 and 1223 alongside the 1234 that `@playwright/test@1.62.1` actually wants.
-
-It runs against `next dev` on purpose. React only double-invokes effects under StrictMode in a
-development build, and that double invocation is the whole reason `restoreSession` memoises
-synchronously (phase-0 question 2: the first `handleIncomingRedirect` returned
-`isLoggedIn: false`). Under `next start` the effect runs once and the spec would pass with the
-memo deleted.
+**Two seams, not one: auth and media.** Why each of those six paths is listed, why the gate is
+scoped to the diff instead of joining the list above, why it over-fires on test-only diffs
+deliberately, and the control that proves the integration suites ran rather than skipped — all in
+**`docs/testing-gates.md`**. Read it before narrowing a glob or skipping the run.
 
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
@@ -223,6 +207,8 @@ no server-side session anywhere in the system.
 | `docs/design-brief.md` | Visual direction, fixed vs open decisions. |
 | `docs/phase-0-spike.md` | Platform assumptions still unverified. |
 | `TODO.md` | Ordered task list, including installation and setup. Start here. |
+| `docs/code-structure.md` | Why the size and comment rules are what they are, with the measurements |
+| `docs/testing-gates.md` | Why the e2e gate lists those six paths, and how to prove a run was not empty |
 | `AGENTS.md` | Pointer file; hosts the Next.js managed block. Do not delete. |
 
 ## Blocked until decided
@@ -308,6 +294,51 @@ disposable. Ask before proceeding past this if it is still unset.
   exempt).
 - Fixed dark theme. Palette lives at `:root`, not under a `.dark` class. No theme toggle.
 
+## Code structure
+
+**Reasoning, measurements and traps: `docs/code-structure.md`.** This section is the rules. Read
+that file before arguing with one.
+
+Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blank lines.
+
+| Rule | Tendency | Hard bound | Applies to |
+|---|---|---|---|
+| Render function | 130 | 200 | `components/**`, `app/**` |
+| Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
+| Inline comment block | 3 lines | 6 lines | **production code**, except `components/ui/**` |
+| Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
+| Test function body | no limit | no limit | — |
+
+- **ESLint errors at the hard bound; `check:structure` reports the tendency and fails on none of
+  it.** That is "tend to, not a dictate" made mechanical. **Do not tighten the lint rules to the
+  tendency values.**
+- **`npm run lint` carries `--max-warnings 0`**, so a stale `eslint-disable` fails the build
+  rather than warning. That is how an exemption leaves when its function shrinks.
+- **The comment bound binds production code; test docblocks are exempt but still ratcheted.**
+  Production reached zero on 2026-09-09 and is now a hard bound — a single block over six lines
+  fails the build. The test half is frozen at its measured count and fails if it rises, so
+  "exempt" means *not rewritten*, never *unbounded*.
+- **Comments say what the code cannot, in three lines or fewer.** Anything longer moves to a
+  sibling `notes.md`, and the code keeps `// <one line>; see ./notes.md#anchor`. An anchor that
+  does not resolve fails `check:structure`. Notes cite `docs/data-model.md` by section rather
+  than restating it. One exception: a trap warning at the point of danger stays inline, as one
+  shouted line plus a pointer.
+- **One component, one folder** — named file, one-line `index.ts` barrel, its test, its
+  `notes.md`. The rule binds `.tsx`; flat `state/` and `hooks/` modules beside it are fine. A
+  barrel re-exports one component, never a directory of them. `components/ui/**` stays flat.
+- **`lib/` holds no React.** Pure and reusable goes to `lib/studio/<topic>/`; presentation stays
+  in the component folder.
+- **Tests live beside their subject** — same directory, base name matching the part before the
+  first dot. Three kinds have no subject and stay in `test/`: the shared harness, the Pod
+  integration suites in `test/integration/`, and the tests whose subject is the repository
+  itself. `check:structure` carries that list and fails on a name in it that no longer exists.
+- **An exemption is a comment with a reason and a removal condition**, never a bare disable:
+
+```ts
+/* eslint-disable-next-line max-lines-per-function --
+   Stage B decomposes this; see docs/code-structure.md. Remove with the reducer. */
+```
+
 ## Commands
 
 **The Node version IS dictated. Select it before running anything.** `.nvmrc` pins `22.23.2`
@@ -359,6 +390,7 @@ typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
 check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
 check:commands       # the commands above vs package.json
+check:structure      # layout, comment length, notes.md pointers; reports length drift
 size:public          # gzip budget on what a public page ships; the only bundle budget, CI runs it
 pod:dev              # local Community Solid Server
 pod:seed             # seed it with the docs/data-model.md fixtures

@@ -1,11 +1,7 @@
 /**
- * The part of the resize that needs no pixels. STUDIO ONLY — never imported by
- * app/(public); enforced by no-restricted-imports.
- *
- * This module exists so that the Web Worker can stay thin. A worker is the
- * least testable place in this project (jsdom has no createImageBitmap, no
- * OffscreenCanvas, no toBlob), so every decision that can be made here is made
- * here, where a fast test can check it.
+ * The part of the resize that needs no pixels, so that the Web Worker can stay
+ * thin and a fast test can check it. STUDIO ONLY.
+ * See ./notes.md#the-worker-is-thin-and-where-the-decisions-live
  */
 
 /** Longest edge in px, and the encoder quality for each derivative (§5). */
@@ -24,14 +20,10 @@ export const TARGETS = {
 export const BLUR_BUDGET_BYTES = 1200;
 
 /**
- * Fit within a box by the longest edge, preserving aspect ratio.
- *
- * NEVER UPSCALES. A source smaller than the target is returned unchanged, so a
- * 800px photo stays 800px rather than being inflated to 1600px of invented
- * detail at Pod-quota cost.
- *
- * The 1px floor is not defensive tidying: an extreme aspect ratio rounds the
- * short edge to 0, and a zero-height OffscreenCanvas throws.
+ * Fit within a box by the longest edge, preserving aspect ratio. NEVER
+ * UPSCALES: an 800px photo stays 800px rather than 1600px of invented detail at
+ * Pod-quota cost. The 1px floor is not tidying — an extreme aspect ratio rounds
+ * the short edge to 0, and a zero-height OffscreenCanvas throws.
  */
 export function fitWithin(
   width: number,
@@ -48,13 +40,10 @@ export function fitWithin(
 }
 
 /**
- * The three types the canvas encoder can hand back.
- *
- * `undefined` for anything else is deliberate and is half of the §6.1 guard:
- * `convertToBlob` does not throw when it cannot encode the requested type, it
- * silently returns PNG. So the extension and `schema:encodingFormat` are
- * derived from the type the blob ACTUALLY has, and a type we do not recognise
- * has to fail at the call site rather than produce `web.undefined`.
+ * The three types the canvas encoder can hand back. `undefined` for anything
+ * else is half of the §6.1 guard — `convertToBlob` returns PNG rather than
+ * throwing, so the call site must refuse rather than write `web.undefined`.
+ * See ./notes.md#the-encoder-can-answer-a-different-type
  */
 const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
