@@ -271,3 +271,202 @@ pinned by a case in `lib/pod/read.owner-profile.test.ts`. Do not tidy them away.
 3. **No `rdf:type` gate.** §7.5 types the subject `foaf:Agent`, but nothing here
    depends on it and plenty of real profiles omit it. What matters is the issuer,
    and its absence is caught by the schema.
+
+## The blur budget is restated in the schema rather than imported
+
+`BLUR_BUDGET_BYTES` in `lib/media/targets.ts` is the source of the §6.4 number
+and the two must stay in step. It is not imported into `lib/pod/schema.ts`
+because that module is studio-only and fenced from `app/(public)` by
+`no-restricted-imports`, while the schema is read by public pages: an import
+would pull the media graph into the public bundle to fetch one integer, undoing
+the fence rather than respecting it. A duplicated constant with a comment is the
+cheaper mistake.
+
+## Over budget discards the placeholder; it does not reject the photo
+
+The §6.4 budget is checked on **read** as well as on write. `withinBlurBudget`
+runs in the worker, which only ever governs what *this* app writes, and the
+literal rides inside the entry's Turtle, which is world-readable and fetched on
+every public page view, multiplied by photo count. So the side that matters most
+is the one where an oversized value *arrives*: an older version of this app,
+another tool, or a foreign writer — §11's premise for validating at all.
+
+**That asymmetry is the entire point of the field, and it was learned the hard
+way.** For one day this was a `.max()` and a `.refine()`, both fatal. A single
+over-budget literal from a foreign writer then failed `Photo`, which failed
+`Entry`, which made `readEntry` return `shape` — so the public entry page lost
+its headline, body, place and every photo, and the next `rebuildIndex` dropped
+the entry from the trip index because it could not read it. A guard that turns a
+cosmetic problem into a missing page is worse than the problem it guards
+against. §3 says the budget "drops it", and dropping is what this does: the
+entry renders with no placeholder and everything else intact.
+
+**Bytes, not characters**, hence the `TextEncoder`: the budget is a wire size. A
+`.max()` would not be a cheaper spelling of the same check. Measured against the
+installed zod 4.5.4 rather than recalled — `z.string().max(n)` counts *code
+points*, not UTF-16 units, so `"\u{1F600}".repeat(3)` has `.length` 6 and passes
+`.max(3)`, and 1200 characters of four-byte codepoints is 4800 bytes sailing
+under a character bound of 1200. `test/guardrails.test.ts` straddles the
+boundary in ASCII and in multi-byte codepoints for that reason.
+
+`serialiseEntry` validates with the same schema on the way *out*, so an
+over-budget placeholder is dropped there too rather than failing the save —
+still "drops it", and still meaning the Pod never receives one. Nothing this app
+produces reaches that path anyway: the worker's `withinBlurBudget` omits the
+placeholder before it is ever a `Photo`.
+
+## created and datePublished are not redundant
+
+§7.3 says so in as many words: "created is when the record came into being and
+datePublished is when it became public. They differ by however long the draft
+sat."
+
+Both were missing from `Entry` until 2026-09-04, so `readEntry` dropped them and
+the first read-modify-write in the studio would have destroyed both, permanently
+and silently. `readTrip` has always read `created`, so it was an inconsistency
+rather than a policy.
+
+Both are optional, for the reason every other optional field here is: a Pod
+contains whatever was written to it, including data from an older version of
+this app. Requiring `created` would make every entry written before that change
+unreadable — including by `rebuildIndex`, which is the one tool that could
+repair them — and nothing rendered depends on either value. `saveEntry` sets
+`created` on a create and carries it forward on an update, so entries this app
+writes always have one.
+
+## PrivacySettings is the one strict schema, and fails closed
+
+Every other schema in `lib/pod/schema.ts` is lenient about optional fields and
+strict about the ones the pages depend on, because a Pod contains whatever was
+written to it and refusing to render an otherwise valid entry helps nobody. The
+trade is the other way round for this resource: nothing renders from it, and
+what depends on it is whether a coordinate reaches a world-readable document.
+
+§9 says the read fails closed — "no readable settings means no coordinate is
+published at all" — and a fail-closed contract is only worth as much as this
+schema's refusal to fill anything in. Two consequences, both load-bearing:
+
+- `defaultPrecisionMeters` is **required**. A default here would be a distance
+  this project picked for someone else's front door.
+- `home` is all three values or none. A `.optional()` on any one of them turns a
+  half-written document into "no home region", which publishes coordinates from
+  the owner's doorstep while returning `ok` — the exact failure §7.6 spells out.
+
+`.positive()` on both distances for the same reason: a radius of 0 m is a circle
+of no area, indistinguishable in effect from the absent value, and a grid of 0 m
+snaps a coordinate to itself while announcing `dy:precisionMeters 0`, i.e. "this
+point is exact". That is also the sentence
+`lib/studio/place/notes.md#no-exact-option-and-what-it-would-take` has to
+overturn if an exact option is ever wanted.
+
+## OwnerProfile validates a document that is not ours
+
+Read unauthenticated so the studio can discover *where to log in* before any
+session exists (§7.5). Deliberately unlike every other schema here: on ESS the
+identity provider serves this document and answers `PATCH` with 405, so it
+carries no `dy:` terms and none of §6's house rules apply to it. Validate what
+we depend on and tolerate the rest.
+
+The issuer is required. `session.login()` takes `oidcIssuer` as a mandatory
+option and there is deliberately no `OIDC_ISSUER` env var, so an absent issuer
+is a failed read rather than an `undefined` discovered at redirect time.
+
+## The serialisers are pure, and they do not fuzz
+
+`entry-model.ts` and `index-model.ts` do no fetching, no writing and hold no
+clock. `saveEntry` stamps the timestamps and hands the result in, which keeps
+each serialiser a total mapping from a value to a Turtle document and makes the
+round-trip test — serialise, read back with the real reader, compare the whole
+object — worth what it looks like it is worth.
+
+Byte-level formatting is not normative (§11): compare these graphs by triple
+set, because Turtle has no canonical form and a byte assertion would be
+permanently red on the next n3 release.
+
+**What `entry-model.ts` deliberately does not do is fuzz coordinates.** §9
+requires fuzzing *before* the write — "the Pod stores only the coordinate you
+are willing to publish" — and that happens in `lib/pod/fuzz.ts`, called by the
+editor before the `Entry` reaches the serialiser. Whatever coordinate the
+serialiser is handed is the coordinate that reaches the Pod, unrounded and
+unshifted, so fuzzing is unambiguously the caller's job and no test here can be
+misread as evidence that a coordinate was fuzzed. A serialiser that quietly
+rounded would also make `dy:precisionMeters` a lie in the other direction,
+describing a precision the value no longer has.
+
+That paragraph read "it is phase 3 work that does not exist yet" until
+2026-09-06, having outlived commit `fc9fcc5`, which landed the module. A comment
+arguing for a state that no longer holds is worse than no comment: the next
+reader concludes nothing fuzzes, and either duplicates it in the serialiser —
+the double-fuzz the paragraph exists to prevent — or ships the raw coordinate on
+the assumption that someone downstream will handle it.
+
+`index-model.ts` is the part that has to be exactly right, because
+`rebuildIndex` is three things at once: the recovery path when a multi-step
+write half-failed, the migration tool when `dy:schemaVersion` increments, and
+how a new deployer imports data written by an older version of the app (§10).
+
+## documentUrlOf is a string operation on purpose
+
+`<doc.ttl#it>` → `<doc.ttl>` by regex rather than `new URL(iri)`. This is the
+URL that gets PUT and that appears in every error report, so it must be exactly
+what the caller named rather than a normalised variant of it — and it must not
+throw on a value that turns out not to be a URL at all. The schema check that
+follows is what rejects that case, with a structured error.
+
+## Which photo literals are plain, and which are tagged
+
+`schema:encodingFormat` is a code rather than prose, so it is plain, like the
+slug and the country code. §7.3 spells it `"image/webp"` with no tag, and a
+tagged literal would be a different RDF term from the one the fixture shows. It
+is written from the type the encoded blob *actually* has and never from the type
+that was requested, because `convertToBlob` answers an unsupported request with
+PNG rather than an error — that is the uploader's job, and the serialiser writes
+whatever it is handed.
+
+`dy:blurDataUrl` is also plain and deliberately **not** language-tagged. §6 asks
+for a language tag on human-readable literals; base64 is not human-readable in
+any language, and tagging it would assert that it is prose in some tongue.
+
+`dy:originalUrl` is deliberately never written: phase 3 decided against
+uploading originals, and §3 records the term as reserved rather than live. If a
+fourth photo predicate is ever added and left unwritten, say so here —
+`lib/pod/entry-model.test.ts` asserts that *nothing* in §7.3 is missing, so a
+silent omission turns the suite red rather than vanishing.
+
+## The locality carries the entry's own language
+
+Not the deployment's. Every write happens in the browser (invariant 4), where
+`config.defaultLanguage` is always `SITE_LANGUAGE`'s fallback because
+`SITE_LANGUAGE` is not `NEXT_PUBLIC_`. It is passed through `text()` rather than
+spelled as a bare `literal()`, so an entry with no language of its own still
+falls back to the deployment default instead of publishing an untagged literal —
+the same fallback `placeQuads`' `schema:name` relies on.
+
+## fragment and sortOrder are recomputed, never carried
+
+Both are derived from the whole row set every time, which is what stops an
+incremental update from leaving `dy:sortOrder` describing an order the set no
+longer has. That is why `IndexRowInput` omits them.
+
+`computeIndexFromRows` is the single implementation of "what the derived values
+are" — ordering, numbering, count, bbox, centre. `computeIndex` is that function
+fed from entries; `saveEntry` feeds it the surviving rows plus the one it is
+inserting. Both go through it, and that is the difference between recomputing
+the derived values and incrementing them.
+
+`rowOfIndexEntry` reads a row already in the index back as an input, through the
+validated `IndexEntry` model rather than out of the raw triples, which is what
+§11 guardrail 2 asks for: a row this version cannot understand fails the read
+loudly instead of being dropped on the next save. `rowOfEntry` applies no status
+check, because the caller decides what reaches the index — `saveEntry` also has
+to *remove* a row.
+
+## Only published entries reach the index, and what that does not cover
+
+This is what makes the publication boundary hold: the public site reads the
+index and therefore cannot leak a draft title, even by accident, because the
+data is not there (§4).
+
+Note the narrower guarantee phase 0 established — draft *slugs* can still be
+enumerated from a publicly readable container. That is a container-ACL problem
+rather than an index problem, and `initialiseContainers` owns it.

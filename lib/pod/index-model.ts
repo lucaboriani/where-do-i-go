@@ -1,11 +1,7 @@
 /**
- * The trip index, computed and serialised.
- *
- * Pure: no fetching, no writing. This is the part that has to be exactly right,
- * because `rebuildIndex` is three things at once — the recovery path when a
- * multi-step write half-failed, the migration tool when dy:schemaVersion
- * increments, and how a new deployer imports data written by an older version
- * of the app (§10).
+ * The trip index, computed and serialised. Pure: no fetching, no writing. This
+ * is the part that has to be exactly right, because `rebuildIndex` is three
+ * things at once (§10). ./notes.md#the-serialisers-are-pure-and-they-do-not-fuzz
  */
 import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
@@ -37,13 +33,9 @@ export type ComputedIndex = {
   center?: { lat: number; long: number };
 };
 
-/**
- * A row before the two derived fields are assigned.
- *
- * `fragment` and `sortOrder` are NOT inputs: both are recomputed from the whole
- * set every time, which is what stops an incremental update from leaving
- * `dy:sortOrder` describing an order the set no longer has.
- */
+/** A row before the two derived fields are assigned. `fragment` and
+ *  `sortOrder` are NOT inputs — both are recomputed from the whole set;
+ *  see ./notes.md#fragment-and-sortorder-are-recomputed-never-carried */
 export type IndexRowInput = Omit<IndexRow, "fragment" | "sortOrder">;
 
 /** The row an entry contributes. No status check here — the caller decides what
@@ -64,13 +56,10 @@ export function rowOfEntry(entry: Entry): IndexRowInput {
 }
 
 /**
- * A row already in the index, back as an input.
- *
- * `saveEntry` reads `entries.ttl` and writes it back with one row inserted; the
- * rows it did not touch have to survive that round trip. Reading them through
- * the validated `IndexEntry` model rather than out of the raw triples is what
- * §11 guardrail 2 asks for, and it means a row this version cannot understand
- * fails the read loudly instead of being dropped on the next save.
+ * A row already in the index, back as an input — through the validated
+ * `IndexEntry` model rather than the raw triples (§11 guardrail 2), so a row
+ * this version cannot understand fails loudly instead of being dropped.
+ * ./notes.md#fragment-and-sortorder-are-recomputed-never-carried
  */
 export function rowOfIndexEntry(row: IndexEntry): IndexRowInput {
   return {
@@ -87,13 +76,10 @@ export function rowOfIndexEntry(row: IndexEntry): IndexRowInput {
 }
 
 /**
- * Only published entries reach the index. This is what makes the boundary hold:
- * the public site reads the index and therefore cannot leak a draft title, even
- * by accident, because the data is not there (§4).
- *
- * Note the narrower guarantee phase 0 established — draft *slugs* can still be
- * enumerated from a publicly readable container. That is a container-ACL
- * problem, not an index problem, and `initialiseContainers` owns it.
+ * Only published entries reach the index. This is what makes the publication
+ * boundary hold (§4) — though draft *slugs* can still be enumerated from a
+ * publicly readable container, which `initialiseContainers` owns.
+ * ./notes.md#only-published-entries-reach-the-index-and-what-that-does-not-cover
  */
 export function computeIndex(entries: readonly Entry[]): ComputedIndex {
   return computeIndexFromRows(entries.filter((e) => e.status === "published").map(rowOfEntry));
@@ -101,12 +87,8 @@ export function computeIndex(entries: readonly Entry[]): ComputedIndex {
 
 /**
  * The derived half of the index — ordering, numbering, count, bbox, centre —
- * computed from the row set and nothing else.
- *
- * `computeIndex` above is this function fed from entries; `saveEntry` feeds it
- * the surviving rows plus the one it is inserting. Both go through here so
- * there is exactly one implementation of "what the derived values are", which
- * is the difference between recomputing them and incrementing them.
+ * computed from the row set and nothing else, and the single implementation of
+ * it. ./notes.md#fragment-and-sortorder-are-recomputed-never-carried
  */
 export function computeIndexFromRows(inputs: readonly IndexRowInput[]): ComputedIndex {
   const rows: IndexRow[] = [...inputs]

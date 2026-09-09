@@ -1,33 +1,8 @@
 /**
- * The entry resource, serialised. The inverse of `readEntry`.
- *
- * Pure: no fetching, no writing, no clock. `saveEntry` stamps the timestamps
- * and hands the result here, which keeps this function a total mapping from an
- * `Entry` to a Turtle document and makes the round-trip test — serialise, read
- * back with the real reader, compare the whole object — worth what it looks
- * like it is worth.
- *
- * Byte-level formatting is not normative (§11). Compare these graphs by triple
- * set; Turtle has no canonical form and a byte assertion would be permanently
- * red on the next n3 release.
- *
- * WHAT THIS DELIBERATELY DOES NOT DO: fuzz coordinates. §9 requires fuzzing
- * BEFORE the write — "the Pod stores only the coordinate you are willing to
- * publish" — and that happens in `lib/pod/fuzz.ts`, called by
- * `components/studio/entry-editor/entry-editor.tsx` before the `Entry` reaches this
- * function. Whatever coordinate this function is handed is the coordinate that
- * reaches the Pod, unrounded and unshifted, so that fuzzing is unambiguously
- * the caller's job and no test here can be misread as evidence that a
- * coordinate was fuzzed. A serialiser that quietly rounded would also make
- * `dy:precisionMeters` a lie in the other direction, describing a precision the
- * value no longer has.
- *
- * That paragraph read "it is phase 3 work that does not exist yet" until
- * 2026-09-06, having outlived commit fc9fcc5, which landed the module. A
- * comment arguing for a state that no longer holds is worse than no comment:
- * the next reader concludes nothing fuzzes, and either duplicates it here — the
- * double-fuzz the paragraph exists to prevent — or ships the raw coordinate on
- * the assumption that someone downstream will handle it.
+ * The entry resource, serialised — the inverse of `readEntry`, and pure: no
+ * fetching, no writing, no clock. IT DELIBERATELY DOES NOT FUZZ COORDINATES;
+ * §9 requires that before the write, in `lib/pod/fuzz.ts`.
+ * ./notes.md#the-serialisers-are-pure-and-they-do-not-fuzz
  */
 import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
@@ -41,13 +16,9 @@ import { Entry, type GeoPoint } from "./schema";
 const { namedNode, literal, quad } = DataFactory;
 
 /**
- * `<doc.ttl#it>` → `<doc.ttl>`.
- *
- * A string operation rather than `new URL(iri)` on purpose: this is the URL
- * that gets PUT and that appears in every error report, so it must be exactly
- * what the caller named, not a normalised variant of it — and it must not throw
- * on a value that turns out not to be a URL at all. The schema check below is
- * what rejects that case, with a structured error.
+ * `<doc.ttl#it>` → `<doc.ttl>`. A string operation rather than `new URL(iri)`
+ * on purpose: this is the URL that gets PUT and appears in every error report.
+ * ./notes.md#documenturlof-is-a-string-operation-on-purpose
  */
 export const documentUrlOf = (iri: string) => iri.replace(/#.*$/, "");
 
@@ -136,13 +107,9 @@ export function addressQuads(
     quad(address, namedNode(RDF.type), namedNode(SCHEMA.PostalAddress)),
   ];
   if (fields.locality !== undefined) {
-    // The entry's own language, not the deployment's — every write happens
-    // in the browser (invariant 4), where `config.defaultLanguage` is
-    // always `SITE_LANGUAGE`'s fallback because `SITE_LANGUAGE` is not
-    // `NEXT_PUBLIC_`. Passed through `text()`, not spelled as a bare
-    // `literal()`, so an entry with no language of its own still falls
-    // back to the deployment default instead of publishing an untagged
-    // literal — the same fallback `placeQuads`' `schema:name` relies on.
+    // The entry's own language, not the deployment's, and through `text()` so
+    // an entry with no language still falls back rather than publishing an
+    // untagged literal. ./notes.md#the-locality-carries-the-entrys-own-language
     quads.push(
       quad(
         address,
@@ -203,13 +170,8 @@ export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): 
     }
     /**
      * A media type is a code, not prose — plain, like the slug and the country
-     * code above. §7.3 spells it `"image/webp"` with no tag, and a tagged
-     * literal would be a different RDF term from the one the fixture shows.
-     *
-     * It is written from the type the encoded blob ACTUALLY has, never from the
-     * type that was requested: `convertToBlob` answers an unsupported request
-     * with PNG rather than an error (§7.3 notes). That is the uploader's job;
-     * this function writes whatever it is handed.
+     * code above (§7.3). Written from the type the blob ACTUALLY has.
+     * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
      */
     if (photo.encodingFormat) {
       quads.push(quad(node, namedNode(SCHEMA.encodingFormat), literal(photo.encodingFormat)));
@@ -218,15 +180,10 @@ export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): 
       quads.push(quad(node, namedNode(SCHEMA.dateCreated), dt(photo.dateCreated)));
     }
     /**
-     * Also a plain literal, and NOT language-tagged. §6 asks for a language tag
-     * on human-readable literals; base64 is not human-readable in any language,
-     * and tagging it would assert that it is prose in some tongue.
-     *
-     * dy:originalUrl is deliberately never written: phase 3 decided against
-     * uploading originals, and §3 records the term as reserved rather than
-     * live. If a fourth photo predicate is ever added and left unwritten, say
-     * so here — test/entry-write.test.ts asserts that NOTHING in §7.3 is
-     * missing, so a silent omission turns the suite red rather than vanishing.
+     * Also a plain literal, and NOT language-tagged: base64 is not
+     * human-readable in any language. `dy:originalUrl` is deliberately never
+     * written; say so here if a fourth photo predicate joins it.
+     * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
      */
     if (photo.blurDataUrl) {
       quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
