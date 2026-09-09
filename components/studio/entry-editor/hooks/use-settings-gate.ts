@@ -14,27 +14,17 @@ import type { PrivacySettings } from "@/lib/pod/schema";
 import type { EntryPlace } from "@/lib/studio/place/place";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
-/**
- * WHAT THE SETTINGS READ (§7.6) LEFT BEHIND, in the three states the controls
- * have to distinguish. `checking` and `closed` both hold the controls, and they
- * are separate anyway: one is a wait and the other is an answer, and telling
- * the owner "your privacy settings could not be read" while the request is
- * still in flight is a lie that resolves itself.
- */
+/** WHAT THE SETTINGS READ (§7.6) LEFT BEHIND, in the three states the controls
+ *  have to distinguish — a wait is not an answer:
+ *  ./notes.md#the-three-states-the-controls-distinguish */
 type SettingsGate =
   | { kind: "checking" }
   | { kind: "ready"; settings: PrivacySettings }
   | { kind: "closed"; detail: string };
 
-/**
- * §9, and it has to be SAID: "an entry silently losing its map pin becomes a
- * bug report, whereas 'you have not set a home region yet' is a one-time setup
- * step with an obvious fix."
- *
- * This is the common case rather than the rare one. `initialiseContainers()`
- * creates `/travel/settings/` and deliberately writes no document into it, so
- * every fresh deployment reads a 404 here until the owner sets a home region.
- */
+/** §9, and it has to be SAID rather than silently lost — and this is the
+ *  COMMON case, since a fresh deployment has no privacy.ttl at all:
+ *  ./notes.md#the-note-has-to-be-said-out-loud */
 const NO_SETTINGS_NOTE =
   "This entry will be saved without a map pin: your privacy settings could not be read, so " +
   "there is no home region to check a coordinate against. Set a home region and a default " +
@@ -51,8 +41,8 @@ export interface SettingsGateSeed {
   /** `/travel/settings/privacy.ttl` (§7.6). See `EntryEditorProps.settingsUrl`
    *  for why it is a URL this component is GIVEN rather than one it derives. */
   settingsUrl: string;
-  /** Whose `fetch` the read goes over. The effect's own docblock says why it
-   *  must be this one and never the ambient one. */
+  /** Whose `fetch` the read goes over — this one and never the ambient one:
+   *  ./notes.md#the-read-is-memoised-on-the-url-and-never-ambient */
   session: StudioSessionLike;
   /** What the precision select is currently holding, for the option list and
    *  for the grid `fuzzed` snaps to. */
@@ -90,26 +80,10 @@ export function useSettingsGate({
   /* ─────────────────────────────────────────────── §7.6, read on mount ─── */
 
   /**
-   * ON MOUNT, NOT AT SAVE TIME, and that is the fail-closed posture rather than
-   * an optimisation. §9 makes every coordinate write conditional on this
-   * document, so a form that took the input and refused it afterwards would
-   * have accepted a coordinate it was never going to publish and said nothing
-   * until the owner pressed Save. The controls are dead or live according to
-   * the answer, which means the answer has to arrive first.
-   *
-   * MEMOISED ON THE URL, WHICH IS WHAT MAKES IT ONE READ. The App Router runs
-   * the studio under StrictMode in development, so this effect is invoked
-   * twice; a `live` flag alone would cancel the first invocation's promise and
-   * a ref that merely said "already started" would leave the second with
-   * nothing to await, so nothing would ever be set. Holding the PROMISE — the
-   * shape components/studio/studio-shell/studio-shell.tsx uses for `enumerateTrips`, and
-   * `restoreSession`'s for the same reason — makes both invocations await the
-   * same request.
-   *
-   * `session.fetch`, NEVER THE AMBIENT ONE. §7.6 is owner-only: anonymously
-   * this is a 401, and on ESS a 401 does not even distinguish private from
-   * missing. Either way it lands in the `closed` branch, which is the right
-   * answer to both.
+   * ON MOUNT, NOT AT SAVE TIME — the fail-closed posture. MEMOISED ON THE URL,
+   * holding the PROMISE and not a flag, which is what survives StrictMode's
+   * double invoke. `session.fetch`, NEVER THE AMBIENT ONE: §7.6 is owner-only.
+   * ./notes.md#the-read-is-memoised-on-the-url-and-never-ambient
    */
   const settingsRead = useRef<{
     url: string;
@@ -125,16 +99,10 @@ export function useSettingsGate({
     let live = true;
     void settingsRead.current.result.then((result) => {
       if (!live) return;
-      /**
-       * ONE FACT IS NOT THE OTHER (§7.6, §9). A `Result` that is not ok is "the
-       * settings could not be read" and closes the controls; settings that ARE
-       * ok but carry no `home` are "I have no home to protect", which is a
-       * legitimate configuration where every coordinate is still snapped and
-       * none is ever dropped. Collapsing the second into the first strips the
-       * pin from every entry of everyone who never set a home region, silently
-       * and for ever, and `fuzzForPublication` cannot catch it because it never
-       * gets asked.
-       */
+      /** ONE FACT IS NOT THE OTHER (§7.6, §9): unreadable settings close the
+       *  controls, settings with no `home` do not. Collapsing them strips the pin
+       *  from every home-less owner:
+       *  ./notes.md#one-fact-is-not-the-other-unreadable-versus-no-home */
       if (!result.ok) {
         setGate({ kind: "closed", detail: describe(result.error) });
         return;
@@ -163,22 +131,9 @@ export function useSettingsGate({
   const coordinateNote =
     gate.kind === "ready" ? null : gate.kind === "checking" ? CHECKING_NOTE : NO_SETTINGS_NOTE;
 
-  /**
-   * What the precision control offers: the fixed grids, the owner's own default
-   * from §7.6, and whatever the form is currently holding.
-   *
-   * **THE SETTINGS VALUE JOINS THE LIST; IT IS NOT MAPPED ONTO IT.** §7.6's own
-   * fixture is 500 m, which is none of the fixed grids, and rounding it either
-   * way is wrong in a way the wire cannot show: coarser publishes a pin further
-   * from the truth than the owner asked for while `dy:precisionMeters` reports
-   * the distance as deliberate, and finer is simply a leak. `Set` because a
-   * default that happens to equal a fixed grid must not appear twice.
-   *
-   * The CURRENT value is in here too, so a draft restored from a build with a
-   * different list still shows the number it is about to publish at. What the
-   * control shows and what `fuzzForPublication` is given have to be the same
-   * number (§9 step 3).
-   */
+  /** The fixed grids, §7.6's own default and whatever the form holds. THE
+   *  SETTINGS VALUE JOINS THE LIST; IT IS NOT MAPPED ONTO IT:
+   *  ./notes.md#the-settings-value-joins-the-option-list */
   const precisionOptions = useMemo(() => {
     const grids = new Set<number>(PRECISION_GRIDS);
     if (gate.kind === "ready") grids.add(gate.settings.defaultPrecisionMeters);
@@ -187,27 +142,9 @@ export function useSettingsGate({
     return [...grids].sort((a, b) => a - b);
   }, [gate, precision]);
 
-  /**
-   * What may be published for a coordinate the owner typed, or `undefined` when
-   * nothing may be. §9 steps 1–3, and the whole of the decision is delegated:
-   * this function chooses no distance, checks no radius and rounds nothing.
-   *
-   * THE TWO GUARDS IN FRONT OF `fuzzForPublication` ARE NOT REDUNDANT WITH IT.
-   * It is total and fails closed on settings that do not parse, but it cannot
-   * see a gate that never opened — `checking` and `closed` have no settings to
-   * hand it at all — and it treats an unusable explicit precision as a drop
-   * rather than falling back to the default, which is the same answer these
-   * reach more directly. Both are fail-closed, so the worst either can do is
-   * publish nothing.
-   *
-   * BACK TO NUMBERS, WHICH `lib/pod/fuzz.ts` DELIBERATELY AVOIDED RETURNING.
-   * Its strings exist so that a naive float snap cannot publish
-   * `35.010000000000005`; the values coming back have already been through
-   * `toFixed`, and `Number` → `String` round-trips a short decimal to the same
-   * digits, which is what `decimalLexical` will spend on it. `GeoPoint` is
-   * typed in numbers and both serialisers read it, so this is where the two
-   * meet.
-   */
+  /** What may be published for a point the owner typed, §9 steps 1–3 delegated
+   *  whole. The TWO GUARDS in front are not redundant with it:
+   *  ./notes.md#what-fuzzed-delegates-and-the-two-guards-in-front-of-it */
   function fuzzed(point: { lat: number; long: number }): EntryPlace["geo"] {
     if (gate.kind !== "ready") return undefined;
     const grid = gridOf(precision);
