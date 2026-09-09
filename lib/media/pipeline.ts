@@ -1,14 +1,8 @@
 /**
- * The main-thread half of the media pipeline. STUDIO ONLY.
- *
- * ONE WORKER, ONE PHOTO AT A TIME. Not one worker per photo and not a pool:
- * decoding a 50 MP image costs on the order of 200 MB of bitmap, so three in
- * flight is how a phone's browser tab gets killed in the middle of an edit.
- *
- * THE AUTHENTICATED FETCH NEVER CROSSES THIS BOUNDARY. It is a closure over
- * the Inrupt session's token state and is not structured-cloneable, so uploads
- * happen out here, in lib/media/upload.ts. The worker owns bytes; the main
- * thread owns the network.
+ * The main-thread half of the media pipeline. STUDIO ONLY. One worker, one
+ * photo at a time, and THE AUTHENTICATED FETCH NEVER CROSSES INTO THE WORKER:
+ * the worker owns bytes, the main thread owns the network.
+ * See ./notes.md#one-worker-one-photo-and-no-session-in-it
  */
 import type { TransferableResult, WorkerRequest, WorkerResponse } from "./pipeline.worker";
 
@@ -24,19 +18,10 @@ export type WorkerLike = {
 export type Pipeline = {
   process(file: Blob): Promise<PipelineResult>;
   /**
-   * Three separable things: terminates the worker, rejects everything already
-   * in `pending`, and resets the queue tail so the instance stays reusable.
-   *
-   * IT IS NOT A CANCEL. A photo queued but not yet past `pending` is not in
-   * the map to reject, so its send still runs, re-spawns a worker and can
-   * RESOLVE AFTER THIS RETURNS — into a UI that believes it was cancelled.
-   *
-   * The only correct caller today is unmount cleanup, where that is harmless:
-   * the worker is spawned lazily inside send(), so StrictMode's double-effect
-   * at mount finds `worker` null and this is a no-op. Anything else — a cancel
-   * button, an abort on navigation — needs a generation counter compared
-   * inside the queue callback, which this deliberately omits. Add it before
-   * you add the second caller, not after.
+   * Terminate, reject what is pending, reset the tail. IT IS NOT A CANCEL: a
+   * photo queued but not yet past `pending` can RESOLVE AFTER THIS RETURNS.
+   * Unmount cleanup is the only correct caller, and a second one needs a
+   * generation counter first; see ./notes.md#dispose-is-not-a-cancel
    */
   dispose(): void;
 };
@@ -93,14 +78,10 @@ export function createPipeline(spawn: () => WorkerLike = defaultSpawn): Pipeline
       worker = null;
       for (const waiting of pending.values()) waiting.reject(new Error("pipeline disposed"));
       pending.clear();
-      // RESET THE TAIL, AND STAY USABLE. dispose() is an effect cleanup in the
-      // studio editor, and React double-invokes effects under StrictMode in
-      // development — so mount, dispose, mount again on the SAME memoised
-      // instance is the dev default, not an edge case. Without this line a
-      // photo processed after that remount chains onto the disposed
-      // lifecycle's tail and waits on a worker that was terminated. Making
-      // process() throw instead would turn a StrictMode remount into a crash,
-      // which is worse than the bug it would report.
+      // RESET THE TAIL, AND STAY USABLE: a StrictMode remount disposes and
+      // re-mounts the SAME memoised instance, and without this line the next
+      // photo waits on a terminated worker.
+      // ./notes.md#resetting-the-queue-tail-and-strictmode
       queue = Promise.resolve();
     },
   };

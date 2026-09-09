@@ -1,17 +1,11 @@
 /**
- * EXIF, read once, in the worker. STUDIO ONLY.
- *
- * This module is the stage-1/stage-2 seam. Stage 1 uses none of what it
- * returns — the pipeline strips metadata by re-encoding, and needs to know
- * nothing about it to do so. Stage 2 (auto-place and auto-date) consumes all
- * of it. It is pinned now so that interface is not guessed later.
- *
- * NOTHING HERE DOES DMS ARITHMETIC. exifreader applies GPSLatitudeRef and
- * GPSLongitudeRef itself and hands back signed decimal degrees — verified
- * 2026-09-06 against a hand-built fixture, N/E and S/W. Re-deriving the sign
- * would be re-deriving something already correct, and getting it wrong puts an
- * entry in the wrong hemisphere with nothing to show for it.
+ * EXIF, read once, in the worker. STUDIO ONLY. The stage-1/stage-2 seam:
+ * see ./notes.md#the-stage-1-to-stage-2-seam
  */
+
+// NOTHING HERE DOES DMS ARITHMETIC. exifreader applies GPSLatitudeRef and
+// GPSLongitudeRef itself and hands back signed decimal degrees — verified
+// 2026-09-06, N/E and S/W. ./notes.md#exifreader-already-applied-the-gps-refs
 import ExifReader from "exifreader";
 import type { ExpandedTags } from "exifreader";
 import { z } from "zod";
@@ -45,12 +39,9 @@ const daysInMonth = (y: number, month: number): number =>
   month === 2 && isLeapYear(y) ? 29 : DAYS_IN_MONTH[month - 1]!;
 
 /**
- * Shape-only regex matching is not enough: a camera with no clock set writes
- * the literal sentinel "0000:00:00 00:00:00", which matches EXIF_DATE's
- * digit shape and would otherwise pass through as a plausible-looking ISO
- * string. Stage 2's auto-date is told (by this module's own docstring) to
- * trust dateTimeOriginal, so an unset-date sentinel must be rejected here
- * rather than surfacing as a wrong date on an entry later.
+ * A real calendar check, not a range test: "0000:00:00 00:00:00" is what a
+ * camera with no clock set writes, and it matches EXIF_DATE's digit shape.
+ * See ./notes.md#the-camera-with-no-clock-set
  */
 function isValidCalendarDate(
   year: number,
