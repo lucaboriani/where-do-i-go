@@ -23,6 +23,10 @@
 - **The `dy:` namespace is still `https://example.org/ns/traveldiary#`.** Nothing in this stage reads or writes any Pod resource, and no `dy:` term is added, changed or renamed.
 - **`lib/` holds no React.** Both modules being moved are already pure; keep them that way.
 
+- **The code-structure refactor's conventions bind every line of this stage.** **`CLAUDE.md` § Code structure is the rules; `docs/code-structure.md` is the reasoning and the measurements — read that before arguing with one.** Three mechanics that catch people, all of them measured rather than reasoned: **delimiter lines count**, so a `/** … */` block's real budget is four lines of prose; **two comment blocks with no blank line between them are one run**, and a blank line resets it, so splitting a docblock in place is a legitimate fix; and the `notes.md` slug drops punctuation rather than hyphenating it while **keeping `_`**, so `place.ts` becomes `placets` and `MAP_STYLE_URL` becomes `map_style_url`. Check a slug, never reason about it.
+- **Readability is the point and the line counts are a proxy for it.** A change that hits 130/50 by extracting helpers whose names hide the arrangement has failed, even with every check green. Do not tighten a lint rule to a tendency value — that undoes an instruction. And never quote a threshold you did not get from the enforcing tool: this project has a committed error from a hand-written line counter that disagreed with ESLint by a third.
+- **Do not add an `eslint-disable` to get a check green.** There is exactly one in the repository and `active exemptions — 0` for length bounds. If a bound is hit, decompose — or report it and stop.
+
 ## File Structure
 
 | File | Responsibility |
