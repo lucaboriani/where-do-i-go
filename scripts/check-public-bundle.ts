@@ -374,7 +374,7 @@ function canonicalScript(path: string): string {
  * Run the CLI only when this file is what was executed. NOT
  * `import.meta.main`, which tsx leaves undefined for a .ts entry, and a guard
  * on an undefined value never fires. argv[1], canonicalised on both sides.
- * ./notes.md#why-the-cli-guard-is-argv1-and-not-import-meta-main
+ * ./notes.md#why-the-cli-guard-is-argv1-and-not-importmetamain
  */
 const entry = process.argv[1];
 if (entry !== undefined) {
