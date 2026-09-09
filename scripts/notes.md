@@ -145,7 +145,11 @@ four.
 ## the steps main prints
 
 `check-public-bundle.ts`'s `main` was 94 code lines against an 80 bound and carried the last
-`eslint-disable` in the repository. It is now 20, split at the seam its own output already
+`max-lines` exemption in the repository. (Not the last `eslint-disable` — `photo-fields.tsx`
+still carries one for `@next/next/no-img-element`, because `next/image` cannot serve a Pod URL.
+The exemption report's regex matches `max-lines*` only, so `active exemptions — 0` means "no
+length bound is suppressed" and never "nothing is suppressed"; four claims in this repository
+overstated that until 2026-09-09.) It is now 20, split at the seam its own output already
 described: `measurePages` (25), `reportMeasurementGaps` (34), `reportSize` (6),
 `reportComposition` (11), `reportViolations` (23). Verbatim — every message string concatenates
 to the same text and the printed order is unchanged.

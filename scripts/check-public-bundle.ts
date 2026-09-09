@@ -316,7 +316,7 @@ export function reportViolations(findings: Finding[], kb: number): boolean {
 }
 
 /** The CLI: discover, weigh, scan, judge. 94 lines and an `eslint-disable`
- *  until 2026-09-09, now 20 and the last suppression in the repository gone —
+ *  until 2026-09-09, now 20 and the last max-lines exemption in the repository gone —
  *  lint reported the directive unused before it was deleted.
  *  ./notes.md#the-steps-main-prints */
 function main(): void {

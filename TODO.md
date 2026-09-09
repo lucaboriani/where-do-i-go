@@ -1418,7 +1418,7 @@ lines. Rules in `CLAUDE.md` `## Code structure`; reasoning in
       `E2E_PORT=3007 npm run test:e2e` **6 passed**. The integration suites were proven to have
       RUN, not skipped, by the dead-port control on every task: 36 passed, then 36 skipped.
 
-      **Nothing in the repository is suppressed.** `active exemptions — 0`. Both of Stage A's
+      **No length bound anywhere is suppressed.** `active exemptions — 0`. Both of Stage A's
       remaining `eslint-disable` directives left on their own signal — `npm run lint` reporting
       `Unused eslint-disable directive` at `--max-warnings 0` — rather than because anyone
       remembered them.
@@ -1486,9 +1486,10 @@ Three stages, 2026-09-08 to 2026-09-09, between phases 3 and 4. What a reader ca
   check.
 - **Prose lives behind a checked anchor.** A `see ./notes.md#anchor` that does not resolve fails
   the build, which is what stops the line-number rot that went stale twice in one stage.
-- **Two bounds are enforced by a build and nothing is suppressed**: 200/80 on function length at
-  `--max-warnings 0`, a hard zero on production comment blocks, and zero `eslint-disable`
-  directives anywhere.
+- **Two bounds are enforced by a build and neither is suppressed**: 200/80 on function length at
+  `--max-warnings 0`, and a hard zero on production comment blocks. One `eslint-disable` remains
+  in the whole repository — `@next/next/no-img-element` in `photo-fields.tsx`, because
+  `next/image` cannot serve a Pod URL — and it is reported like any other.
 - **The tendencies are reported, never enforced** — 130/50 and 600 — because the maintainer's
   instruction was "tend to, not a dictate", and a lint error cannot express that.
 

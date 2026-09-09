@@ -58,7 +58,9 @@ export default function PhotoFields({ slots, onPicked }: PhotoFieldsProps) {
                 /* FROM THE POD, NOT FROM `URL.createObjectURL`, and A PLAIN <img>
                    rather than next/image — the disable below is that decision:
                    ./notes.md#the-thumbnail-comes-from-the-pod-and-is-a-plain-img */
-                // eslint-disable-next-line @next/next/no-img-element -- see notes.md
+                /* eslint-disable-next-line @next/next/no-img-element --
+                   PERMANENT: next/image cannot serve a Pod URL. Remove only if that
+                   changes. ./notes.md#the-thumbnail-comes-from-the-pod-and-is-a-plain-img */
                 <img
                   src={slot.photo.thumbnailUrl ?? slot.photo.contentUrl}
                   alt={slot.name}
