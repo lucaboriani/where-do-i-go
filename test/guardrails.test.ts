@@ -1009,6 +1009,76 @@ describe("guardrails actually fire", () => {
     );
     expect(msgs.filter((m) => m.ruleId === "no-restricted-imports")).toHaveLength(2);
   });
+
+  /**
+   * THE BELT'S SCOPE, WALKED PROPERLY. 5722e70 fenced only lib/time/**,
+   * lib/place/** and lib/pod/read.ts, but lib/pod/cached.ts wraps read.ts's
+   * exports and is what every public entry point actually imports —
+   * app/(public)/page.tsx, sitemap.ts, rss.xml/route.ts, both trips/[slug]
+   * pages — alongside lib/config.ts, lib/vocab.ts, lib/pod/result.ts and
+   * lib/pod/tags.ts, with lib/pod/schema.ts as the leaf they share. None of
+   * those six was in the belt's `files` array, so importing lib/studio or a
+   * bare @inrupt/* package at any of them produced no message at all. Proved
+   * live, not assumed: `@/lib/studio/session` at lib/pod/cached.ts reports
+   * ZERO messages today while the identical import at lib/pod/read.ts is
+   * correctly refused.
+   */
+  const BELTED_MODULES = [
+    "lib/time/offsets.ts",
+    "lib/place/precision.ts",
+    "lib/config.ts",
+    "lib/vocab.ts",
+    "lib/pod/read.ts",
+    "lib/pod/cached.ts",
+    "lib/pod/result.ts",
+    "lib/pod/tags.ts",
+    "lib/pod/schema.ts",
+  ];
+
+  /** Non-vacuity: an edit that emptied the list above must not leave the two
+   *  sweeps below passing having swept nothing. */
+  it("names nine belted modules, not fewer", () => {
+    expect(BELTED_MODULES.length).toBe(9);
+  });
+
+  it.each(BELTED_MODULES)(
+    "rejects lib/studio at %s — every public entry point reaches this module",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { session } from "@/lib/studio/session";\nexport default session;\n`,
+      );
+      expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    },
+  );
+
+  it.each(BELTED_MODULES)("rejects a bare @inrupt/* import at %s", async (path) => {
+    const msgs = await lint(
+      path,
+      `import { getSolidDataset } from "@inrupt/solid-client";\nexport default getSolidDataset;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  /**
+   * The allow-cases proving a widened belt must not over-reach: lib/pod/access.ts
+   * is the one module whose job is importing @inrupt/solid-client, and
+   * lib/media/pipeline.ts needs it for the same reason lib/media/upload.ts
+   * needs lib/pod/write. `getThing` rather than `getSolidDataset` — a plain,
+   * non-ACL export — so this cannot be read as exercising the separate,
+   * pre-existing ACL_PRIMITIVES ban instead of the belt.
+   */
+  it.each(["lib/pod/access.ts", "lib/media/pipeline.ts"])(
+    "still allows %s to import @inrupt/solid-client",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { getThing } from "@inrupt/solid-client";\nexport default getThing;\n`,
+      );
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
 });
 
 /**

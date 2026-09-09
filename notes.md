@@ -353,6 +353,12 @@ imported by every public page and restricted by nothing. `size:public`'s marker 
 the leak at build time, which is why this was never a live defect — but `eslint.config.mjs`'s own
 docblock says the point of these rules is to catch the same mistake earlier.
 
-Three paths rather than a glob over `lib/**`, deliberately. `lib/media`, `lib/pod/write.ts` and
-`lib/pod/access.ts` are studio-only and *must* import Inrupt packages; a blanket rule would fence
+**The set is every module a public page can reach, not only the two this stage moved** — the
+sentence this note lacked the first time, and the gap a review found by grepping what
+`app/(public)/page.tsx`, `sitemap.ts`, `rss.xml/route.ts` and both `trips/[slug]` pages actually
+import: `lib/config.ts`, `lib/vocab.ts`, and `lib/pod/cached.ts` (which wraps `read.ts` and is
+what every one of those entry points actually calls), plus `result.ts`, `tags.ts` and `schema.ts`
+underneath it. Nine paths rather than a glob over `lib/**`, deliberately — enumerated so
+`lib/media`, `lib/pod/write.ts`, `lib/pod/access.ts` and `lib/pod/save-entry.ts` stay off the
+list. Those four are studio-only and *must* import Inrupt packages; a blanket rule would fence
 the modules whose job it is.

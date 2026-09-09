@@ -262,12 +262,22 @@ const eslintConfig = defineConfig([
     },
   },
 
-  // ------------------------------- the two modules stage 0 moved, and read.ts
+  // ------------------------------- what a public page can reach, fenced too
   {
     /** Publicly reachable and fenced by nothing until now: an import of
      *  lib/studio here would drag the auth library into a public route one
      *  level down. ./notes.md#why-the-publicly-reachable-lib-modules-are-fenced-too */
-    files: ["lib/time/**/*.ts", "lib/place/**/*.ts", "lib/pod/read.ts"],
+    files: [
+      "lib/time/**/*.ts",
+      "lib/place/**/*.ts",
+      "lib/config.ts",
+      "lib/vocab.ts",
+      "lib/pod/read.ts",
+      "lib/pod/cached.ts",
+      "lib/pod/result.ts",
+      "lib/pod/tags.ts",
+      "lib/pod/schema.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
