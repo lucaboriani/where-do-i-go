@@ -191,3 +191,232 @@ written and refused to run — its anchor matched two turtle blocks — which is
 fixture trap catching itself rather than silently grading the unmodified document.
 
 A test file for it is worth having and is not this task's to add.
+
+## the gzip ceiling and what it is now for
+
+190 kB, set 2026-09-03 against a measured 176.3 kB worst public route. Every chunk that route
+loads was broken down and scanned: React 19 and the Next 16 runtime end to end, with this
+project's own code a rounding error inside it.
+
+An earlier revision said "set it from the first real build, then ONLY EVER LOWER IT. Raising this
+number is how a budget stops being a budget." That was true while the number was the only
+enforcement. `findStudioDeps` now asserts the invariant directly, so the rule was **replaced
+rather than quietly broken**.
+
+The previous ceiling of 180 left 3.7 kB, less than the framework has already moved on its own —
+the streaming-routes change cost +3.0 kB with no code of ours involved. A budget that fails on
+Next's growth rather than on ours teaches people to raise it, which is the actual way a budget
+dies.
+
+**What may and may not move this number.** Framework cost, upward, and only with the per-chunk
+breakdown to prove that is what it is. Never our own code: anything of ours arriving on a public
+route is a boundary failure, and the fix is the import, not the ceiling. Lowering is always
+allowed.
+
+### Why a name scan as well
+
+190 against 176.3 leaves 13.7 kB of headroom, and what fits inside it is not what you would
+guess. Measured 2026-09-04, each library bundled and minified by esbuild on its own and gzipped —
+what a bundler would actually add to a chunk:
+
+| | | |
+|---|---|---|
+| `sonner` | 9.6 kB | fits inside the headroom; the ceiling never sees it |
+| `cmdk` | 17.1 kB | trips the ceiling, by 3.4 kB |
+| `vaul` | 21.4 kB | trips the ceiling |
+| `maplibre-gl` | 252.8 kB | entry plus its shared chunk; unmissable |
+
+An earlier revision had these as 28.9, 11.0, 33.9 and 777.9 and concluded "only the last would
+trip a size budget". Every figure was the gzip sum of every `.js`/`.mjs` in the package's `dist/`
+— the ESM build plus the duplicate CJS build, plus dev builds and web workers nothing imports —
+so it measured the tarball, not the leak. **The ranking it produced was inverted**: `sonner`, the
+one it called the only dangerous one, is the one that slips through, and the two it called safe
+are the two that fail.
+
+The conclusion survives its arithmetic. A ceiling catches weight, so it misses the small leak
+entirely; a name scan catches either at any size, but says nothing about the framework getting
+fatter. Neither subsumes the other.
+
+## why markers are not package names
+
+Grepping a real public chunk for `n3` hits, and the hit is React's minified DOM code —
+`n2={},n3={}` … `n3=document.createElement("div").style`. A guardrail that cries wolf on the
+framework gets switched off by the first person it annoys. So a marker must be a string a
+minifier cannot produce by accident:
+
+- identifier-shaped markers are **>= 8 characters**;
+- markers containing a character that cannot occur in an identifier (`-`, `/`, `.`) can never be
+  synthesised whole by mangling, so 6 is enough;
+- the bare all-lowercase package name is never a marker. It is both the most collision-prone
+  choice and usually the one that does not even match — `exifreader` appears nowhere in
+  `exif-reader.js`, only `ExifReader` does.
+
+### Why 8, measured
+
+Over the 9 files of `.next/static/chunks/*.js` in this project's own build (599,640 bytes;
+108,076 identifier tokens, 4,985 distinct), distinct tokens by length run 54, 1614, 170, 246,
+260, 267, 267, 272, 238, 179 for lengths 1 to 10, with 2,107 distinct tokens of 8 characters or
+more and the longest 63.
+
+**The number that proves mangling is the first one.** 54 distinct one-character tokens is the
+base-54 identifier alphabet — `$`, `_`, and the 52 letters — exhausted, every one in use, 49,320
+times between them. A mangler allocates shortest-first and spills into length n only once n-1
+runs out, so reaching 8 characters would take on the order of 54^7 live names in one scope. It
+never happens. Every one of those 2,107 long tokens is a name the toolchain had to **preserve**,
+not one it invented: `$$typeof`, `Suspense`, `NODE_ENV`, `onlyHashChange`, `TURBOPACK`.
+
+That is the real justification, and not the one this comment used to give. It claimed "7483
+mangled identifiers of 1 character, 1839 of 2, 14 of 3, 546 of 4, and nothing mangled longer —
+the only 7+ character tokens are DOM names", and set the floor at "double the longest observed".
+Neither half holds: the 7- and 8-character buckets have 267 and 272 distinct tokens, and they are
+Next's own preserved identifiers rather than DOM names. The floor is right for a different
+reason — a mangler cannot synthesise a long name, only preserve one.
+
+**Which is where the residual risk lives, and length does not fix it.** A preserved name can be
+an ordinary word: `Fragment`, `Provider`, `Response` and `Infinity` are all in these chunks at 8
+characters or more. A marker has to be a name only the banned library would preserve, not merely
+a long one.
+
+### Markers must survive bundling
+
+Every `@radix-ui/...` occurrence in the primitives is an import specifier a bundler resolves
+away, so the scope name would catch nothing in a real chunk. The runtime literals do.
+
+Every marker was verified in both directions against the real installed builds: present in each
+artifact the library ships, and absent from React, React DOM, the scheduler and both of Next's
+pre-minified runtimes. `test/public-bundle.test.ts` re-checks that on every run and puts each
+artifact through esbuild first, so a marker surviving only in a comment or an import specifier
+fails there rather than sitting here matching nothing.
+
+**Re-derive this when a studio dependency is added** — here and in `eslint.config.mjs`'s public
+block. A dependency on neither list is invisible to every check in this repository.
+
+### The individual markers, and the two that were wrong
+
+- **`n3`** — the RDF stack. `lib/pod/read.ts` is unauthenticated, shared, and parses Turtle on
+  the server, so `n3` in a client chunk means the read path reached the browser. Its markers are
+  RDF/JS term names because the package name is the false positive above. These three markers are
+  also in `@inrupt/solid-client`, which genuinely depends on `n3`, so a solid-client leak reports
+  as **both** deps — accurate noise, not a false positive. Do not go looking for a direct `n3`
+  import that is not there.
+- **`@inrupt/solid-client-authn-browser`** — the pre-bundled build contains no `@inrupt` at all,
+  so a marker leaning on the package specifier would miss it. `solid-client-authn` used to be a
+  marker and was removed for violating this file's own survive-bundling rule: in `dist/index.mjs`
+  its only occurrence is inside `export … from '@inrupt/solid-client-authn-core'`, which a
+  bundler resolves away, and in the pre-bundled build it survives only in the trailing
+  `//# sourceMappingURL=` comment, which a minifier drops. Measured 2026-09-04: gone from both
+  after esbuild. `handleIncomingRedirect` survives both.
+- **`next-themes`** — on disk because shadcn's sonner imports `useTheme` from it, so it is
+  importable from anywhere; on a public route it is either dead weight or the start of a toggle
+  the design has declined. Its markers are next-themes' own public API names, which a minifier
+  preserves because they are object and destructuring keys. The tempting markers fail the
+  absent-from-the-framework half: `suppressHydrationWarning` is in react-dom, and
+  `(prefers-color-scheme: dark)` is in Next's own runtime and devtools.
+
+## the three guards that must fail rather than pass
+
+All three exist because, with `Finding[]` as a return type, "clean" and "I did not look" are the
+same value: `[]`.
+
+- **`findStudioDeps` throws on a scan of nothing.** If Next changes how it emits script
+  references, the extraction matches nothing, every chunk arrives empty, and a scan of zero bytes
+  reports the public bundle clean. An exception is the only answer that cannot be mistaken for a
+  pass.
+- **An unresolved reference is fatal.** This was once `if (!existsSync(onDisk)) continue;` — the
+  chunk left the byte sum *and* the scanned set while the line above still printed `refs.size`,
+  so "93.3 kB gzip 2 files" described one file and the composition scan never opened the other.
+  If the skipped one carries maplibre, the run prints "absent" for every banned dep and exits 0.
+- **A page the extraction matched nothing on is fatal.** `refs.size === 0` means no chunk of that
+  page entered the byte sum or the scanned set, so it was neither weighed nor scanned — while its
+  ledger line printed anyway as "0.0 kB gzip 0 files", which reads like a measurement rather than
+  like a page nothing was learned about.
+
+The extraction is the part of this file most likely to stop working in silence: one regex against
+HTML Next emits, and Next emits three route shapes here — static, dynamic, and the PPR shell.
+Change the attribute, the extension or the quoting on **one** of them and that route's pages
+measure zero while every other page keeps the run green. Neither neighbouring guard covers that:
+`unresolved` needs a reference to have been extracted before it can be missing, and
+`worst.bytes === 0` needs *every* page to measure nothing. This is the gap between them.
+
+It is a failure and not an oddity because `publicPages()` has already excluded zero-byte HTML,
+with its reason, before that loop runs. A page that gets that far has bytes, and a real public
+page with bytes and no script reference is this check having lost sight of the build — every App
+Router page here loads the framework chunks.
+
+## why this module is importable and pure
+
+Nothing runs and no build output is read unless the file is executed directly.
+`test/public-bundle.test.ts` enforces that by copying the file to a directory with no `.next` and
+importing it in a child process.
+
+`size-limit` globs files; it cannot answer "what does `/trips/[slug]` send to a browser".
+Globbing `.next/static/chunks/**` would measure the studio's Radix and shadcn weight too, so a
+public regression could hide inside the total and a studio addition could fail a budget it has
+nothing to do with. Both checks therefore derive their file list from the prerendered HTML of
+each public route — the scripts the browser is actually told to load. Chunk names are
+content-hashed, so deriving beats hardcoding.
+
+## which pages count as public
+
+**Only the studio route is excluded**, and only because it is allowed to be heavy — keeping it
+out is what stops its weight hiding a public regression. The decision is made on the path
+**relative to `.next/server/app`**, i.e. the route, as an exact match on `studio.html` or a
+`studio/` prefix.
+
+That anchoring is the whole of a fix. The test was `!/studio/.test(f)` against the **absolute**
+path, unanchored, and it dropped two kinds of page silently: a trip titled "Studio Ghibli Museum"
+builds to `trips/studio-ghibli-museum.html` (slugs come from titles — `docs/data-model.md`) and
+vanished from both the ceiling and the scan, as did *every* page for anyone whose checkout sits
+under a directory named `studio`. Deleting the filter is not the fix either: then the studio's
+own weight and its Radix get measured as public.
+
+Route-group directories are not part of this — Next strips `(studio)` from the emitted path, so
+the studio page really is at `studio.html`.
+
+**`_not-found` and `_global-error` used to be excluded and should not have been.**
+`app/not-found.tsx` is a page real visitors hit, it renders its own `<html>` because there is no
+shared root layout, and a read-only review found it fenced by neither this budget nor the import
+boundary. Measured when they were added back — `_not-found` 173.3 kB, `_global-error` 169.7 kB
+against a 176.3 kB worst case — so including them changed the reported worst route not at all.
+They are public in the bundle sense even though nobody links to them.
+
+**The zero-byte filter is kept, and is honest about doing nothing today.** A previous comment
+called `[slug].html` "a zero-byte Partial Prerendering shell"; it is 1,617 bytes in the
+2026-09-03 build, it is measured, and it reports the same 176.3 kB as the concrete
+`2026-japan.html` — so the filter fires on nothing here. It stays because an HTML file with no
+bytes names no scripts, and a 0.0 kB page in the report is noise that reads like a finding. What
+changed is that it can no longer be a silent third exclusion: like the studio one, it is
+reported.
+
+## why the CLI guard is argv[1] and not import.meta.main
+
+`import.meta.main` is not the answer, and not for the reason the comment used to give. It said
+the property is "not available across the Node versions this repo supports". It is: measured
+2026-09-04 on Node 22.23.2, `node script.mjs` reports `import.meta.main === true`, and `engines`
+is `^22.22.2`.
+
+The real reason is that every entry point here is TypeScript loaded through `tsx`, and tsx's
+transform does not set it — the same measurement gives `typeof import.meta.main === "undefined"`
+for `node --import tsx script.ts` while giving `true` for `node --import tsx script.mjs`. **A
+guard on an undefined value never fires**, which is exactly the failure this guard exists to
+avoid.
+
+So `process.argv[1]`, canonicalised on **both** sides:
+
+- **realpath**, because Node has already realpath'd `import.meta.url` while `argv[1]` keeps
+  whatever the caller typed. Measured: through a symlinked checkout, `argv[1]` is
+  `/tmp/link/scripts/x.ts` and `import.meta.url` is `/private/tmp/repo/scripts/x.ts`. The old
+  comparison called those different and the CLI exited 0 in silence — a `size:public` step that
+  checked nothing and reported success.
+- **extension-stripped**, because `tsx scripts/check-public-bundle` resolves the `.ts` for the
+  loader and leaves `argv[1]` extensionless. Measured too, and the same silent exit 0.
+
+Under `node --import tsx -e "await import(...)"` — how the purity test loads this file —
+`argv[1]` is `undefined` (measured), so nothing runs. That is deliberate and must stay:
+importing this module executes nothing.
+
+A mismatch that still looks like an **attempt** to run this file — the same filename at a path
+that does not canonicalise to this one — is loud and non-zero. Exiting 0 having done nothing is
+the one answer a guard must never give, because it is indistinguishable from a clean build. The
+comparison is narrowed to the filename so an ordinary `import` from some other module (vitest's
+worker, for instance) stays silent, as it must.
