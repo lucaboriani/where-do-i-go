@@ -58,12 +58,12 @@ function commentRuns(file: string): Array<[string, number]> {
 }
 
 /**
- * Two ratchets, because the bound binds PRODUCTION code and test docblocks are
- * exempt — the 2026-09-08 decision. Both fail on a rise, so "exempt" means
- * "not rewritten" and never "unbounded". Measured, never arithmetic, never
- * raised. Why 788 splits 279/509: ./notes.md#the-comment-ratchet
+ * PRODUCTION IS ZERO, so its half is a hard bound and no longer a ratchet — the
+ * Stage C sweep finished 2026-09-09. Test docblocks stay exempt but ratcheted,
+ * so "exempt" means "not rewritten" and never "unbounded".
+ * ./notes.md#the-comment-ratchet
  */
-const PROD_COMMENT_BASELINE = 279;
+const PROD_COMMENT_BASELINE = 0;
 const TEST_COMMENT_BASELINE = 509;
 
 /** The test side, on the predicate the placement rule already reads — plus the

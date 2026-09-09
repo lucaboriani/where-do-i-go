@@ -137,7 +137,10 @@ describe("check:structure, against this repository", () => {
   });
 });
 
-describe("check:structure, on fixtures that each break one rule", () => {
+/* Each case spawns a tsx child, so the 5 s default is thin under a parallel
+   full-suite run - three of these flaked that way on 2026-09-09 and passed
+   alone immediately after. The spawn itself already has a 120 s timeout. */
+describe("check:structure, on fixtures that each break one rule", { timeout: 30_000 }, () => {
   it("accepts the compliant fixture, so every case below means something", () => {
     const run = runCli(compliant());
     expect(run.status, run.transcript).toBe(0);

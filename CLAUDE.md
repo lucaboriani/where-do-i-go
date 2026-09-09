@@ -305,7 +305,7 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
 |---|---|---|---|
 | Render function | 130 | 200 | `components/**`, `app/**` |
 | Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
-| Inline comment block | 3 lines | 6 lines (ratchet) | **production code**, except `components/ui/**` |
+| Inline comment block | 3 lines | 6 lines | **production code**, except `components/ui/**` |
 | Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
 | Test function body | no limit | no limit | — |
 
@@ -315,7 +315,9 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
 - **`npm run lint` carries `--max-warnings 0`**, so a stale `eslint-disable` fails the build
   rather than warning. That is how an exemption leaves when its function shrinks.
 - **The comment bound binds production code; test docblocks are exempt but still ratcheted.**
-  Two numbers: production goes to zero, test is frozen. Neither may rise.
+  Production reached zero on 2026-09-09 and is now a hard bound — a single block over six lines
+  fails the build. The test half is frozen at its measured count and fails if it rises, so
+  "exempt" means *not rewritten*, never *unbounded*.
 - **Comments say what the code cannot, in three lines or fewer.** Anything longer moves to a
   sibling `notes.md`, and the code keeps `// <one line>; see ./notes.md#anchor`. An anchor that
   does not resolve fails `check:structure`. Notes cite `docs/data-model.md` by section rather
