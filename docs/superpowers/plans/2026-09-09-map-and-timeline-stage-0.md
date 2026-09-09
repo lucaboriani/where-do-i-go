@@ -75,7 +75,7 @@ Two prose mentions in `lib/pod/entry-model.ts` and `lib/pod/entry-model.test.ts`
 
 `eslint.config.mjs` restricts the group `["**/lib/studio", "**/lib/studio/**"]` on `app/(public)/**` and `components/public/**`, so the timeline cannot import `offsets.ts` where it is. The fence's stated reason is that `lib/studio` wraps the auth library; `offsets.ts` imports nothing at all. It moves rather than earning a carve-out, because a carve-out turns the fence into a list of exceptions.
 
-All nine exports move, `nowWithOffset` and `wallClockNow` included. Splitting a pure arithmetic module to keep two write-side functions behind a fence costs more than it protects.
+Every export moves together — twelve of them, counted rather than remembered (`grep -c 'export ' lib/time/offsets.ts`), because an earlier draft of this line said nine. `nowWithOffset` and `wallClockNow` are write-side only and move anyway: splitting a pure arithmetic module to keep two functions behind a fence costs more than it protects.
 
 **Files:**
 - Move: `lib/studio/time/offsets.test.ts` → `lib/time/offsets.test.ts`
@@ -212,7 +212,7 @@ fence's reason is that lib/studio wraps the auth library; offsets.ts imports
 nothing at all. Moved rather than carved out — a carve-out turns the fence into
 a list of exceptions, which is how the ACL primitive list nearly failed.
 
-All nine exports move together. nowWithOffset and wallClockNow are write-side
+Every export moves together, twelve of them. nowWithOffset and wallClockNow are write-side
 only, and splitting a pure arithmetic module to keep two functions behind a
 fence costs more than it protects.
 
