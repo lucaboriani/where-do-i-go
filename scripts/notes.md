@@ -420,3 +420,86 @@ that does not canonicalise to this one — is loud and non-zero. Exiting 0 havin
 the one answer a guard must never give, because it is indistinguishable from a clean build. The
 comparison is narrowed to the filename so an ordinary `import` from some other module (vitest's
 worker, for instance) stays silent, as it must.
+
+## why the drift check runs in both directions
+
+CLAUDE.md is the contract; `package.json` implements it. Forward: every command CLAUDE.md names
+must exist. Backward: every script `package.json` defines must be named.
+
+The backward direction was missing, and the drift it would have caught was already there — CI ran
+`npm run size`, and the Commands block named neither `size` nor `start`. Rename either script and
+CI breaks while the check stays green. **An undocumented script is one no check is holding onto.**
+
+## why the fences are walked and not matched
+
+A regex cannot do this. The **closing** fence of a tagged block is spelled exactly like the
+**opening** fence of an untagged one (```` ``` ````), so `/```\n([\s\S]*?)```/` happily starts
+capturing at the end of a ```` ```sh ```` block and returns the prose that follows. Not
+hypothetical — it is what this script did on the first attempt at an earlier fix.
+
+## why two untagged fences is fatal rather than guessed
+
+The scripts list is the one untagged fence in the Commands section; every other block there is
+tagged, which is both better markdown and what makes this unambiguous.
+
+This used to take the **first** untagged fence and then "prove" it was the right one by requiring
+it to contain `test` and `build`. That sentinel did not close the hole its own comment claimed:
+an untagged decoy above the real list — "the three you run most: test, build, lint" — satisfies
+it, gets graded instead of the list, and the script reports "All 3 commands in CLAUDE.md exist in
+package.json" having never looked at the other nine. **A check that grades a quarter of the
+contract and says "all" is worse than one that is simply absent**, because it occupies the slot
+where the real check would go.
+
+There is no reliable way to tell a decoy from the list — both are fences full of script names —
+so this does not try. Two untagged fences means the maintainer says which is which, by tagging
+the other one.
+
+## why §12 is excluded from the vocabulary scan
+
+`docs/data-model.md` §12 "Deliberately out of scope" names terms that intentionally do **not**
+exist — `dy:companionTrip` for multi-traveller trips, for instance. Scanning it would demand
+exports for vocabulary the document explicitly declines to define. If a term graduates out of
+§12 it must move into §3, which is where the check looks.
+
+The check runs in both directions for the same reason as the command drift check: a term added
+to the document but never exported is unusable, and a term exported but no longer in the document
+is a predicate nobody agreed to write to a Pod.
+
+## what the fixture validator checks, and with what
+
+For every ```` ```turtle ```` block in `docs/data-model.md`: it parses standalone (all prefixes
+declared), relative IRIs resolve to the intended absolute URLs, no blank nodes anywhere,
+coordinates are `xsd:decimal` and never `xsd:float`, and every `xsd:dateTime` literal carries a
+UTC offset.
+
+Uses `n3`, the same RDF parser the application uses — `docs/decisions.md` §23 for what that trade
+costs.
+
+## seeding a local Pod
+
+Seeds a local Community Solid Server with the §7 fixtures so the app has something to read during
+development. Phase 1 works "against hand-written Turtle placed in the Pod manually"; this is that,
+automated. Local CSS data is disposable, which is why the still-unresolved `example.org` `dy:`
+namespace is fine here and would not be on a live Pod.
+
+Usage: `npm run pod:dev` in another terminal, then `npm run pod:seed`.
+
+## the two datatype lists, and what each was missing
+
+**Coordinates must be `xsd:decimal`** (§6: "never xsd:float for coordinates"). `homeLat` and
+`homeLong` are spelled out because neither matched any existing entry — `#homeLat` does not
+contain `#lat`, and it is not `latitude` either — so §7.6's coordinate pair arrived unchecked.
+
+What that does and does not cost, measured rather than reasoned: `xsd:float` is banned
+unconditionally a few lines below, so a float home latitude was caught either way, and an earlier
+draft of this comment claimed otherwise and was wrong. What those two entries actually catch is
+every **other** wrong datatype — with them removed, `dy:homeLat "45.4655"` (i.e. `xsd:string`)
+passes this script while failing `decimal()` in `lib/pod/rdf.ts` on every real read. With them
+present it fails here, naming the predicate and both datatypes.
+
+**Counts must be `xsd:integer`** (§6: "counts and distances"), and that half was missing
+entirely. The script banned `xsd:float` and required decimals on coordinates and said nothing
+about integers, so `dy:homeRadiusMeters 3000.0` — `xsd:decimal`, a datatype error through
+`integer()` in `lib/pod/rdf.ts` on every read — was a perfectly valid fixture as far as this file
+was concerned. `Meters` covers `precisionMeters`, `homeRadiusMeters` and `defaultPrecisionMeters`
+at once.

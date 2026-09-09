@@ -1,17 +1,8 @@
 #!/usr/bin/env tsx
-/**
- * Validate the Turtle fixtures embedded in data-model.md.
- *
- * Checks, for every ```turtle block in the document:
- *   - it parses standalone (all prefixes declared)
- *   - relative IRIs resolve to the intended absolute URLs
- *   - no blank nodes anywhere
- *   - coordinates are xsd:decimal, never xsd:float
- *   - every xsd:dateTime literal carries a UTC offset
- *
- * Run in CI. Uses n3, the same RDF parser the application uses — see
- * docs/decisions.md §23 for what that trade costs.
- */
+/** Validate the Turtle fixtures embedded in docs/data-model.md: parses
+ *  standalone, IRIs resolve, no blank nodes, xsd:decimal coordinates,
+ *  offset-bearing dateTimes. Run in CI.
+ *  ./notes.md#what-the-fixture-validator-checks-and-with-what */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,34 +27,14 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["privacy", `${POD}/travel/settings/privacy.ttl`],
 ];
 
-/**
- * Predicates whose object must be `xsd:decimal` (§6: "never xsd:float for
- * coordinates").
- *
- * `homeLat` and `homeLong` are spelled out because NEITHER matched any existing
- * entry: `#homeLat` does not contain `#lat`, and it is not `latitude` either. So
- * §7.6's coordinate pair arrived unchecked by this rule.
- *
- * WHAT THAT DOES AND DOES NOT COST, measured rather than reasoned. `xsd:float`
- * is banned unconditionally a few lines below, so a float home latitude was
- * caught either way — an earlier draft of this comment claimed otherwise and was
- * wrong. What these two entries actually catch is every OTHER wrong datatype:
- * with them removed, `dy:homeLat "45.4655"` (i.e. `xsd:string`) passes this
- * script while failing `decimal()` in lib/pod/rdf.ts on every real read. With
- * them present it fails here, naming the predicate and both datatypes.
- */
+/** §6: coordinates are xsd:decimal, never xsd:float. `homeLat`/`homeLong` are
+ *  spelled out because neither matched any other entry, so §7.6's pair was
+ *  unchecked: ./notes.md#the-two-datatype-lists-and-what-each-was-missing */
 const GEO_PREDS = ["latitude", "longitude", "#lat", "#long", "bbox", "center", "homeLat", "homeLong"];
 
-/**
- * Predicates whose object must be `xsd:integer` (§6: "counts and distances").
- *
- * The other half of the datatype rule, and it was missing entirely — this
- * script banned `xsd:float` and required decimals on coordinates, and said
- * nothing about the integers. A `dy:homeRadiusMeters 3000.0` is `xsd:decimal`,
- * reads back through `integer()` in lib/pod/rdf.ts as a datatype error, and was
- * a perfectly valid fixture as far as this file was concerned. `Meters` covers
- * `precisionMeters`, `homeRadiusMeters` and `defaultPrecisionMeters` at once.
- */
+/** §6: counts and distances are xsd:integer. This half was missing entirely -
+ *  homeRadiusMeters 3000.0 was a valid fixture and a read-time datatype error:
+ *  ./notes.md#the-two-datatype-lists-and-what-each-was-missing */
 const INT_PREDS = ["Meters", "entryCount", "sortOrder", "schemaVersion", "width", "height"];
 
 const DT_RE = /[+-]\d{2}:\d{2}$|Z$/;

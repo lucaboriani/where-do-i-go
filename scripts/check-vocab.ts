@@ -1,12 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * Assert lib/vocab.ts and docs/data-model.md agree about the dy: vocabulary,
- * in BOTH directions. This is what stops the data model rotting: a term added
- * to the document but never exported is unusable, and a term exported but no
- * longer in the document is a predicate nobody agreed to write to a Pod.
- *
- * Run in CI.
- */
+/** lib/vocab.ts and docs/data-model.md must agree about dy:, in BOTH
+ *  directions. Run in CI. ./notes.md#why-12-is-excluded-from-the-vocabulary-scan */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,13 +9,9 @@ import { DY, DY_CLASS, STATUS, TRAVEL_MODE, NS } from "../lib/vocab";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const full = readFileSync(resolve(REPO_ROOT, "docs", "data-model.md"), "utf8");
 
-/**
- * §12 "Deliberately out of scope" names terms that intentionally do NOT exist —
- * dy:companionTrip for multi-traveler trips, for instance. Scanning it would
- * demand exports for vocabulary the document explicitly declines to define, so
- * the section is excluded. If a term graduates out of §12 it must move into §3,
- * which is where this check looks.
- */
+/** §12 names terms that deliberately do NOT exist, so scanning it would demand
+ *  exports for declined vocabulary. A term graduating out of §12 moves to §3:
+ *  ./notes.md#why-12-is-excluded-from-the-vocabulary-scan */
 const OUT_OF_SCOPE = /## 12\. Deliberately out of scope[\s\S]*?(?=\n## \d+\.)/;
 const doc = full.replace(OUT_OF_SCOPE, "");
 
