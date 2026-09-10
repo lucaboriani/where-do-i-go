@@ -495,3 +495,28 @@ and `.claude/agents/nextjs-specialist.md`, the two other places that named it.
 **§26 is reserved** for the public map sheet, landing in phase 4 stage 4. It withdraws decision
 11's sentence about the Drawer providing the mobile map layout's snap-point sheet. Do not reuse
 the number.
+
+---
+
+## 27. The basemap style is authored in-repo; MAP_STYLE_URL overrides it wholesale
+
+`docs/design-brief.md` calls the dark desaturated basemap "the single highest-leverage visual
+decision in the project" and locates it in the style JSON rather than the stylesheet. Two ways to
+honour that were available: author a style against OpenFreeMap's vector tiles, or fetch their dark
+style and rewrite its paint properties at `style.load`.
+
+**Authored, in `lib/map/style.ts`.** Recolouring a remote style keys every paint write to that
+style's layer ids, so an upstream rename is a silent partial revert — half the map in our palette
+and half in theirs. And the brief's requirement is not a recolour: roads lose their casings and six
+layer groups are dropped, which is a different style rather than the same one tinted.
+
+**Consequences.** Seventeen layers to maintain against the OpenMapTiles schema, validated by
+`validateStyleMin` in `lib/map/style.test.ts` so a schema mistake is a red test rather than a blank
+map. `MAP_STYLE_URL` changes meaning: unset selects the in-repo style, set loads that URL verbatim.
+`.env.example` shipped a value until 2026-09-09, which meant a copied `.env.local` quietly rendered
+OpenFreeMap's palette instead of the brief's; it is now commented out, and `""` counts as unset.
+
+**Also considered:** patching the remote style's layers at `style.load`, above. And a
+`MAP_TILES_URL` alongside the style URL, so a deployer could keep our cartography over their own
+tiles — rejected for now as a third variable serving a case nobody has asked for, and addable
+without breaking anything if someone does.

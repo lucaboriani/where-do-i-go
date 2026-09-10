@@ -38,4 +38,10 @@ export const config = {
     const url = process.env.SITE_URL ?? "http://localhost:3000";
     return url.replace(/\/+$/, "");
   },
+  /** Unset means the in-repo basemap; set means load that URL wholesale.
+   *  `""` is unset: ./notes.md#the-map-style-url-is-an-override-not-a-default */
+  get mapStyleUrl() {
+    const url = process.env.MAP_STYLE_URL?.trim();
+    return url === undefined || url === "" ? undefined : url;
+  },
 };

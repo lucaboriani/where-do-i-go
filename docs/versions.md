@@ -32,6 +32,15 @@ than a few weeks stale — record what you actually installed by committing the 
 | `clsx` | 2.1.1 | |
 | `tailwind-merge` | 3.6.0 | |
 
+- **`@maplibre/maplibre-gl-style-spec@26.4.1`** — devDependency, declared 2026-09-09. Already in
+  the tree as a transitive dependency of `maplibre-gl@6.6.0` (which asks for `^26.3.0`), but
+  `maplibre-gl` re-exports neither `StyleSpecification`, `LayerSpecification` nor
+  `validateStyleMin` — verified against its `export { … }` list, not assumed. An undeclared
+  transitive import works under npm's flat `node_modules` and breaks under pnpm, and
+  `docs/decisions.md` §21 leaves the package manager to the checkout. **On a `maplibre-gl`
+  upgrade, re-check that this pin still satisfies MapLibre's own range**, or the validator and
+  the types come from two different copies.
+
 ## Tooling
 
 | Package | Version | Notes |

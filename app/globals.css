@@ -29,9 +29,9 @@
 
   /* Basemap. Water is pushed to hue 235 at a tenth of the accent's chroma so
      the route line never competes with the sea. Roads stay achromatic. */
-  --color-map-land:      oklch(0.185 0.008 250);
-  --color-map-water:     oklch(0.235 0.020 235);
-  --color-map-label:     oklch(0.560 0.010 250);
+  --color-map-land:      oklch(0.185 0.008 250); /* #101316 landmass, near-neutral */
+  --color-map-water:     oklch(0.235 0.020 235); /* #152026 water, desaturated     */
+  --color-map-label:     oklch(0.560 0.010 250); /* #70757A place labels           */
 }
 
 /* shadcn's semantic tokens, mapped onto ours. `--color-accent` and
