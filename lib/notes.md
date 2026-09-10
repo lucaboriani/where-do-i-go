@@ -50,3 +50,29 @@ record the decision, which was the owner's.
 
 **That window is closed.** All four names are fixed now, and the spelling
 matches `long` and `centerLong` in the read model.
+
+## The map style URL is an override, not a default
+
+`.env.example` used to *set* this to `https://tiles.openfreemap.org/styles/dark`,
+and its own first line tells you to copy the file to `.env.local`. So the
+default deployment rendered OpenFreeMap's palette rather than the one
+`docs/design-brief.md` specifies, and nothing said so — the map looked
+plausible, which is the worst version of wrong.
+
+The variable stays, because `docs/decisions.md` §7 is explicit that it is there
+"so any deployer can point at a paid provider". Only its default changed:
+
+- **unset** — `lib/map/style.ts` builds the style, from OpenFreeMap's vector
+  tiles, to the brief's tokens.
+- **set** — MapLibre loads that URL verbatim and the in-repo style is unused.
+  Wholesale, deliberately: merging a deployer's style with ours would produce a
+  third thing neither of us designed.
+
+`""` is treated as unset. A commented-out line that someone uncomments and
+leaves blank is the normal way this variable arrives empty, and `""` handed to
+MapLibre as a style URL is a fetch of the current page — an HTML document
+parsed as JSON, reported as a syntax error with no mention of the map.
+
+`lib/config.ts` throws in the browser, so the value reaches the client as a
+prop from a server component, the way `ownerWebId` already does. There is no
+`NEXT_PUBLIC_MAP_STYLE_URL` and there must not be one.

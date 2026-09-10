@@ -523,8 +523,14 @@ cached-and-invalidated model expects.
       MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
       REVALIDATE_SECRET=
 
-- [ ] Verify the OpenFreeMap style URL against their current docs before committing it as the
-      default.
+      **The `MAP_STYLE_URL=` value above was removed on 2026-09-09** — see `docs/decisions.md`
+      §27. Left here as the record of what phase 0.5 committed. `.env.example` now ships the
+      variable commented out, because a copied `.env.local` otherwise replaced the brief's
+      palette with OpenFreeMap's and nothing said so.
+- [x] **Resolved 2026-09-09: there is no default style URL to verify.** The project builds its
+      own style from OpenFreeMap's vector tiles (`lib/map/style.ts`), validated against the real
+      style spec. The endpoint that now needs checking on an upgrade is the tile TileJSON and the
+      glyph URL, both asserted in `lib/map/style.test.ts`.
 - [x] `next.config.ts`: add the Pod host to `images.remotePatterns`. Without it `next/image`
       refuses Pod-hosted photos.
 - [x] Serve `client-id.jsonld` from the app origin, generated from config rather than
@@ -1548,7 +1554,12 @@ statically importing the first three.
         `test/guardrails.test.ts` now derives the list from `eslint.config.mjs` and walks the real
         import graph from the public entry points, so the class of bug is closed rather than the
         instance.
-- [ ] Dark desaturated map style built to the tokens in `docs/design-brief.md`
+- [x] Dark desaturated map style built to the tokens in `docs/design-brief.md` — landed
+      2026-09-09, plan at `docs/superpowers/plans/2026-09-09-map-and-timeline-stage-1.md`.
+      Seventeen layers in `lib/map/style.ts`, validated against the real style spec. The palette
+      is restated in hex because MapLibre cannot parse `oklch()`, with a drift check against
+      `app/globals.css`'s own hex comments. `MAP_STYLE_URL` is now an override rather than a
+      default (`docs/decisions.md` §27).
       - Plan written: `docs/superpowers/plans/2026-09-09-map-and-timeline-stage-1.md`. Note two
         measured facts it turns on: **MapLibre cannot parse `oklch()`** (`Color.parse` returns
         `undefined`, `validateStyleMin` says "color expected"), and the failure mode is a layer
