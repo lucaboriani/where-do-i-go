@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
 import { existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
@@ -1470,4 +1471,20 @@ describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () 
       expect(onRead.value).toBe(withinBudget ? value : undefined);
     },
   );
+});
+
+describe("setProjection has one call site", () => {
+  it("is reached from the style.load handler and from nowhere else in the tree", () => {
+    // Excludes *.test.ts: the fake Map in use-map-instance.test.ts must define
+    // a same-named setProjection method to stand in for the real one, and a
+    // dumb text scan cannot tell that apart from a second production call site.
+    const hits = execFileSync(
+      "git",
+      ["grep", "-l", "setProjection(", "--", "lib", "components", "app", ":(exclude)**/*.test.ts", ":(exclude)**/*.test.tsx"],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    expect(hits).toEqual(["components/public/trip-map/hooks/use-map-instance.ts"]);
+  });
 });
