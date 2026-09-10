@@ -1571,6 +1571,15 @@ statically importing the first three.
         directory is created.** It is fenced by nothing today, and §3 puts all map code there, so
         a static import in `lib/map/view.ts` would put 252.8 kB in a public chunk with lint
         silent. `lib/utils.ts` wants the same when stage 2's component imports `cn`.
+      - **No check in this repository can see a layer whose filter matches nothing.**
+        `validateStyleMin` accepts a syntactically valid filter regardless of whether the field
+        or value it names exists in the real schema, and `style.test.ts` asserts only against the
+        style's own object literal — the final review's fix wave found the `landuse_park` layer
+        filtering on a source-layer OpenMapTiles stopped using years ago, so it drew nothing, on
+        no failing check anywhere. Deliberately not closed here: a hand-typed offline copy of the
+        OpenMapTiles schema checked against itself would only repeat the mistake. Stage 2's
+        rendered-map Playwright test is where a layer that draws nothing becomes visible, and
+        that is what closes this gap.
 - [ ] One MapLibre instance, lazy-mounted, never remounted
 - [ ] Photo-thumbnail markers, clustering above ~50 points
       - **Blocked on a decision before this starts.** `dy:blurDataUrl` is NOT in the index — it

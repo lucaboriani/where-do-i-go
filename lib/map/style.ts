@@ -34,11 +34,39 @@ const INK = {
   boundaryCountry: "#2c343b",
 } as const;
 
-/** Background, water and the two landcover steps. Everything here paints
- *  before any line or label. */
+/** Background, the three landcover steps, then water. Landcover has to paint
+ *  before water, OpenMapTiles order, or an opaque park fill buries every pond
+ *  and river inside it — the wood and glacier fills are translucent today and
+ *  hid that until `landcover_park` above them matched real features. */
 function groundLayers(): LayerSpecification[] {
   return [
     { id: "background", type: "background", paint: { "background-color": MAP_COLORS.land } },
+    {
+      id: "landcover_wood",
+      type: "fill",
+      source: SOURCE_ID,
+      "source-layer": "landcover",
+      filter: ["==", ["get", "class"], "wood"],
+      paint: { "fill-color": INK.wood, "fill-opacity": 0.6 },
+    },
+    {
+      id: "landcover_glacier",
+      type: "fill",
+      source: SOURCE_ID,
+      "source-layer": "landcover",
+      filter: ["==", ["get", "subclass"], "glacier"],
+      paint: { "fill-color": INK.glacier, "fill-opacity": 0.5 },
+    },
+    {
+      // Parks arrive as `landcover`/`subclass=park`, not `landuse`/`class=park`
+      // — OpenMapTiles moved them years ago. lib/map/notes.md#seventeen-layers-and-what-was-left-out
+      id: "landcover_park",
+      type: "fill",
+      source: SOURCE_ID,
+      "source-layer": "landcover",
+      filter: ["==", ["get", "subclass"], "park"],
+      paint: { "fill-color": INK.park },
+    },
     {
       id: "water",
       type: "fill",
@@ -57,30 +85,6 @@ function groundLayers(): LayerSpecification[] {
         "line-color": MAP_COLORS.water,
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 2],
       },
-    },
-    {
-      id: "landcover_wood",
-      type: "fill",
-      source: SOURCE_ID,
-      "source-layer": "landcover",
-      filter: ["==", ["get", "class"], "wood"],
-      paint: { "fill-color": INK.wood, "fill-opacity": 0.6 },
-    },
-    {
-      id: "landcover_glacier",
-      type: "fill",
-      source: SOURCE_ID,
-      "source-layer": "landcover",
-      filter: ["==", ["get", "subclass"], "glacier"],
-      paint: { "fill-color": INK.glacier, "fill-opacity": 0.5 },
-    },
-    {
-      id: "landuse_park",
-      type: "fill",
-      source: SOURCE_ID,
-      "source-layer": "landuse",
-      filter: ["==", ["get", "class"], "park"],
-      paint: { "fill-color": INK.park },
     },
   ];
 }
@@ -127,7 +131,9 @@ function roadLayers(): LayerSpecification[] {
 }
 
 /** Country and state only. `admin_level` is a number in this schema, so the
- *  comparisons are numeric rather than string. */
+ *  comparisons are numeric rather than string. Both exclude `maritime` — the
+ *  `boundary` layer carries sea borders at these levels, and drawing them ran
+ *  a line out across open water on any coastal or island trip. */
 function boundaryLayers(): LayerSpecification[] {
   return [
     {
@@ -135,7 +141,7 @@ function boundaryLayers(): LayerSpecification[] {
       type: "line",
       source: SOURCE_ID,
       "source-layer": "boundary",
-      filter: ["==", ["get", "admin_level"], 4],
+      filter: ["all", ["==", ["get", "admin_level"], 4], ["!=", ["get", "maritime"], 1]],
       minzoom: 4,
       paint: {
         "line-color": INK.boundaryState,
@@ -148,7 +154,7 @@ function boundaryLayers(): LayerSpecification[] {
       type: "line",
       source: SOURCE_ID,
       "source-layer": "boundary",
-      filter: ["<=", ["get", "admin_level"], 2],
+      filter: ["all", ["<=", ["get", "admin_level"], 2], ["!=", ["get", "maritime"], 1]],
       layout: { "line-join": "round" },
       paint: {
         "line-color": INK.boundaryCountry,

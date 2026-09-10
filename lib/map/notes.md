@@ -51,7 +51,7 @@ line and the photographs are the only saturated things on screen, and a
 complete cartographic style competes with both. Enumerated rather than counted,
 because a count in this repository goes stale the first time the list moves:
 
-    background            landuse_park          boundary_country      place_city
+    background            landcover_park        boundary_country      place_city
     water                 highway_minor         boundary_state        place_town
     waterway              highway_major         place_country         place_village
     landcover_wood        highway_motorway      place_state
