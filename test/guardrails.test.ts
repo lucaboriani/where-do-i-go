@@ -1180,6 +1180,39 @@ describe("the belt's scope, walked from real public entry points", () => {
   });
 });
 
+describe("lib/map is fenced like the public path it serves", () => {
+  it("refuses a static maplibre-gl import in lib/map, which would be 252.8 kB in a public chunk", async () => {
+    expect(ruleIds(await lint("lib/map/view.ts", `import { Map } from "maplibre-gl";\n`))).toContain(
+      "no-restricted-imports",
+    );
+  });
+
+  it("refuses the deep dist path too, which is the same bytes by another name", async () => {
+    expect(
+      ruleIds(await lint("lib/map/view.ts", `import "maplibre-gl/dist/maplibre-gl.mjs";\n`)),
+    ).toContain("no-restricted-imports");
+  });
+
+  it("allows the stylesheet subpath, which the attribution control needs", async () => {
+    const msgs = await lint("lib/map/view.ts", `import "maplibre-gl/dist/maplibre-gl.css";\n`);
+    // A snippet that fails to PARSE yields one fatal message and no rule
+    // messages, so this allow-case would pass having linted nothing.
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("keeps lib/map out of the auth library and out of lib/studio", async () => {
+    expect(
+      ruleIds(await lint("lib/map/view.ts", `import { x } from "@/lib/studio/session";\n`)),
+    ).toContain("no-restricted-imports");
+  });
+
+  it("fences lib/utils.ts the same way, because a public component is about to import cn", async () => {
+    const code = `import { getDefaultSession } from "@inrupt/solid-client-authn-browser";\n`;
+    expect(ruleIds(await lint("lib/utils.ts", code))).toContain("no-restricted-imports");
+  });
+});
+
 /**
  * The two hard bounds from CLAUDE.md's "Code structure" — 200 for a render, 80
  * for a util, and a test FILE ceiling of 1000 with no bound on a test body.
