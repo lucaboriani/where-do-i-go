@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@inrupt/solid-client-authn-node": "5.0.0",
+    "@maplibre/maplibre-gl-style-spec": "^26.4.1",
     "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "7.0.1",

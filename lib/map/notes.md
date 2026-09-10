@@ -38,3 +38,53 @@ the arithmetic.
 **It does not reach the CSS at runtime either.** Nothing here proves the
 browser renders the same colour the style names; that is what stage 2's
 Playwright spec looks at.
+
+## Seventeen layers, and what was left out
+
+OpenFreeMap's own dark style has forty-seven layers, and this one is subtracted
+from that list rather than assembled from scratch. Left out deliberately:
+buildings, aeroways, oneway arrows, road labels, railway dashlines and water
+labels.
+
+The reason is the brief's, not laziness. The basemap exists so that the route
+line and the photographs are the only saturated things on screen, and a
+complete cartographic style competes with both. Enumerated rather than counted,
+because a count in this repository goes stale the first time the list moves:
+
+    background            landuse_park          boundary_country      place_city
+    water                 highway_minor         boundary_state        place_town
+    waterway              highway_major         place_country         place_village
+    landcover_wood        highway_motorway      place_state
+    landcover_glacier     railway
+
+## The achromatic bound is 32, and why
+
+`docs/design-brief.md` requires that "roads and boundaries stay achromatic",
+and `style.test.ts` enforces it as a bound on each colour's RGB channel spread
+— `max - min` — which is zero for a true grey and large for a saturated hue.
+
+The number is measured, not chosen. The nine `INK` values span **6 to 15**
+(`wood` 6, `park` 6, `roadMinor` 8, `glacier` 9, `rail` 9, `roadMajor` 10,
+`roadMotorway` 12, `boundaryState` 13, `boundaryCountry` 15). The accent trio
+spans **121 to 234** (`accentBright` 121, `accentDeep` 135, `accent` 234). So
+32 sits in a gap 106 wide, 17 above the highest ink and 89 below the lowest
+accent.
+
+The inks are not literally achromatic and are not meant to be: the brief gives
+the whole palette a cool cast at hue 250 so the accent "reads as belonging to
+the palette instead of sitting on top of it". A bound of 12 was the first
+guess and it fails on both boundary colours.
+
+`MAP_COLORS` values are skipped rather than bounded. `map-water` measures 17 —
+deliberately tinted to hue 235 — and the accent trio is banned outright by the
+case beside this one, which names the three hexes.
+
+## Roads carry no casing
+
+Unlike OpenFreeMap's, which draws a casing and an inner
+line per class. The brief wants exactly one cased line on the map — the route —
+and a cased road at the same zoom reads as a competing route.
+
+`admin_level` is a number in the OpenMapTiles schema, so the boundary filters
+compare numerically. A string comparison silently matches nothing, which looks
+like a tile problem.
