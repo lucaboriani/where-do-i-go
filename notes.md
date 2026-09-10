@@ -339,3 +339,46 @@ already present in that snapshot (`node_modules/@next/env/dist/index.js`, `proce
 
 And because nothing here goes through a dotenv parser, the `#` in `OWNER_WEBID` cannot be eaten as
 a comment — see the note in `e2e/environment.ts`.
+
+## why the publicly reachable lib modules are fenced too
+
+`app/(public)/**` and `components/public/**` are fenced from `lib/studio`, but the modules they
+*import* were not. Phase 4 stage 0 moved `lib/time/offsets.ts` and `lib/place/precision.ts` out of
+`lib/studio` precisely so the public timeline could reach them — which means a later edit adding
+`import { session } from "@/lib/studio/session"` to either one would put
+`@inrupt/solid-client-authn-browser` in a public bundle, with every fence above it still green.
+
+`lib/pod/read.ts` has had exactly this property since phase 1, and nothing had noticed: it is
+imported by every public page and restricted by nothing. `size:public`'s marker scan would catch
+the leak at build time, which is why this was never a live defect — but `eslint.config.mjs`'s own
+docblock says the point of these rules is to catch the same mistake earlier.
+
+**The set is every module a public page can reach, not only the two this stage moved** — the
+sentence this note lacked the first time, and the gap a review found by grepping what
+`app/(public)/page.tsx`, `sitemap.ts`, `rss.xml/route.ts` and both `trips/[slug]` pages actually
+import: `lib/config.ts`, `lib/vocab.ts`, and `lib/pod/cached.ts` (which wraps `read.ts` and is
+what every one of those entry points actually calls), plus `result.ts`, `tags.ts` and `schema.ts`
+underneath it. A grep still missed `lib/pod/rdf.ts`, one level deeper again — `read.ts` imports
+values from it — which is why `test/guardrails.test.ts` now walks the real import graph from the
+public entry points instead of trusting a list assembled by reading imports by eye.
+
+Named paths rather than a glob over `lib/**`, deliberately — enumerated so `lib/media`,
+`lib/pod/write.ts`, `lib/pod/access.ts` and `lib/pod/save-entry.ts` stay off the list. Those four
+are studio-only and *must* import Inrupt packages; a blanket rule would fence the modules whose
+job it is.
+
+**This fence, and every other one written with `no-restricted-imports`, sees only STATIC
+imports.** Measured 2026-09-09: a dynamic `import("@/lib/studio/session")` produces zero messages
+at a belted module — and zero written directly in `app/(public)/page.tsx`. The rule reaches an
+`ImportDeclaration` and an `export … from`, never an `ImportExpression` or a `TSImportType`.
+
+That is not a hole to close, it is the property the map depends on. `CLAUDE.md` requires MapLibre
+to be lazy-mounted, and stage 0's own `maplibre-gl` fence is built on exactly this asymmetry:
+`import maplibregl from "maplibre-gl"` is refused, `await import("maplibre-gl")` is allowed,
+because the second produces a chunk no prerendered page references. A rule that caught both would
+ban the map outright.
+
+So the honest statement of what these fences are: **a static-import guard, backstopped by
+`size:public`'s marker scan for anything that actually ships.** A dynamic import of studio code
+from a public route lints clean and is caught only at build time, by name, in
+`scripts/check-public-bundle.ts`'s `BANNED_DEPS`.

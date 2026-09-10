@@ -75,7 +75,7 @@ The script *names* are the contract, not the runner (`docs/decisions.md` §21) �
 - Lazy-mount on intersection.
 - `setProjection` **only inside the `style.load` handler** — calling it earlier throws.
 - Never remove the OpenStreetMap attribution control.
-- `maplibre-gl` 6.6.0 with `react-map-gl` 8.1.2. Tiles come from OpenFreeMap; no key, no account.
+- `maplibre-gl` 6.6.0, used directly — **not** `react-map-gl`, which was removed on 2026-09-09; see `docs/decisions.md` §25. Tiles come from OpenFreeMap; no key, no account.
 
 ## Stale-training-data patterns to reject on sight
 

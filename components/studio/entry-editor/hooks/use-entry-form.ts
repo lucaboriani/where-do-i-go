@@ -12,7 +12,7 @@ import {
   offsetOf,
   wallClockNow,
   wallClockOf,
-} from "@/lib/studio/time/offsets";
+} from "@/lib/time/offsets";
 import { sourceOf } from "../state/actions";
 import { entryFormReducer } from "../state/entry-form-reducer";
 import type { EntryFormState, PhotoSlot, RestoreContext, TextField } from "../state/actions";

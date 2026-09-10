@@ -19,7 +19,7 @@ than a few weeks stale — record what you actually installed by committing the 
 | `tailwindcss` | 4.3.3 | CSS-first config, no `tailwind.config.js` theme block |
 | `@tailwindcss/postcss` | 4.3.3 | |
 | `maplibre-gl` | 6.6.0 | globe projection available since 5.0.0 |
-| `react-map-gl` | 8.1.2 | peer accepts `maplibre-gl >= 1.13.0` |
+| `react-map-gl` | 8.1.2 | **removed 2026-09-09, never imported** — see `docs/decisions.md` §25 |
 | `@inrupt/solid-client` | 3.0.0 | `engines: ^20 \|\| ^22` — **excludes Node 24** |
 | `@inrupt/solid-client-authn-browser` | 5.0.0 | declares no engines; pulls `authn-core` 5.0.0, which needs `^22 \|\| ^24` |
 | `n3` | 2.7.2 | **required** — `scripts/validate-fixtures.ts` and the Pod read path both use it |

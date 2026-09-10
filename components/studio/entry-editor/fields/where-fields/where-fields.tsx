@@ -4,7 +4,7 @@
  * every value and every callback arrives as a prop. ./notes.md#props-only
  */
 
-import { precisionLabel } from "@/lib/studio/place/place";
+import { precisionLabel } from "@/lib/place/precision";
 import Field, { CONTROL } from "../../field";
 
 export interface WhereFieldsProps {

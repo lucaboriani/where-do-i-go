@@ -10,7 +10,6 @@ import {
   gridOf,
   placeFor,
   placeTextOf,
-  precisionLabel,
 } from "@/lib/studio/place/place";
 import type { EntryPlace } from "@/lib/studio/place/place";
 
@@ -217,28 +216,6 @@ describe("gridOf", () => {
     // select whose options this module supplies.
     expect(gridOf(" 250 ")).toBe(250);
     expect(gridOf("1e3")).toBe(1000);
-  });
-});
-
-describe("precisionLabel", () => {
-  it("renders metres under a kilometre as metres", () => {
-    expect(precisionLabel(100)).toBe("~100 m");
-    expect(precisionLabel(500)).toBe("~500 m");
-  });
-
-  it("renders round kilometres as kilometres", () => {
-    expect(precisionLabel(1000)).toBe("~1 km");
-    expect(precisionLabel(10_000)).toBe("~10 km");
-    expect(precisionLabel(1500)).toBe("~1.5 km");
-  });
-
-  it("keeps a value that does not divide into a tidy kilometre in metres", () => {
-    expect(precisionLabel(1050)).toBe("~1050 m");
-  });
-
-  it("always says about, because what is published is a cell rather than a distance", () => {
-    for (const metres of [100, 500, 1000, 1050, 10_000])
-      expect(precisionLabel(metres).startsWith("~"), String(metres)).toBe(true);
   });
 });
 

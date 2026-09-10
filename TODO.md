@@ -212,6 +212,10 @@ cached-and-invalidated model expects.
         @inrupt/solid-client@3.0.0 @inrupt/solid-client-authn-browser@5.0.0 \
         zod@4.5.4 exifreader@4.44.0
 
+- [x] **`react-map-gl` was removed on 2026-09-09** and must not be reinstalled — see
+      `docs/decisions.md` §25. Nothing ever imported it. Left in the command above as the
+      historical record of what phase 0.5 installed, exactly as `size-limit` is.
+
 - [x] **Do not install `exifr`.** It was last published in 2022. If generated code reaches
       for it, that is stale training data — replace with `exifreader`.
 - [x] `n3@2.7.2` — **required**, not optional. `scripts/validate-fixtures.ts` uses it, and it is
@@ -1503,9 +1507,68 @@ first; and the fifteen phase-3 follow-ups above are untouched.
 
 ## Phase 4 — map and timeline
 
+Design at `docs/superpowers/specs/2026-09-09-map-and-timeline-design.md` — six stages, plans
+written per stage. **Read §1 before touching the bundle budget**: `maplibre-gl` is 252.8 kB gzip
+against 13.6 kB of headroom, and the answer is not to move the ban or the ceiling. `size:public`
+derives its chunk list from prerendered HTML, so a lazily imported chunk is neither weighed nor
+scanned — measured on the build in the tree, where `studio.html` names eight chunks and none
+contains a Radix, sonner, cmdk, solid-client or exifreader marker despite `studio-shell`
+statically importing the first three.
+
+- [x] **Stage 0 — prerequisites.** Landed 2026-09-09 on branch `phase-4-map-and-timeline`,
+      **unmerged**; plan at `docs/superpowers/plans/2026-09-09-map-and-timeline-stage-0.md`,
+      15 commits from `4110644`. Suite 1420 → **1453 passed / 2 todo / 0 skipped / 63 files**;
+      dead-port control 1417 + 36 skipped; `size:public` unchanged at 176.4 kB of 190 with every
+      studio-only dependency absent; `test:e2e` 6 passed.
+      - `lib/studio/time/offsets.ts` → **`lib/time/offsets.ts`**, all twelve exports, because
+        `eslint.config.mjs` fences `lib/studio` from the public path and the timeline is a public
+        feature. `precisionLabel` → **`lib/place/precision.ts`**; the write-shaped half
+        (`placeFor`, `placeTextOf`, `gridOf`, `PRECISION_GRIDS`) stays fenced on
+        `entry-model.ts`'s precedent.
+      - The public fence gained `maplibre-gl` as an **exact-specifier `paths` entry** plus a
+        `dist/*.{js,mjs}` `patterns` entry. The obvious spelling — a `["maplibre-gl",
+        "maplibre-gl/**"]` group — also refuses `dist/maplibre-gl.css`, which the attribution
+        control needs, and a `!`-negation cannot rescue it under gitignore semantics. Eight import
+        shapes measured on real files; all eight now have a case.
+      - **A belt block** fences every module a public page can reach — ten paths — from
+        `@inrupt/*` and `lib/studio`. `lib/pod/read.ts` had been reachable and unfenced since
+        phase 1. See `notes.md#why-the-publicly-reachable-lib-modules-are-fenced-too`, including
+        the limit: these fences see **static imports only**, which is the same asymmetry the map's
+        laziness depends on.
+      - `react-map-gl` removed (nothing imported it) — `docs/decisions.md` **§25**, which also
+        reserves §26. Annotated rather than deleted in the phase 0.5 install command, in
+        `docs/versions.md`, and in `.claude/agents/nextjs-specialist.md`.
+      - **Three things the reviews caught that the plan had wrong**, all the same shape — a claim
+        written without running the thing that settles it. The belt block omitted the pre-existing
+        ACL `paths` entry, and flat config *replaces* rather than merges, so it would have
+        silently switched off the ACL guardrail for `lib/pod/read.ts` with every new case green
+        (four existing tests caught it). The belt's first scope missed `lib/pod/cached.ts`, then
+        `lib/pod/rdf.ts` one level deeper. And the sweep's module list was a hand-typed copy of
+        the config's, controlled by a pinned count — which is *why* those gaps stayed invisible.
+        `test/guardrails.test.ts` now derives the list from `eslint.config.mjs` and walks the real
+        import graph from the public entry points, so the class of bug is closed rather than the
+        instance.
 - [ ] Dark desaturated map style built to the tokens in `docs/design-brief.md`
+      - Plan written: `docs/superpowers/plans/2026-09-09-map-and-timeline-stage-1.md`. Note two
+        measured facts it turns on: **MapLibre cannot parse `oklch()`** (`Color.parse` returns
+        `undefined`, `validateStyleMin` says "color expected"), and the failure mode is a layer
+        that silently does not draw — so the palette is restated in hex with a drift check against
+        `app/globals.css`'s own hex comments. And **`maplibre-gl` re-exports neither
+        `StyleSpecification` nor `validateStyleMin`**, so `@maplibre/maplibre-gl-style-spec` gets
+        declared as a devDependency rather than imported transitively, which breaks under pnpm.
+      - **`lib/map/**` must join the belt and receive the `maplibre-gl` `paths` entry when that
+        directory is created.** It is fenced by nothing today, and §3 puts all map code there, so
+        a static import in `lib/map/view.ts` would put 252.8 kB in a public chunk with lint
+        silent. `lib/utils.ts` wants the same when stage 2's component imports `cn`.
 - [ ] One MapLibre instance, lazy-mounted, never remounted
 - [ ] Photo-thumbnail markers, clustering above ~50 points
+      - **Blocked on a decision before this starts.** `dy:blurDataUrl` is NOT in the index — it
+        lives on `Photo`, i.e. on the entry resource — so markers ship with no placeholder. Adding
+        it to `IndexEntry` is a change to the normative read model (§7.4, "keep it strictly to what
+        those views need") and nothing mechanical would stop it: `check:vocab` passes because the
+        term is already in `lib/vocab.ts`, `validate:fixtures` passes because it is an
+        `xsd:string`, and `size:public` is indifferent. Ask before doing. The alternative —
+        fetching each entry for its blur — destroys the one-fetch purpose the index exists for.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
 - [ ] Bidirectional map/timeline highlighting
 - [ ] Mobile drawer with three snap points, map staying mounted throughout

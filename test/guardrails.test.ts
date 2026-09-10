@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
 import { Photo } from "@/lib/pod/schema";
+import { publicEntryPoints, transitiveClosure } from "./support/imports";
 
 /**
  * TODO.md phase 0.5: "A deliberate violation of each guardrail rule fails CI —
@@ -39,6 +40,52 @@ const ruleIds = (msgs: Awaited<ReturnType<typeof lint>>) => msgs.map((m) => m.ru
  */
 const fatals = (msgs: Awaited<ReturnType<typeof lint>>) =>
   msgs.filter((m) => m.fatal).map((m) => `${m.line}:${m.column} ${m.message}`);
+
+/**
+ * BELTED_MODULES, derived from eslint.config.mjs rather than hand-typed — a
+ * hand-typed copy is how lib/pod/rdf.ts stayed invisible to every sweep below.
+ * Located by content (the literal "lib/pod/read.ts" in its files array), not
+ * by position, so reordering the config cannot lose it.
+ */
+function beltFilesArray(): string[] {
+  const entries = config as Array<{ files?: string[] }>;
+  const block = entries.find((c) => (c.files ?? []).includes("lib/pod/read.ts"));
+  if (!block?.files) {
+    throw new Error(
+      "No block in eslint.config.mjs lists lib/pod/read.ts in its files array — the belt " +
+        "moved or was renamed, and BELTED_MODULES cannot find it.",
+    );
+  }
+  return block.files;
+}
+
+/** A files entry is a literal path, or "<dir>/**\/*.ts" naming every
+ *  production .ts file directly under dir — the only two shapes the belt
+ *  uses today. Throws on a glob that matched nothing rather than silently
+ *  sweeping an empty list. */
+function resolveBeltModules(patterns: string[]): string[] {
+  const out: string[] = [];
+  for (const pattern of patterns) {
+    const cut = pattern.indexOf("/**/");
+    if (cut === -1) {
+      out.push(pattern);
+      continue;
+    }
+    const dir = pattern.slice(0, cut);
+    const files = existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true })
+          .filter((e) => e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts"))
+          .map((e) => `${dir}/${e.name}`)
+      : [];
+    if (files.length === 0) {
+      throw new Error(`${pattern} in eslint.config.mjs's belt matched no production file under ${dir}.`);
+    }
+    out.push(...files);
+  }
+  return out.sort();
+}
+
+const BELTED_MODULES = resolveBeltModules(beltFilesArray());
 
 describe("guardrails actually fire", () => {
   it("rejects a raw vocabulary IRI outside lib/vocab.ts", async () => {
@@ -946,6 +993,190 @@ describe("guardrails actually fire", () => {
         `export default function NotFound() { return <Link href="/">{String(readDiary)}</Link>; }\n`,
     );
     expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("rejects a static maplibre-gl import from a public route", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import maplibregl from "maplibre-gl";\nexport const a = maplibregl;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(msgs.map((m) => m.message).join()).toMatch(/lazy/i);
+  });
+
+  it("rejects the same bytes reached by a deep path", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import mod from "maplibre-gl/dist/maplibre-gl.mjs";\nexport const a = mod;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  it("allows the maplibre stylesheet, which the attribution control needs", async () => {
+    // An exact-specifier `paths` entry is what makes this possible: a
+    // "maplibre-gl/**" pattern refuses it and no negation re-includes it.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import "maplibre-gl/dist/maplibre-gl.css";\nexport const a = 1;\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("allows a dynamic maplibre-gl import and an inline type, which is how the map mounts", async () => {
+    // The asymmetry is the whole point: no-restricted-imports reaches neither
+    // an ImportExpression nor a TSImportType, and the map is a chunk the
+    // prerendered HTML never names.
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `export type M = import("maplibre-gl").Map;\n` +
+        `export async function load() {\n  const m = await import("maplibre-gl");\n  return m.default;\n}\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("rejects a named static import, not only the default one", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import { Marker } from "maplibre-gl";\nexport const a = Marker;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  /**
+   * `import type { Map } from "maplibre-gl"` — the ORDINARY-LOOKING spelling
+   * stage 2 must avoid in favour of the inline `import("maplibre-gl").Map`
+   * form above. The `paths` entry has no `importNames`, so it refuses every
+   * binding regardless of `importKind`; measured, not assumed.
+   */
+  it("rejects a type-only static import at the same specifier", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import type { Map } from "maplibre-gl";\nexport type M = Map;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  /** The style spec is a separate package — stage 1 depends on this staying
+   *  reachable, so the fence must not have widened past the exact specifier. */
+  it("allows the style-spec type package, which is not maplibre-gl itself", async () => {
+    const msgs = await lint(
+      "components/public/trip-map/probe.ts",
+      `import type { StyleSpecification } from "@maplibre/maplibre-gl-style-spec";\n` +
+        `export type S = StyleSpecification;\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("allows a public route to import the two modules stage 0 moved out of lib/studio", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { offsetOf } from "@/lib/time/offsets";\n` +
+        `import { precisionLabel } from "@/lib/place/precision";\n` +
+        `export const a = [offsetOf, precisionLabel];\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  /**
+   * "the paths they moved FROM" — `lib/studio/time/offsets` no longer exists
+   * on disk, so its half of this case only ever proved a fatal parse error
+   * was two messages; a mistyped fence would have passed it silently. Both
+   * specifiers below are real, present-tense modules under lib/studio/**.
+   */
+  it("still refuses the paths they moved from, so the fence did not simply widen", async () => {
+    const msgs = await lint(
+      "app/(public)/trips/[slug]/probe.ts",
+      `import { restoreSession } from "@/lib/studio/session";\n` +
+        `import { placeFor } from "@/lib/studio/place/place";\n` +
+        `export const a = [restoreSession, placeFor];\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(msgs.filter((m) => m.ruleId === "no-restricted-imports")).toHaveLength(2);
+  });
+
+  /**
+   * THE BELT'S SCOPE. 5722e70 fenced only lib/time/**, lib/place/** and
+   * lib/pod/read.ts; 3657839 widened it to the nine modules below once
+   * lib/pod/cached.ts turned out to be what a public page actually imports.
+   * BELTED_MODULES is derived above, not copied, so this cannot go stale.
+   */
+
+  /** Non-vacuity, in both directions: an empty list would let the two sweeps
+   *  below pass having swept nothing, and a BELTED_MODULES built any other
+   *  way could disagree with the config it claims to describe. */
+  it("derives at least one belted module from eslint.config.mjs, not a hand-typed count", () => {
+    expect(BELTED_MODULES.length).toBeGreaterThan(0);
+    expect(BELTED_MODULES).toContain("lib/pod/read.ts");
+    expect(resolveBeltModules(beltFilesArray())).toEqual(BELTED_MODULES);
+  });
+
+  it.each(BELTED_MODULES)(
+    "rejects lib/studio at %s — every public entry point reaches this module",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { session } from "@/lib/studio/session";\nexport default session;\n`,
+      );
+      expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    },
+  );
+
+  it.each(BELTED_MODULES)("rejects a bare @inrupt/* import at %s", async (path) => {
+    const msgs = await lint(
+      path,
+      `import { getSolidDataset } from "@inrupt/solid-client";\nexport default getSolidDataset;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  // The allow-cases proving a widened belt must not over-reach: both need
+  // @inrupt/solid-client for the same reason lib/media/upload.ts needs
+  // lib/pod/write; see ./notes.md#why-access-and-pipeline-may-import-solid-client
+  it.each(["lib/pod/access.ts", "lib/media/pipeline.ts"])(
+    "still allows %s to import @inrupt/solid-client",
+    async (path) => {
+      const msgs = await lint(
+        path,
+        `import { getThing } from "@inrupt/solid-client";\nexport default getThing;\n`,
+      );
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
+});
+
+/**
+ * THE CLOSURE, WALKED FROM REAL ENTRY POINTS RATHER THAN ASSUMED. Everything
+ * above proves the belt fires where BELTED_MODULES says it should, never
+ * whether BELTED_MODULES covers every lib/** module a public page can reach —
+ * which is how lib/pod/rdf.ts stayed invisible. ./notes.md#why-a-closure-test
+ */
+describe("the belt's scope, walked from real public entry points", () => {
+  const ROOT = resolve(process.cwd());
+
+  it("names every lib/** module reachable from a public page in the belt's files array", () => {
+    const entries = publicEntryPoints(ROOT);
+    // Non-vacuity: an extraction that found no entry points would make the
+    // closure below empty and this case pass having walked nothing.
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries).toContain("app/(public)/page.tsx");
+
+    const libModules = [...transitiveClosure(entries, ROOT)].filter((f) => f.startsWith("lib/")).sort();
+    // Same non-vacuity one level down: a walker that resolved no specifier
+    // would make "every reachable lib module is belted" vacuously true.
+    expect(libModules.length).toBeGreaterThan(0);
+
+    const unbelted = libModules.filter((m) => !BELTED_MODULES.includes(m));
+    expect(
+      unbelted,
+      "each of these is imported, directly or transitively, by a public page — so a public route " +
+        "can reach @inrupt/* or lib/studio through it exactly as it could through lib/pod/read.ts " +
+        "before the belt existed. Add it to the belt block's files array in eslint.config.mjs.",
+    ).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-# lib/studio/time — notes
+# lib/time — notes
 
 Why the offset arithmetic lives under `lib/` and what its tests may assume.
 Section numbers are `docs/data-model.md`, which stays the normative source.

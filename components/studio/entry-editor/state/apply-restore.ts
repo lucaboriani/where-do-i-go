@@ -6,7 +6,7 @@
  */
 
 import { gridOf } from "@/lib/studio/place/place";
-import { OFFSET_SHAPE } from "@/lib/studio/time/offsets";
+import { OFFSET_SHAPE } from "@/lib/time/offsets";
 import { withTimeCredit } from "./actions";
 import type { EntryFormAction, EntryFormState, PhotoSlot } from "./actions";
 import type { Photo } from "@/lib/pod/schema";
