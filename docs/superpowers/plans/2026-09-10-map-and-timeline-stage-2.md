@@ -21,6 +21,7 @@
 - **`maplibre-gl` may never be imported statically from a public path.** 252.8 kB gzip against 190 kB of budget. The only permitted static import is the stylesheet subpath `maplibre-gl/dist/maplibre-gl.css`. Everything else is `await import("maplibre-gl")` inside a handler, with types spelled `import("maplibre-gl").Map` inline — the base `no-restricted-imports` rule has no `allowTypeImports`, and that inline form is the honest spelling anyway, because the module genuinely is only available dynamically.
 - **Arbitrary Tailwind values are banned outside `components/ui/**`**, and the guardrail reaches a class string held in a `const`. No `h-[60vh]`, no `aspect-[4/3]`. Use the scale (`h-96`) or a token.
 - **Comment blocks in production code: hard bound six lines, and delimiter lines count** — a `/** … */` block has four lines of prose. Two blocks with no blank line between them are ONE run; a blank line resets it. The repository is at zero blocks over the bound and `npm run lint` runs `--max-warnings 0`.
+- **Comment less; make the code readable instead.** Said by the owner on 2026-09-10, and the six-line bound is a ceiling on a comment that earned its place, not a target. Reach for a clearer name, a smaller function, or a `notes.md` anchor first. Keep a comment only when it carries a measurement, warns of a trap at the point of danger, or states a reason the code cannot. **The samples below still over-comment in places — treat their prose as explanation for the reader of this plan, and trim it as you type the code in.**
 - **Longer explanation goes in a sibling `notes.md` behind an anchor**, with the code keeping `// <one line>; see ./notes.md#anchor`. An anchor that does not resolve fails `npm run check:structure`. The slug drops punctuation rather than hyphenating it and keeps `_` — check a slug against the tool, never reason about it.
 - **One component, one folder.** `componentFoldersAreOwn()` in `scripts/check-structure.ts` fails any `.tsx` under `components/` whose folder is not named after it, or that has no `index.ts` beside it. `index.tsx` is exempt. A second `.tsx` in the same folder therefore cannot exist — a second *exported symbol from the same file* is fine.
 - **Tests live beside their subject**, base name matching the part before the first dot.
@@ -482,8 +483,7 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
   const [status, setStatus] = useState<MapStatus>("idle");
   const map = useRef<import("maplibre-gl").Map | null>(null);
 
-  // Read at creation time, not depended on: a fresh bbox object every render
-  // must not rebuild the map. ./../notes.md#why-the-effect-depends-on-activation-alone
+  // Read at creation, never depended on; see ./../notes.md#why-the-effect-depends-on-activation-alone
   const latest = useRef({ bbox, styleUrl });
   latest.current = { bbox, styleUrl };
 
@@ -504,8 +504,7 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
           style: url ?? buildBasemapStyle(),
           attributionControl: false,
         });
-        // Never conditional, never removed: OpenStreetMap requires it and
-        // CLAUDE.md forbids taking it off.
+        // Never conditional: OpenStreetMap requires it and CLAUDE.md forbids removing it.
         instance.addControl(new AttributionControl({ compact: true }));
         instance.on("style.load", () => {
           instance.setProjection({ type: "mercator" });
@@ -811,17 +810,13 @@ Create `components/public/trip-map/trip-map.tsx`:
 ```tsx
 "use client";
 
-// The stylesheet is imported HERE and not inside the lazy chunk, so the map's
-// chrome is styled before the instance arrives. It costs nothing against the
-// budget: the check matches .js references only.
+// Outside the lazy chunk on purpose; see ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useEffect, useRef, useState } from "react";
 import { useMapInstance, type Bbox } from "./hooks/use-map-instance";
 
-/** Shared with the layout's Suspense fallback so the reserved box and the real
- *  one cannot drift. No arbitrary values: the scale is the rule outside
- *  components/ui. */
+/** Shared with the layout's Suspense fallback so the two boxes cannot drift. */
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
 
 export default function TripMap({ bbox, styleUrl }: { bbox?: Bbox; styleUrl?: string }) {
