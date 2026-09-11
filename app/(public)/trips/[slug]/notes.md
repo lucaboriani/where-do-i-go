@@ -18,11 +18,37 @@ The layout does not await `params` on its shell path, for the reason
 static shell, which is what makes a navigation feel slow. The frame is reserved
 synchronously and the index read happens inside `<Suspense>`.
 
-## The Suspense-child test, and why it needed no fallback route
+## The Suspense-child test, and what it does and does not prove
 
 `layout.test.tsx` renders `<Layout>` with a `params` promise that never
-resolves, so `<MapForTrip>` never settles. The brief anticipated this might
-warn or hang under this project's Testing Library setup; it did neither —
-`npx vitest run` completed in under half a second with 2 passed and no console
-output, so both cases assert exactly what the brief's sample asserts, with no
-simplification needed.
+resolves, so `<MapForTrip>` never settles. It passes, but only under vitest's
+**default** reporter, which hides stderr. `--reporter=verbose` shows two
+messages on every run:
+
+```
+<MapForTrip> is an async Client Component. Only Server Components can be
+async at the moment. This error is often caused by accidentally adding
+'use client' to a module that was originally written for the server.
+```
+
+```
+A component suspended inside an `act` scope, but the `act` call was not
+awaited. When testing React components that depend on asynchronous data,
+you must await the result:
+
+await act(() => ...)
+```
+
+Both are expected and harmless: in real Next SSR, `MapForTrip` is a genuine
+Server Component, so neither message can occur in production. They are an
+artefact of Testing Library's client renderer driving an async component it
+was never meant to run, which is unavoidable for a test that stays honest
+about what a server-component test can assert (see the layout above). They
+are not suppressed, and a future reader who only runs the default reporter
+will not see them.
+
+What the two cases actually prove: children render without the layout
+awaiting `params`, and the fallback reserves the map frame before the index
+is read. They do not prove `<MapForTrip>` itself resolves correctly, or
+anything about its rendered output — that is `e2e` and the unit tests on
+`TripMap`/`useMapInstance`.
