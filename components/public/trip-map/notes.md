@@ -79,8 +79,16 @@ was involved. Instance identity tracked by stamping `dataset.probe` on the live
 `canvas.maplibregl-canvas` node: a remount discards the div, MapLibre builds a
 new canvas, and the stamp is gone.
 
-Laziness holds in a real browser: landing on `/trips/2026-japan` shows 0
-canvases; scrolling to the bottom and back to the top shows 1.
+**Corrected 2026-09-11** — this used to read "laziness holds: landing shows 0
+canvases, scrolling to the bottom and back shows 1." That was elapsed
+wall-clock time between two synchronous samples, not scroll-triggered
+activation: task 6's request log shows the maplibre-gl chunk requested ~770ms
+before either scroll call runs, and `e2e/trip-map.spec.ts`'s canvas case,
+which never scrolls, gets a canvas in 1.4s. `MAP_FRAME_CLASS` sits at the top
+of the layout with nothing above it, so the frame is already inside
+`rootMargin: "200px"` on load — the observer path is correct but gates
+nothing on this page as laid out today. The bundle benefit holds regardless:
+the chunk is still absent from `size:public`'s prerendered-HTML chunk list.
 
 trip → entry → back → entry, three router navigations: ONE instance
 throughout. Canvas count stayed at 1 and the `dataset.probe` stamp survived

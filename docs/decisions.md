@@ -546,5 +546,9 @@ they should; the owner deferred it on 2026-09-10, to be revisited when stage 3's
 diff touching only the map will not trip the gate. That is a known hole, recorded rather than
 papered over.
 
+**Trip A → trip B is still open.** Whether a second trip's layout remounts the instance is
+unmeasured, not assumed either way — `components/public/trip-map/notes.md`, "Navigating between
+trips, measured".
+
 **Also considered:** mounting the map in `page.tsx` with a client-side cache keyed by slug —
 rejected as a second state machine reimplementing what the router already guarantees.
