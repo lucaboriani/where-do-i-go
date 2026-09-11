@@ -373,9 +373,7 @@ function main(): void {
   // second paragraph away whenever the first fired.
   const violations = reportViolations(findings, kb);
 
-  // The positive control: with the map loaded lazily, `findStudioDeps` reports
-  // `maplibre-gl` absent whether the map is correct or was never built — so a
-  // chunk carrying it must exist, and no public page may reference it.
+  // The positive control: see ./notes.md#the-positive-control
   const mapMarkers = BANNED_DEPS.find((dep) => dep.name === "maplibre-gl")?.markers ?? [];
   const proof = findLazyChunks(jsChunksOnDisk(ROOT), new Set(measured.chunks.keys()), mapMarkers);
   if (proof.present.length === 0) {
