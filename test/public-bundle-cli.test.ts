@@ -115,6 +115,12 @@ const leakyChunk = () =>
   small().toString("utf8") +
   leakWindow("node_modules/maplibre-gl/dist/maplibre-gl.mjs", "maplibregl");
 
+/** The lazy map chunk `findLazyChunks` requires on disk, unreferenced by any
+ *  page — what a genuinely clean build of this project looks like now, per
+ *  scripts/notes.md#the-positive-control. Fixtures for a passing run add this
+ *  under a name no page's `refs` lists. */
+const mapChunk = () => leakWindow("node_modules/maplibre-gl/dist/maplibre-gl.mjs", "maplibregl");
+
 /** Incompressible filler, for the cases that are about weight and nothing else.
  *  gzip of random bytes is ~1.0003x, so the fixture size IS the gzip size. */
 const filler = (kb: number) => randomBytes(kb * 1024);
@@ -261,6 +267,7 @@ describe("size:public, run as a command against a synthesised build", () => {
     const chunks: Chunks = {
       "static/chunks/framework-0a1b2c.js": framework(),
       "static/chunks/page-4d5e6f.js": small(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
     };
     const root = checkout({
       chunks,
@@ -420,7 +427,10 @@ describe("size:public, run as a command against a synthesised build", () => {
   });
 
   it("passes just under the default ceiling", () => {
-    const chunks: Chunks = { "static/chunks/heavy-1a2b3c.js": filler(180) };
+    const chunks: Chunks = {
+      "static/chunks/heavy-1a2b3c.js": filler(180),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const under = expectedKb(chunks, ["static/chunks/heavy-1a2b3c.js"]);
     expect(under).toBeLessThan(DEFAULT_LIMIT_KB);
     expect(under).toBeGreaterThan(DEFAULT_LIMIT_KB - 20);
@@ -517,7 +527,10 @@ describe("F1: only the studio ROUTE may be excluded", () => {
     // Same defect, second symptom: the filter runs against the absolute path,
     // so ~/src/studio/where-i-go excludes every page in the repository and the
     // check reports that nothing was built.
-    const chunks: Chunks = { "static/chunks/framework-0a1b2c.js": framework() };
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const root = checkout({
       under: "studio",
       chunks,
@@ -773,7 +786,10 @@ describe("F6: a page the extraction found no scripts on", () => {
     // that counted zero-script pages by looking at the wrong list would turn
     // this perfectly ordinary build red. It passes today, and must keep
     // passing after F6 is fixed.
-    const chunks: Chunks = { "static/chunks/framework-0a1b2c.js": framework() };
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const root = checkout({
       chunks,
       pages: [

@@ -103,6 +103,18 @@ export function findStudioDeps(chunks: Chunk[]): Finding[] {
   return findings;
 }
 
+export type LazyProof = { present: string[]; leaked: string[] };
+
+/** The positive half of §1's pair: a chunk carrying the map must exist, and no
+ *  public page's HTML may reference it. ./notes.md#the-positive-control */
+export function findLazyChunks(chunks: Chunk[], referenced: Set<string>, markers: string[]): LazyProof {
+  if (chunks.length === 0) throw new Error("findLazyChunks: no chunks to scan");
+  const present = chunks
+    .filter((chunk) => markers.some((marker) => chunk.source.includes(marker)))
+    .map((chunk) => chunk.name);
+  return { present, leaked: present.filter((name) => referenced.has(name)) };
+}
+
 /* ----------------------------------------------------------------- the CLI */
 
 /** A page that was found and deliberately not measured, and the reason. */
@@ -272,6 +284,17 @@ export function reportSize(worst: { page: string; bytes: number }): number {
   return kb;
 }
 
+/** Every `.js` chunk on disk, spelled the way `measurePages` spells a
+ *  referenced one — `static/chunks/<file>` — so the two sets are comparable.
+ *  `.css` is excluded: nothing extracts a `.css` reference, so a `.css` match
+ *  could only ever read as a permanent, meaningless "present and unreferenced". */
+function jsChunksOnDisk(root: string): Chunk[] {
+  const dir = resolve(root, ".next/static/chunks");
+  return readdirSync(dir)
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => ({ name: `static/chunks/${file}`, source: readFileSync(resolve(dir, file), "utf8") }));
+}
+
 /** The composition scan, with one ledger line per banned dep — including the
  *  ones that did not fire, so the report shows what was looked for. */
 export function reportComposition(chunks: Map<string, string>, pageCount: number): Finding[] {
@@ -350,7 +373,20 @@ function main(): void {
   // second paragraph away whenever the first fired.
   const violations = reportViolations(findings, kb);
 
-  if (gaps.failed || violations) process.exit(1);
+  // The positive control: with the map loaded lazily, `findStudioDeps` reports
+  // `maplibre-gl` absent whether the map is correct or was never built — so a
+  // chunk carrying it must exist, and no public page may reference it.
+  const mapMarkers = BANNED_DEPS.find((dep) => dep.name === "maplibre-gl")?.markers ?? [];
+  const proof = findLazyChunks(jsChunksOnDisk(ROOT), new Set(measured.chunks.keys()), mapMarkers);
+  if (proof.present.length === 0) {
+    console.log("\n  map   NO chunk contains maplibre — the map is lazy, or absent, and this cannot tell which");
+  }
+  if (proof.leaked.length > 0) {
+    console.log(`\n  map   a public page references the maplibre chunk: ${proof.leaked.join(", ")}`);
+  }
+  const mapFailed = proof.present.length === 0 || proof.leaked.length > 0;
+
+  if (gaps.failed || violations || mapFailed) process.exit(1);
   console.log("\nPublic bundle within budget, and free of studio-only dependencies.");
 }
 
