@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
 import { existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
@@ -1180,6 +1181,39 @@ describe("the belt's scope, walked from real public entry points", () => {
   });
 });
 
+describe("lib/map is fenced like the public path it serves", () => {
+  it("refuses a static maplibre-gl import in lib/map, which would be 252.8 kB in a public chunk", async () => {
+    expect(ruleIds(await lint("lib/map/view.ts", `import { Map } from "maplibre-gl";\n`))).toContain(
+      "no-restricted-imports",
+    );
+  });
+
+  it("refuses the deep dist path too, which is the same bytes by another name", async () => {
+    expect(
+      ruleIds(await lint("lib/map/view.ts", `import "maplibre-gl/dist/maplibre-gl.mjs";\n`)),
+    ).toContain("no-restricted-imports");
+  });
+
+  it("allows the stylesheet subpath, which the attribution control needs", async () => {
+    const msgs = await lint("lib/map/view.ts", `import "maplibre-gl/dist/maplibre-gl.css";\n`);
+    // A snippet that fails to PARSE yields one fatal message and no rule
+    // messages, so this allow-case would pass having linted nothing.
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+
+  it("keeps lib/map out of the auth library and out of lib/studio", async () => {
+    expect(
+      ruleIds(await lint("lib/map/view.ts", `import { x } from "@/lib/studio/session";\n`)),
+    ).toContain("no-restricted-imports");
+  });
+
+  it("fences lib/utils.ts the same way, because a public component is about to import cn", async () => {
+    const code = `import { getDefaultSession } from "@inrupt/solid-client-authn-browser";\n`;
+    expect(ruleIds(await lint("lib/utils.ts", code))).toContain("no-restricted-imports");
+  });
+});
+
 /**
  * The two hard bounds from CLAUDE.md's "Code structure" — 200 for a render, 80
  * for a util, and a test FILE ceiling of 1000 with no bound on a test body.
@@ -1437,4 +1471,20 @@ describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () 
       expect(onRead.value).toBe(withinBudget ? value : undefined);
     },
   );
+});
+
+describe("setProjection has one call site", () => {
+  it("is reached from the style.load handler and from nowhere else in the tree", () => {
+    // Excludes *.test.ts: the fake Map in use-map-instance.test.ts must define
+    // a same-named setProjection method to stand in for the real one, and a
+    // dumb text scan cannot tell that apart from a second production call site.
+    const hits = execFileSync(
+      "git",
+      ["grep", "-l", "setProjection(", "--", "lib", "components", "app", ":(exclude)**/*.test.ts", ":(exclude)**/*.test.tsx"],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    expect(hits).toEqual(["components/public/trip-map/hooks/use-map-instance.ts"]);
+  });
 });

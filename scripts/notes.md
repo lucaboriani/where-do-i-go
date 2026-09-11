@@ -347,6 +347,51 @@ with its reason, before that loop runs. A page that gets that far has bytes, and
 page with bytes and no script reference is this check having lost sight of the build — every App
 Router page here loads the framework chunks.
 
+## the positive control
+
+`findStudioDeps` only ever scans chunks a public page's HTML references. With the map lazy
+(CLAUDE.md, Map), `maplibre-gl` never appears there — so the composition ledger reports it
+`absent` whether the map is correct or was never built at all, and that line stopped meaning
+anything the day the import moved behind `import("maplibre-gl")`.
+
+`findLazyChunks` asserts the missing half: a chunk containing MapLibre must exist on disk, and
+`referenced` — `measured.chunks`' keys, the same set the composition scan already trusts — must
+not contain it. `all` cannot come from the same source: `measurePages` only ever sees scripts the
+HTML names, so the lazy chunk is by construction absent from it. `main` reads
+`.next/static/chunks` directly for `all`.
+
+The two names have to be spelled identically or `leaked` is permanently empty — a build that
+truly leaked the import would still print "unreferenced", the opposite of what happened. Verified
+against a real build: `measured.chunks` keys look like `static/chunks/310vm2bl3xxpt.js`
+(`ref.replace("/_next/", "")` against `/_next/static/chunks/…`), and the disk scan is built the
+same way, `static/chunks/<file>` relative to `.next`.
+
+Scanned extensions: `.js` only. `.next/static/chunks` is flat and, at this build, holds exactly
+one file matching a MapLibre marker in each of `.js` and `.css`. `measurePages` only ever extracts
+`.js` references, so a `.css` chunk can never enter `referenced` — it would sit in `present`
+forever regardless of whether the real library chunk exists, which hides the one regression this
+control exists to catch.
+
+**A mutation that only adds an unused import proves nothing.** `import { Map as EagerMap } from
+"maplibre-gl"` with `EagerMap` never read is dead code; Turbopack drops it and the build is
+unchanged. The regression this control guards against is the import staying used while its
+declaration moves to module scope — verified by lifting the real `import("maplibre-gl")` call out
+of the effect and keeping its callback body, which both `next lint` (`no-restricted-imports`) and
+a rebuilt `size:public` catch, the latter via both `findStudioDeps` (`FOUND`) and the new leak
+line.
+
+**Only the presence half is genuinely new.** `findStudioDeps` scans `measured.chunks` — chunks a
+page references — so a chunk nothing references is invisible to it; that blind spot is why
+`maplibre-gl absent` went quiet the day the map went lazy, and `findLazyChunks`'s "no chunk at
+all" case (`test/public-bundle-cli.test.ts`, "fails the run when no chunk anywhere on disk
+contains maplibre") is the only thing that still catches it. The leak half duplicates
+`findStudioDeps` **for as long as `maplibre-gl` stays in `BANNED_DEPS`**: `main` hands
+`findLazyChunks` that same entry's markers, so any chunk both referenced and marker-matching is
+already a `findStudioDeps` finding on identical bytes, and `violations` forces exit 1 on its own —
+confirmed by deleting `|| mapFailed` from `main`'s exit line, which left the leak case green.
+Drop `maplibre-gl` from `BANNED_DEPS` and the leak direction loses that CLI coverage, back to the
+unit cases in `test/public-bundle.test.ts` alone.
+
 ## why this module is importable and pure
 
 Nothing runs and no build output is read unless the file is executed directly.

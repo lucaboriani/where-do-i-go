@@ -382,3 +382,18 @@ So the honest statement of what these fences are: **a static-import guard, backs
 `size:public`'s marker scan for anything that actually ships.** A dynamic import of studio code
 from a public route lints clean and is caught only at build time, by name, in
 `scripts/check-public-bundle.ts`'s `BANNED_DEPS`.
+
+`lib/map/**` and `lib/utils.ts` joined the belt in phase 4 stage 2, for the same reason
+`lib/pod/rdf.ts` did: stage 1 created `lib/map` and nothing restricted it, so a static
+`import { Map } from "maplibre-gl"` in `lib/map/view.ts` would have been lint-clean and 252.8 kB
+in a public chunk. `lib/utils.ts` has the identical property once a public component imports
+`cn` from it.
+
+## why the maplibre entries are hoisted
+
+`MAPLIBRE_PATH` and `MAPLIBRE_PATTERN` are declared once, near the other shared consts, because
+the public block and the belt block both need them and flat config replaces a rule's options
+per file rather than merging them — two hand-kept copies is exactly the shape the belt's
+`ACL_PRIMITIVES` repetition nearly drifted on. The exact-specifier spelling of `MAPLIBRE_PATH` is
+unchanged: a `maplibre-gl/**` group would also refuse `maplibre-gl/dist/maplibre-gl.css`, which
+the attribution control needs, and no negation rescues it under gitignore semantics.

@@ -115,6 +115,12 @@ const leakyChunk = () =>
   small().toString("utf8") +
   leakWindow("node_modules/maplibre-gl/dist/maplibre-gl.mjs", "maplibregl");
 
+/** The lazy map chunk `findLazyChunks` requires on disk, unreferenced by any
+ *  page — what a genuinely clean build of this project looks like now, per
+ *  scripts/notes.md#the-positive-control. Fixtures for a passing run add this
+ *  under a name no page's `refs` lists. */
+const mapChunk = () => leakWindow("node_modules/maplibre-gl/dist/maplibre-gl.mjs", "maplibregl");
+
 /** Incompressible filler, for the cases that are about weight and nothing else.
  *  gzip of random bytes is ~1.0003x, so the fixture size IS the gzip size. */
 const filler = (kb: number) => randomBytes(kb * 1024);
@@ -261,6 +267,7 @@ describe("size:public, run as a command against a synthesised build", () => {
     const chunks: Chunks = {
       "static/chunks/framework-0a1b2c.js": framework(),
       "static/chunks/page-4d5e6f.js": small(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
     };
     const root = checkout({
       chunks,
@@ -420,7 +427,10 @@ describe("size:public, run as a command against a synthesised build", () => {
   });
 
   it("passes just under the default ceiling", () => {
-    const chunks: Chunks = { "static/chunks/heavy-1a2b3c.js": filler(180) };
+    const chunks: Chunks = {
+      "static/chunks/heavy-1a2b3c.js": filler(180),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const under = expectedKb(chunks, ["static/chunks/heavy-1a2b3c.js"]);
     expect(under).toBeLessThan(DEFAULT_LIMIT_KB);
     expect(under).toBeGreaterThan(DEFAULT_LIMIT_KB - 20);
@@ -437,6 +447,81 @@ describe("size:public, run as a command against a synthesised build", () => {
         `everything is not a ceiling:${run.transcript}`,
     ).toBe(0);
     expect(run.stdout).toMatch(SUCCESS);
+  });
+});
+
+/**
+ * findLazyChunks, wired into `main()`, exercised as a real command rather than
+ * with synthesised inputs. A mutation deleting `|| mapFailed` from `main()`'s
+ * exit condition must turn at least one of these red — see the note on the
+ * second case below for why the composition scan makes that only partial.
+ */
+describe("size:public, the positive control on a real command", () => {
+  it("fails the run when no chunk anywhere on disk contains maplibre", () => {
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/page-4d5e6f.js": small(),
+    };
+    const root = checkout({
+      chunks,
+      pages: [
+        {
+          path: "index.html",
+          refs: [
+            { chunk: "static/chunks/framework-0a1b2c.js" },
+            { chunk: "static/chunks/page-4d5e6f.js" },
+          ],
+        },
+      ],
+    });
+
+    const run = runCli(join(root, "scripts", "check-public-bundle.ts"));
+
+    expect(
+      run.status,
+      `a build with no maplibre chunk anywhere passed:${run.transcript}`,
+    ).not.toBe(0);
+    expect(run.stdout).toMatch(/NO chunk contains maplibre/);
+    expect(run.stdout).not.toMatch(SUCCESS);
+    // Neither of the other two failure reasons is present, so this fixture
+    // fails for the map reason and nothing else.
+    expect(run.stdout).not.toMatch(/A studio-only dependency reached a public route/);
+    expect(run.stdout).not.toMatch(/Over budget/);
+  });
+
+  it("prints the leak line when a public page references a dedicated map chunk", () => {
+    // main() reuses BANNED_DEPS's own maplibre-gl markers for both checks, so
+    // this chunk trips findStudioDeps too — the assertion below is on the leak
+    // line's own text, so a regression in leak detection alone is still caught
+    // even though the exit code and findStudioDeps's "FOUND" wording are not
+    // proof of it. Does not redden under a mutation that only deletes
+    // `|| mapFailed`: see task-5-report.md.
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/map-3f2e1d.js": mapChunk(),
+    };
+    const root = checkout({
+      chunks,
+      pages: [
+        {
+          path: "trips/2026-japan.html",
+          refs: [
+            { chunk: "static/chunks/framework-0a1b2c.js" },
+            { chunk: "static/chunks/map-3f2e1d.js" },
+          ],
+        },
+      ],
+    });
+
+    const run = runCli(join(root, "scripts", "check-public-bundle.ts"));
+
+    expect(
+      run.status,
+      `a public page referencing the map chunk did not fail the run:${run.transcript}`,
+    ).not.toBe(0);
+    expect(run.stdout).toMatch(
+      /a public page references the maplibre chunk: static\/chunks\/map-3f2e1d\.js/,
+    );
   });
 });
 
@@ -489,6 +574,7 @@ describe("F1: only the studio ROUTE may be excluded", () => {
     const chunks: Chunks = {
       "static/chunks/framework-0a1b2c.js": framework(),
       "static/chunks/studio-3e2d1c.js": Buffer.concat([filler(240), Buffer.from(leakyChunk())]),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
     };
     const root = checkout({
       chunks,
@@ -517,7 +603,10 @@ describe("F1: only the studio ROUTE may be excluded", () => {
     // Same defect, second symptom: the filter runs against the absolute path,
     // so ~/src/studio/where-i-go excludes every page in the repository and the
     // check reports that nothing was built.
-    const chunks: Chunks = { "static/chunks/framework-0a1b2c.js": framework() };
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const root = checkout({
       under: "studio",
       chunks,
@@ -773,7 +862,10 @@ describe("F6: a page the extraction found no scripts on", () => {
     // that counted zero-script pages by looking at the wrong list would turn
     // this perfectly ordinary build red. It passes today, and must keep
     // passing after F6 is fixed.
-    const chunks: Chunks = { "static/chunks/framework-0a1b2c.js": framework() };
+    const chunks: Chunks = {
+      "static/chunks/framework-0a1b2c.js": framework(),
+      "static/chunks/map-9c8b7a.js": mapChunk(),
+    };
     const root = checkout({
       chunks,
       pages: [

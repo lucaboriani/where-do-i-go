@@ -70,9 +70,11 @@ type Measurement = {
   noScripts: string[];
 };
 type Gaps = { failed: boolean; measuredNothing: boolean };
+type LazyProof = { present: string[]; leaked: string[] };
 type Mod = {
   BANNED_DEPS?: BannedDep[];
   findStudioDeps?: (chunks: Chunk[]) => Finding[];
+  findLazyChunks?: (chunks: Chunk[], referenced: Set<string>, markers: string[]) => LazyProof;
   LIMIT_KB?: number;
   measurePages?: (pages: string[], root: string) => Measurement;
   reportMeasurementGaps?: (measured: Measurement) => Gaps;
@@ -116,6 +118,20 @@ function findStudioDeps(chunks: Chunk[]): Finding[] {
     );
   }
   return fn(chunks);
+}
+
+/** Same rule as findStudioDeps above: throws rather than stubbing so a missing
+ *  export fails the case that needed it. */
+function findLazyChunks(chunks: Chunk[], referenced: Set<string>, markers: string[]): LazyProof {
+  if (loadError) throw loadError;
+  const fn = mod.findLazyChunks;
+  if (typeof fn !== "function") {
+    throw new Error(
+      `${MODULE} does not export findLazyChunks(chunks, referenced, markers). It is the ` +
+        "positive control: a chunk carrying the map must exist, and no public page may reference it.",
+    );
+  }
+  return fn(chunks, referenced, markers);
 }
 
 function bannedDeps(): BannedDep[] {
@@ -1212,6 +1228,37 @@ describe("reportViolations: the verdict", () => {
   });
 });
 
+describe("findLazyChunks: the positive control that size:public otherwise lacks", () => {
+  const markers = ["maplibregl"];
+
+  it("finds the lazy chunk and reports no leak when no page references it", () => {
+    const chunks = [
+      { name: "static/chunks/9021.js", source: "var maplibregl={};" },
+      { name: "static/chunks/main.js", source: "console.log(1)" },
+    ];
+    const result = findLazyChunks(chunks, new Set(["static/chunks/main.js"]), markers);
+    expect(result.present).toEqual(["static/chunks/9021.js"]);
+    expect(result.leaked).toEqual([]);
+  });
+
+  it("reports a leak when a page's HTML references the chunk, which is the import escaping the effect", () => {
+    const chunks = [{ name: "static/chunks/9021.js", source: "var maplibregl={};" }];
+    const result = findLazyChunks(chunks, new Set(["static/chunks/9021.js"]), markers);
+    expect(result.leaked).toEqual(["static/chunks/9021.js"]);
+  });
+
+  it("reports no chunk at all, which is the case that means there is no map", () => {
+    const chunks = [{ name: "static/chunks/main.js", source: "console.log(1)" }];
+    expect(findLazyChunks(chunks, new Set(), markers).present).toEqual([]);
+  });
+
+  it("refuses to answer for zero chunks, the same way findStudioDeps does", () => {
+    // An empty scan is not a pass — a build that produced nothing must not
+    // report "lazy and correct".
+    expect(() => findLazyChunks([], new Set(), markers)).toThrow(/no chunks/i);
+  });
+});
+
 describe("the module is importable and pure", () => {
   /**
    * Importing the detector must not run the CLI and must not read `.next`.
@@ -1279,5 +1326,6 @@ describe("the module is importable and pure", () => {
     // And the exports the rest of this file needs are actually there.
     expect(stdout).toContain("BANNED_DEPS");
     expect(stdout).toContain("findStudioDeps");
+    expect(stdout).toContain("findLazyChunks");
   });
 });
