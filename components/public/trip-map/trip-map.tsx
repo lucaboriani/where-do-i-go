@@ -4,7 +4,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useEffect, useRef, useState } from "react";
-import { useMapInstance, type Bbox } from "./hooks/use-map-instance";
+import { type Bbox } from "@/lib/map/view";
+import { useMapInstance } from "./hooks/use-map-instance";
 
 // Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";

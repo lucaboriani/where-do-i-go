@@ -9,8 +9,10 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { buildBasemapStyle } from "@/lib/map/style";
+import { fitOptions, PROJECTION, type Bbox } from "@/lib/map/view";
 
-export type Bbox = { west: number; south: number; east: number; north: number };
+type MapLibreMap = import("maplibre-gl").Map;
+
 export type MapStatus = "idle" | "loading" | "ready" | "failed";
 
 export type MapInstanceOptions = {
@@ -20,9 +22,15 @@ export type MapInstanceOptions = {
   styleUrl?: string;
 };
 
-export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanceOptions): MapStatus {
+export function useMapInstance({
+  container,
+  active,
+  bbox,
+  styleUrl,
+}: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null } {
   const [outcome, setOutcome] = useState<"pending" | "ready" | "failed">("pending");
-  const map = useRef<import("maplibre-gl").Map | null>(null);
+  const [instance, setInstance] = useState<MapLibreMap | null>(null);
+  const map = useRef<MapLibreMap | null>(null);
 
   // Ref, not effect deps: see ../notes.md#why-the-effect-depends-on-activation-alone
   const latest = useRef({ bbox, styleUrl });
@@ -49,19 +57,15 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
         // Never conditional: OpenStreetMap requires it and CLAUDE.md forbids removing it.
         instance.addControl(new AttributionControl({ compact: true }));
         instance.on("style.load", () => {
-          instance.setProjection({ type: "mercator" });
+          instance.setProjection(PROJECTION);
           if (bounds !== undefined) {
-            instance.fitBounds(
-              [
-                [bounds.west, bounds.south],
-                [bounds.east, bounds.north],
-              ],
-              { padding: 32, animate: false },
-            );
+            const { bounds: box, ...camera } = fitOptions(bounds);
+            instance.fitBounds(box, camera);
           }
         });
         instance.once("load", () => setOutcome("ready"));
         map.current = instance;
+        setInstance(instance);
       })
       .catch(() => {
         if (live) setOutcome("failed");
@@ -76,10 +80,10 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
     () => () => {
       map.current?.remove();
       map.current = null;
+      setInstance(null);
     },
     [],
   );
 
-  if (!active) return "idle";
-  return outcome === "pending" ? "loading" : outcome;
+  return { status: !active ? "idle" : outcome === "pending" ? "loading" : outcome, map: instance };
 }
