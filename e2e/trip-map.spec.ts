@@ -61,4 +61,13 @@ test.describe("the trip map", () => {
     await expect(page).toHaveURL(/\/trips\/2026-japan\/.+/);
     await expect(page.locator("canvas.maplibregl-canvas")).toHaveCount(1);
   });
+
+  test("plants a marker for a seeded entry, once the map is up", async ({ page }) => {
+    // Asserts a marker element, not the route line: a GL line is painted into
+    // the canvas and is not queryable from the DOM.
+    await page.goto(TRIP);
+    const frame = page.getByRole("region", { name: "Trip map" });
+    await expect(frame.locator("canvas.maplibregl-canvas")).toBeVisible();
+    await expect(frame.locator("[data-slug]").first()).toBeVisible();
+  });
 });

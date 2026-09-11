@@ -1,5 +1,8 @@
 import type { ExpressionSpecification } from "@maplibre/maplibre-gl-style-spec";
-import { TravelMode } from "@/lib/pod/schema";
+import type { TravelMode } from "@/lib/pod/schema";
+// TRAVEL_MODE's keys, not TravelMode.options: the latter is a zod value
+// import, which pulls all of zod into this public chunk. ./notes.md#why-dashests-reads-mode-names-from-vocabts-not-schemats
+import { TRAVEL_MODE } from "@/lib/vocab";
 
 /** Dash lengths are in line-widths, not pixels, so they hold as the line scales. */
 export const MODE_DASHES: Record<TravelMode | "Unknown", number[]> = {
@@ -14,9 +17,11 @@ export const MODE_DASHES: Record<TravelMode | "Unknown", number[]> = {
   Unknown: [3, 3],
 };
 
+const MODES = Object.keys(TRAVEL_MODE) as TravelMode[];
+
 export const DASH_BY_MODE: ExpressionSpecification = [
   "match",
   ["get", "mode"],
-  ...TravelMode.options.flatMap((mode) => [mode, ["literal", MODE_DASHES[mode]]] as const),
+  ...MODES.flatMap((mode) => [mode, ["literal", MODE_DASHES[mode]]] as const),
   ["literal", MODE_DASHES.Unknown],
 ] as unknown as ExpressionSpecification;

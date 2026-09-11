@@ -49,7 +49,13 @@ class FakeAttributionControl {
   constructor(readonly options: unknown) {}
 }
 
-vi.mock("maplibre-gl", () => ({ Map: FakeMap, AttributionControl: FakeAttributionControl }));
+const workerUrls: string[] = [];
+
+vi.mock("maplibre-gl", () => ({
+  Map: FakeMap,
+  AttributionControl: FakeAttributionControl,
+  setWorkerUrl: (url: string) => workerUrls.push(url),
+}));
 
 const BBOX = { west: 129.87, south: 31.59, east: 141.02, north: 35.71 };
 
@@ -63,6 +69,7 @@ let useMapInstance: typeof import("./use-map-instance").useMapInstance;
 
 beforeEach(async () => {
   created.length = 0;
+  workerUrls.length = 0;
   ({ useMapInstance } = await import("./use-map-instance"));
 });
 
@@ -83,6 +90,15 @@ describe("useMapInstance", () => {
     const opts = harness();
     renderHook(() => useMapInstance(opts));
     await waitFor(() => expect(created).toHaveLength(1));
+  });
+
+  it("points maplibre at this app's own worker route before creating a map", async () => {
+    // Not import.meta.url's own guess, which is "" under Turbopack, dev and
+    // prod alike, and fails silently. See the worker route's own notes.md.
+    const opts = harness();
+    renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(workerUrls).toEqual(["/maplibre-gl-worker.mjs"]);
   });
 
   it("adds the attribution control unconditionally, because removing it is never allowed", async () => {
@@ -183,6 +199,18 @@ describe("useMapInstance", () => {
     const style = created[0].options.style as { layers: unknown[] };
     expect(Array.isArray(style.layers)).toBe(true);
     expect(style.layers).toHaveLength(17);
+  });
+
+  it("reports styleLoaded only once style.load fires, not before it or without it", async () => {
+    // isStyleLoaded() is deliberately NOT what this tracks: real MapLibre's
+    // version also waits for every source's tiles, which can stay pending far
+    // past style.load — see ../notes.md#why-styleloaded-is-not-isstyleloaded.
+    const opts = harness();
+    const { result } = renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(result.current.styleLoaded).toBe(false);
+    created[0].emit("style.load");
+    await waitFor(() => expect(result.current.styleLoaded).toBe(true));
   });
 
   it("hands back the instance once it exists, so layers can be added to it", async () => {

@@ -580,3 +580,86 @@ visible pop-in on slow connections for no saving over the skeleton.
 **Consequence.** Markers have no image preview, only a shape. If that proves too weak once real
 markers are on a real map, revisit it with evidence rather than reopening the read-model question
 in the abstract.
+
+---
+
+## 30. A marker is a DOM element built by a function, not a React component
+
+Stage 3 needed to put a leaf marker (thumbnail, precision shape, `data-slug`) on the map for every
+entry with a coordinate, reconciled against `moveend`/`sourcedata` rather than rebuilt on every
+fire. Two shapes were available: a `<Marker>`-equivalent React component rendered into a portal
+MapLibre manages, or a plain function returning an `HTMLElement` that `useMapMarkers` hands
+straight to `new Marker({ element })`.
+
+**The plain function, in `lib/map/marker-element.ts`.** `useMapMarkers` already has to walk
+`querySourceFeatures` by hand on `moveend` and `sourcedata` to support clustering — react-map-gl
+was rejected in §25 for exactly this reason, and a component wrapper here would sit beside that
+imperative loop rather than replace it. A `buildMarkerElement(props): HTMLElement` needs no
+portal, no reconciler, and no browser to test: `marker-element.test.ts` asserts the class list and
+the `data-slug`/`aria-label` attributes directly on the returned node.
+
+**Consequences.** The reconciler owns marker lifetime explicitly — built once per new slug, removed
+once its slug drops out of `querySourceFeatures`, all torn down on unmount — rather than trusting
+React's own commit/cleanup cycle to line up with MapLibre's tile-driven update cadence. Clustering
+stays GL-drawn (`LAYERS.clusters`/`clusterCount`, a circle and a count, §6's design): a cluster
+never touches a photo, so it never needs the DOM the way a leaf does.
+
+**The threshold is 50, in `lib/map/view.ts`'s `CLUSTER_THRESHOLD`.** At or under it, every feature
+is a leaf and the cluster layers never fire — `use-map-layers.test.ts` cases sit on both sides of
+the boundary. Chosen as a round number comfortably above what a single trip's entry count is
+expected to reach; revisit with a real trip's marker density if it ever proves wrong in either
+direction.
+
+**Also considered:** a `<Marker>` wrapper only for the non-clustered case, falling back to the
+imperative path above the threshold — rejected as two marker lifecycles to keep in sync rather
+than one, for a component that would save perhaps a dozen lines.
+
+---
+
+## 31. maplibre-gl's own worker URL is unusable under Turbopack; this app serves it
+
+Wiring markers into `TripMap` exercises something no test before Task 7 needed: a GeoJSON source
+actually finishing its first tile build, which needs `maplibre-gl`'s worker. `e2e/trip-map.spec.ts`'s
+new marker case reddened for a real, previously invisible reason.
+
+**Measured 2026-09-11.** `maplibre-gl` 6.6.0 computes its worker's URL from `import.meta.url` of
+its own module, falling back to `""` if that URL does not start with `http:`/`https:`
+(`node_modules/maplibre-gl/dist/maplibre-gl.mjs`'s `wi()`). Under Turbopack — `next dev` and
+`next build && next start` alike, confirmed on both by wrapping `window.Worker` in a real
+Chromium — the bundled chunk's `import.meta.url` fails that check, so `new Worker("", { type:
+"module" })` tries to load the current page as a module script. It fails with no thrown exception
+and no `error` event application code can see: every worker-dependent feature (GeoJSON tiling,
+real vector-tile PBF parsing) silently never completes. `style.load` still fires, the canvas still
+paints via the style's `background` layer, and the attribution control still reads the TileJSON —
+none of which touch the worker — which is exactly why stage 2's e2e cases never caught it.
+
+**Fixed by serving the worker ourselves.** `app/(public)/maplibre-gl-worker.mjs/route.ts` and
+`app/(public)/maplibre-gl-shared.mjs/route.ts` (the worker's own relative import) re-serve the
+two files straight from the installed package, and `use-map-instance.ts` calls `setWorkerUrl()`
+with the first route's path before constructing a `Map`. A same-origin, real `http(s)` URL is
+exactly what `getWorkerUrl()`'s check wants; `maplibre-gl` never needs `import.meta.url` to guess
+right once told explicitly. Both routes prerender to static output at build time (`next build`
+marks them `○`), so production never runs the `fs.readFileSync` at request time either.
+
+**Reading the files needed two failed attempts, kept in the routes' own notes.md.**
+`require.resolve()` on the `.mjs` path directly gets rewritten by Turbopack's route-handler
+bundling into an internal placeholder string that does not exist on disk; `import.meta.resolve`
+is not implemented in that same runtime at all. Plain `path.join(process.cwd(), "node_modules/…")`
+is what works, because it is arithmetic Turbopack has no static-analysis hook for.
+
+**Consequences.** Two new public routes, both zero-config and account-free, following
+`client-id.jsonld/route.ts`'s precedent of a literal dotted folder name as a route segment.
+`lib/map/dashes.ts` separately stopped importing `TravelMode` as a zod **value** from
+`lib/pod/schema.ts` for its `.options` list — that shipped all of `zod` into this same chunk,
+measured as the trip page's entire 38 kB regression over budget — and reads `Object.keys` off
+`lib/vocab.ts`'s zod-free `TRAVEL_MODE` instead; `lib/map/notes.md` has the measurement.
+
+**Not yet verified**: whether Next's build-time file tracing includes the `process.cwd()`-joined
+path in a Netlify serverless bundle, on the code path (if any) that is not served as the static
+output observed locally — the same caveat as the OG-image question in `docs/phase-0-spike.md` §7,
+for the same reason: local success does not predict the serverless runtime.
+
+**Also considered:** copying the worker file into `public/` via a `postinstall` script — rejected
+because it adds a script `CLAUDE.md`'s Commands block and `check:commands` would both need to
+learn about, for a result no more correct than reading the installed package directly through a
+route Next already prerenders to static output.

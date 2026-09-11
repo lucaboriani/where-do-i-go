@@ -22,10 +22,19 @@ export default function TripLayout({
   );
 }
 
-async function MapForTrip({ params }: { params: Promise<{ slug: string }> }) {
+// Exported for layout.test.tsx: React's client renderer rejects an async
+// function component reached through JSX, so the resolved path is tested by
+// calling this directly rather than by rendering <MapForTrip />.
+export async function MapForTrip({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const index = await getTripIndex(slug);
   // A trip whose index will not read still gets a map, just an unfitted one.
   // Losing the index must not lose the page — the same rule page.tsx follows.
-  return <TripMap bbox={index.ok ? index.value.bbox : undefined} styleUrl={config.mapStyleUrl} />;
+  return (
+    <TripMap
+      bbox={index.ok ? index.value.bbox : undefined}
+      styleUrl={config.mapStyleUrl}
+      entries={index.ok ? index.value.entries : undefined}
+    />
+  );
 }

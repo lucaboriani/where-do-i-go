@@ -46,6 +46,25 @@ attached by the time this hook's effect sees `active: true` — the precondition
 stays unreachable through this component, and is recorded here rather than
 tested, per the deferred finding.
 
+## Why styleLoaded is not isStyleLoaded()
+
+Measured 2026-09-11, real Chromium against `e2e/trip-map.spec.ts`'s tile stubbing (TileJSON
+fulfilled, every tile aborted): `style.load` fired at t=692ms; `useMapLayers`'s effect ran 4ms
+later with `map.isStyleLoaded()` still `false`. It never became `true` in the run. The reason is
+in `maplibre-gl`'s own source: `Style.loaded()` requires both `_loaded` (what drives the
+`style.load` event) **and** every registered source's tiles to be loaded or errored — including
+`openmaptiles`, the basemap vector source, whose tiles are the ones the stub aborts. A hook that
+gates "has `style.load` already fired" on `isStyleLoaded()` therefore takes the "subscribe and
+wait" branch even after the event has already happened, and `Evented.on`/`.once` in
+`maplibre-gl-shared.mjs` never replay a past event to a listener added afterward — so the
+subscription is permanent silence: no sources, no layers, no markers, ever, and no error either.
+
+`useMapInstance` tracks `styleLoaded` itself instead, flipped by the same `style.load` handler it
+registers synchronously at construction, with zero gap for the event to beat it. `useMapLayers`
+takes `styleLoaded` as a dependency rather than reading `map.isStyleLoaded()`, so its effect
+re-runs exactly when the flag flips, regardless of whether that happens before or after the
+render on which `map` itself first appears.
+
 ## The no-observer fallback, and why it is not a hole
 
 `IntersectionObserver` is absent in jsdom and in no browser this app targets.

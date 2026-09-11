@@ -13,6 +13,10 @@ import { fitOptions, PROJECTION, type Bbox } from "@/lib/map/view";
 
 type MapLibreMap = import("maplibre-gl").Map;
 
+// Re-served by app/(public)/maplibre-gl-worker.mjs/route.ts: maplibre-gl's own
+// import.meta.url guess is "" under Turbopack — see that route's notes.md.
+const WORKER_URL = "/maplibre-gl-worker.mjs";
+
 export type MapStatus = "idle" | "loading" | "ready" | "failed";
 
 export type MapInstanceOptions = {
@@ -27,9 +31,12 @@ export function useMapInstance({
   active,
   bbox,
   styleUrl,
-}: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null } {
+}: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null; styleLoaded: boolean } {
   const [outcome, setOutcome] = useState<"pending" | "ready" | "failed">("pending");
   const [instance, setInstance] = useState<MapLibreMap | null>(null);
+  // NOT map.isStyleLoaded(): that also waits for every source's tiles, which
+  // can stay pending long after style.load — ../notes.md#why-styleloaded-is-not-isstyleloaded
+  const [styleLoaded, setStyleLoaded] = useState(false);
   const map = useRef<MapLibreMap | null>(null);
 
   // Ref, not effect deps: see ../notes.md#why-the-effect-depends-on-activation-alone
@@ -46,8 +53,9 @@ export function useMapInstance({
     let live = true;
 
     void import("maplibre-gl")
-      .then(({ Map, AttributionControl }) => {
+      .then(({ Map, AttributionControl, setWorkerUrl }) => {
         if (!live) return;
+        setWorkerUrl(WORKER_URL);
         const { bbox: bounds, styleUrl: url } = latest.current;
         const instance = new Map({
           container: node,
@@ -62,6 +70,7 @@ export function useMapInstance({
             const { bounds: box, ...camera } = fitOptions(bounds);
             instance.fitBounds(box, camera);
           }
+          setStyleLoaded(true);
         });
         instance.once("load", () => setOutcome("ready"));
         map.current = instance;
@@ -81,9 +90,14 @@ export function useMapInstance({
       map.current?.remove();
       map.current = null;
       setInstance(null);
+      setStyleLoaded(false);
     },
     [],
   );
 
-  return { status: !active ? "idle" : outcome === "pending" ? "loading" : outcome, map: instance };
+  return {
+    status: !active ? "idle" : outcome === "pending" ? "loading" : outcome,
+    map: instance,
+    styleLoaded,
+  };
 }

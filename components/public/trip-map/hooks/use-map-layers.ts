@@ -22,36 +22,24 @@ export const LAYERS = {
   clusterCount: "trip-cluster-count",
 } as const;
 
-export function useMapLayers(map: MapLibreMap | null, entries: IndexEntry[]): void {
+export function useMapLayers(map: MapLibreMap | null, entries: IndexEntry[], styleLoaded: boolean): void {
   useEffect(() => {
-    if (map === null) return;
-    const activeMap = map;
+    // NOT map.isStyleLoaded(): styleLoaded is useMapInstance's own tracking of
+    // the style.load event, which can fire while isStyleLoaded() still waits
+    // on source tiles — ../notes.md#why-styleloaded-is-not-isstyleloaded.
+    if (map === null || !styleLoaded) return;
 
     const points = buildPoints(entries);
     const legs = buildLegs(entries);
-
-    function apply(): void {
-      const pointsSource = activeMap.getSource<GeoJSONSource>(POINTS_SOURCE);
-      if (pointsSource === undefined) {
-        addAll(activeMap, points, legs, shouldCluster(points.features.length));
-        return;
-      }
-      // Data in place, never a re-add: re-adding would flash the route away.
-      pointsSource.setData(points);
-      activeMap.getSource<GeoJSONSource>(LEGS_SOURCE)?.setData(legs);
-    }
-
-    if (activeMap.isStyleLoaded()) {
-      apply();
+    const pointsSource = map.getSource<GeoJSONSource>(POINTS_SOURCE);
+    if (pointsSource === undefined) {
+      addAll(map, points, legs, shouldCluster(points.features.length));
       return;
     }
-
-    // The map can exist before its style loads; apply() must also fire on that event, not just here.
-    activeMap.on("style.load", apply);
-    return () => {
-      activeMap.off("style.load", apply);
-    };
-  }, [map, entries]);
+    // Data in place, never a re-add: re-adding would flash the route away.
+    pointsSource.setData(points);
+    map.getSource<GeoJSONSource>(LEGS_SOURCE)?.setData(legs);
+  }, [map, entries, styleLoaded]);
 }
 
 function addAll(
