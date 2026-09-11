@@ -641,11 +641,15 @@ exactly what `getWorkerUrl()`'s check wants; `maplibre-gl` never needs `import.m
 right once told explicitly. Both routes prerender to static output at build time (`next build`
 marks them `○`), so production never runs the `fs.readFileSync` at request time either.
 
-**Reading the files needed two failed attempts, kept in the routes' own notes.md.**
+**Reading the files needed three failed attempts, kept in the routes' own notes.md.**
 `require.resolve()` on the `.mjs` path directly gets rewritten by Turbopack's route-handler
 bundling into an internal placeholder string that does not exist on disk; `import.meta.resolve`
 is not implemented in that same runtime at all. Plain `path.join(process.cwd(), "node_modules/…")`
-is what works, because it is arithmetic Turbopack has no static-analysis hook for.
+is what works — but only with the path as a literal at that exact call site: sharing the read
+behind a helper taking the path as a parameter (tried during review fixes, to deduplicate the two
+routes) produced a real Turbopack build warning that the literal form does not, because Turbopack's
+file tracing does not follow a parameter across a function boundary. The two routes keep separate,
+literal `readFileSync` lines for this reason; only the response-wrapping is shared.
 
 **Consequences.** Two new public routes, both zero-config and account-free, following
 `client-id.jsonld/route.ts`'s precedent of a literal dotted folder name as a route segment.

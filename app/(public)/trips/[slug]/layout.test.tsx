@@ -49,8 +49,7 @@ describe("the trip layout", () => {
       ok({ iri: "https://pod.example/travel/trips/t/entries.ttl", schemaVersion: 1, entries }),
     );
 
-    // Calling the async component directly, not through <MapForTrip />: React's
-    // client renderer rejects async function components outright.
+    // Not <MapForTrip /> — see layout.tsx's own comment on the export.
     const element = await MapForTrip({ params: Promise.resolve({ slug: "t" }) });
     expect(element.props.entries).toBe(entries);
   });

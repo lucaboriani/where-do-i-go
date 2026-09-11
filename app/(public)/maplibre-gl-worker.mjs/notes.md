@@ -52,10 +52,41 @@ where `process.cwd()` says it does, which the next paragraph is about.
 
 **Good news, measured on the actual build**: `next build` marks both this
 route and its sibling `○` — prerendered to static output, same as
-`client-id.jsonld`. The `readFileSync` above runs once, at build time, on the
+`client-id.jsonld`. The `readFileSync` runs once, at build time, on the
 machine that ran `npm install`; nothing reads `node_modules` from inside a
 deployed serverless function. **Still not verified on an actual Netlify
 deploy** — same caveat as the OG-image question in `docs/phase-0-spike.md`
 §7, and for the same reason: local success does not predict the serverless
 runtime, and it is conceivable a host's build step diverges from
 `next build`'s own static/dynamic classification.
+
+**The path stays a literal in each route, on purpose.** A first pass shared
+the `readFileSync(join(process.cwd(), relativePath), "utf8")` line too,
+taking `relativePath` as a parameter of a helper in `../_lib/`. That
+produced a real Turbopack build warning — absent before the refactor,
+confirmed by reverting it and rebuilding — because Turbopack's file tracing
+only follows a `path.join` call whose argument is a literal at the call
+site; a parameter defeats it regardless of what literal a caller passes.
+`../_lib/serve-package-file.ts`'s `javascriptResponse` now takes the
+already-read source instead, and each route keeps its own literal
+`readFileSync(join(process.cwd(), "node_modules/maplibre-gl/dist/…"))` line
+— less deduplication than a single shared read, kept this way because the
+warning is exactly the risk the "not yet verified on Netlify" paragraph
+above is about, and this shape does not invite it.
+
+## The URL is origin-root-relative
+
+`use-map-instance.ts`'s `WORKER_URL` is `/maplibre-gl-worker.mjs`, not
+prefixed by any `basePath`. No `basePath` is configured today, so this is
+correct as written; a deployment that adds one would need this path built
+from it, the same way any other root-relative asset reference would.
+
+## The worker fetches its own dependency a second time
+
+`/maplibre-gl-shared.mjs` is 489,575 bytes raw, and the worker thread fetches
+it independently of the copy already inside the lazy `maplibre-gl` chunk the
+main thread loads — two separate module graphs, MapLibre's own split-worker
+design, not a bug here. It is real bytes over the wire and outside
+`size:public`'s ceiling by construction: that check only ever weighs what a
+prerendered page's HTML references directly, and a worker's own fetches are
+invisible to it on principle, the same way a lazy `import()` is.

@@ -34,8 +34,7 @@ export function useMapInstance({
 }: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null; styleLoaded: boolean } {
   const [outcome, setOutcome] = useState<"pending" | "ready" | "failed">("pending");
   const [instance, setInstance] = useState<MapLibreMap | null>(null);
-  // NOT map.isStyleLoaded(): that also waits for every source's tiles, which
-  // can stay pending long after style.load — ../notes.md#why-styleloaded-is-not-isstyleloaded
+  // NOT map.isStyleLoaded() — see use-map-layers.ts's gate on this value.
   const [styleLoaded, setStyleLoaded] = useState(false);
   const map = useRef<MapLibreMap | null>(null);
 

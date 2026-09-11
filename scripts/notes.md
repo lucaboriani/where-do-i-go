@@ -295,7 +295,7 @@ fails there rather than sitting here matching nothing.
 **Re-derive this when a studio dependency is added** — here and in `eslint.config.mjs`'s public
 block. A dependency on neither list is invisible to every check in this repository.
 
-### The individual markers, and the two that were wrong
+### The individual markers, and the three that were wrong
 
 - **`n3`** — the RDF stack. `lib/pod/read.ts` is unauthenticated, shared, and parses Turtle on
   the server, so `n3` in a client chunk means the read path reached the browser. Its markers are
@@ -316,6 +316,15 @@ block. A dependency on neither list is invisible to every check in this reposito
   preserves because they are object and destructuring keys. The tempting markers fail the
   absent-from-the-framework half: `suppressHydrationWarning` is in react-dom, and
   `(prefers-color-scheme: dark)` is in Next's own runtime and devtools.
+- **`zod`** — added 2026-09-11 after a value import of `TravelMode` (a schema, not a type)
+  shipped the whole library into a public map chunk, 38 kB gzip, invisible to this scan until
+  then. The tempting marker, the bare class name `ZodError`, fails the same
+  absent-from-the-framework half as `next-themes`' did: `node_modules/next/dist/compiled/
+  next-devtools/index.js` bundles its own zod-based error class under that exact name — Next
+  depends on zod too. `$ZodError` is zod v4's own internal name for the same class
+  (`v4/classic/errors.js` imports it from `v4/core/index.js` before re-exporting the bare name
+  for its v3-compatible surface), present in every real zod build and absent from Next's
+  devtools, its production runtime, React, react-dom and the scheduler.
 
 ## the three guards that must fail rather than pass
 

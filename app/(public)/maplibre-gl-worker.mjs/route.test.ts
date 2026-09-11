@@ -18,4 +18,11 @@ describe("GET /maplibre-gl-worker.mjs", () => {
     const response = await GET();
     expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
   });
+
+  it("imports exactly the one sibling this app also serves, so a maplibre-gl bump cannot add a silent 404", async () => {
+    const response = await GET();
+    const source = await response.text();
+    const relativeImports = [...source.matchAll(/from"(\.[^"]+)"/g)].map((m) => m[1]);
+    expect(relativeImports).toEqual(["./maplibre-gl-shared.mjs"]);
+  });
 });

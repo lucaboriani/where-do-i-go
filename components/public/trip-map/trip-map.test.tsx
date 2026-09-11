@@ -11,11 +11,14 @@ import type { IndexEntry } from "@/lib/pod/schema";
 import TripMap, { MAP_FRAME_CLASS } from "./trip-map";
 
 const instances: { active: boolean }[] = [];
+// A sentinel, not null: proves the hooks receive THIS map instance, not just
+// some value.
+const SENTINEL_MAP = { sentinel: true };
 
 vi.mock("./hooks/use-map-instance", () => ({
   useMapInstance: (options: { active: boolean }) => {
     instances.push({ active: options.active });
-    return { status: options.active ? "loading" : "idle", map: null, styleLoaded: false };
+    return { status: options.active ? "loading" : "idle", map: SENTINEL_MAP, styleLoaded: false };
   },
 }));
 
@@ -124,16 +127,15 @@ describe("TripMap", () => {
     const entries = [entry()];
     render(<TripMap entries={entries} />);
     expect(layerCalls.at(-1)?.entries).toBe(entries);
-    // Not the map's own isStyleLoaded(): useMapInstance's tracking is the one
-    // source of truth — ./notes.md#why-styleloaded-is-not-isstyleloaded.
     expect(layerCalls.at(-1)?.styleLoaded).toBe(false);
-    expect(markerCalls.length).toBeGreaterThan(0);
+    expect(layerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
+    expect(markerCalls.at(-1)).toBe(SENTINEL_MAP);
   });
 
   it("renders the same markup with and without entries, because the server has neither", () => {
     installObserver();
     const { container: a } = render(<TripMap />);
-    const { container: b } = render(<TripMap entries={[]} />);
+    const { container: b } = render(<TripMap entries={[entry()]} />);
     expect(a.innerHTML).toBe(b.innerHTML);
   });
 });

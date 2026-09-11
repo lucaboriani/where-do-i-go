@@ -14,8 +14,11 @@ class FakeMap {
   readonly controls: unknown[] = [];
   readonly projections: unknown[] = [];
   readonly fitted: unknown[] = [];
+  // Ordering check for the "before creating a map" case below.
+  readonly workerUrlsAtConstruction: number;
   removed = 0;
   constructor(readonly options: Record<string, unknown>) {
+    this.workerUrlsAtConstruction = workerUrls.length;
     created.push(this);
   }
   on(event: string, handler: () => void) {
@@ -93,12 +96,14 @@ describe("useMapInstance", () => {
   });
 
   it("points maplibre at this app's own worker route before creating a map", async () => {
-    // Not import.meta.url's own guess, which is "" under Turbopack, dev and
-    // prod alike, and fails silently. See the worker route's own notes.md.
+    // See the worker route's own notes.md for why this call exists at all.
     const opts = harness();
     renderHook(() => useMapInstance(opts));
     await waitFor(() => expect(created).toHaveLength(1));
     expect(workerUrls).toEqual(["/maplibre-gl-worker.mjs"]);
+    // Ordering, not just occurrence: the worker pool is built at Map
+    // construction, so calling setWorkerUrl afterwards would be too late.
+    expect(created[0].workerUrlsAtConstruction).toBe(1);
   });
 
   it("adds the attribution control unconditionally, because removing it is never allowed", async () => {
@@ -202,9 +207,6 @@ describe("useMapInstance", () => {
   });
 
   it("reports styleLoaded only once style.load fires, not before it or without it", async () => {
-    // isStyleLoaded() is deliberately NOT what this tracks: real MapLibre's
-    // version also waits for every source's tiles, which can stay pending far
-    // past style.load — see ../notes.md#why-styleloaded-is-not-isstyleloaded.
     const opts = harness();
     const { result } = renderHook(() => useMapInstance(opts));
     await waitFor(() => expect(created).toHaveLength(1));
