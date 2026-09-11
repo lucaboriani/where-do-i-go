@@ -1597,13 +1597,12 @@ statically importing the first three.
       `npm run test:e2e`, and `e2e/trip-map.spec.ts` is run deliberately. Revisit when stage 3's
       markers land.
 - [ ] Photo-thumbnail markers, clustering above ~50 points
-      - **Blocked on a decision before this starts.** `dy:blurDataUrl` is NOT in the index — it
-        lives on `Photo`, i.e. on the entry resource — so markers ship with no placeholder. Adding
-        it to `IndexEntry` is a change to the normative read model (§7.4, "keep it strictly to what
-        those views need") and nothing mechanical would stop it: `check:vocab` passes because the
-        term is already in `lib/vocab.ts`, `validate:fixtures` passes because it is an
-        `xsd:string`, and `size:public` is indifferent. Ask before doing. The alternative —
-        fetching each entry for its blur — destroys the one-fetch purpose the index exists for.
+      - **Decided 2026-09-11, no longer blocked.** Marker placeholders are a CSS skeleton and
+        `IndexEntry` stays at eleven fields — `docs/decisions.md` §29. `dy:blurDataUrl` was NOT
+        added to the index: it is a normative §7.4 change costing 100-600 bytes per entry in the
+        one resource every public page view fetches, and nothing mechanical would have caught it
+        (`check:vocab` passes, `validate:fixtures` passes, `size:public` is indifferent). Revisit
+        with evidence if a flat shape proves too weak on a real map.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
 - [ ] Bidirectional map/timeline highlighting
 - [ ] Mobile drawer with three snap points, map staying mounted throughout

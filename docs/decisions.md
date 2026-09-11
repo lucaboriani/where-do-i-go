@@ -552,3 +552,31 @@ trips, measured".
 
 **Also considered:** mounting the map in `page.tsx` with a client-side cache keyed by slug —
 rejected as a second state machine reimplementing what the router already guarantees.
+
+---
+
+## 29. Marker placeholders are a CSS skeleton, not a field in the index
+
+Stage 3's markers are HTML elements carrying a Pod thumbnail URL, so something must occupy the
+marker while that image loads. `dy:blurDataUrl` exists in `lib/vocab.ts` and in the data model, but
+it lives on `Photo` — the entry resource — and **not** on `IndexEntry`, which carries eleven fields
+and no blur. Three options were put to the owner on 2026-09-11.
+
+**Chosen: a token-coloured skeleton in CSS, and no change to the read model.** The marker renders a
+flat `surface` shape and swaps to the thumbnail on load. `IndexEntry` stays at eleven fields.
+
+**Why not add `dy:blurDataUrl` to the index.** It is a normative §7.4 change, and §7.4's own rule is
+"keep it strictly to what those views need". A blur string is 100-600 bytes per entry in the single
+resource every public page view fetches, and the index exists precisely to make that one fetch
+small. Nothing mechanical would have stopped the change either — `check:vocab` passes because the
+term is already in the vocabulary, `validate:fixtures` passes because it is an `xsd:string`, and
+`size:public` is indifferent to a Pod resource — so it would have been a silent widening of the
+contract.
+
+**Also considered:** fetching each entry for its blur, which destroys the one-fetch purpose the
+index exists for and was rejected in the design; and deferring placeholders entirely, which ships
+visible pop-in on slow connections for no saving over the skeleton.
+
+**Consequence.** Markers have no image preview, only a shape. If that proves too weak once real
+markers are on a real map, revisit it with evidence rather than reopening the read-model question
+in the abstract.
