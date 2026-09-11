@@ -1580,23 +1580,22 @@ statically importing the first three.
         OpenMapTiles schema checked against itself would only repeat the mistake. Stage 2's
         rendered-map Playwright test is where a layer that draws nothing becomes visible, and
         that is what closes this gap.
-- [ ] One MapLibre instance, lazy-mounted, never remounted — **PARTIAL, unmerged.** Tasks 1-2 of
-      six landed on branch `phase-4-stage-2` (`7517322`, `4c591b3`) on 2026-09-10; the owner
-      stopped the run after task 2's review. Progress, measurements and the two plan defects the
-      run found are in **`docs/phase-4-stage-2-progress.md`**; plan at
-      `docs/superpowers/plans/2026-09-10-map-and-timeline-stage-2.md`. What landed: `lib/map/**`
-      and `lib/utils.ts` joined the eslint belt with the `maplibre-gl` entries hoisted so the two
-      blocks cannot drift, `.pod-data` joined `globalIgnores`, and `useMapInstance` owns the lazy
-      import, the one instance, the single `setProjection` call site and the teardown. Suite
-      **1494 / 2 todo / 0 skipped / 67 files**. Still to do: `TripMap` and its observer, the
-      `[slug]` layout that is the actual mechanism for "never remounted", `findLazyChunks`, and
-      the Playwright case with `docs/decisions.md` §28.
-      - **`size:public`'s `maplibre-gl absent` line is vacuous until `findLazyChunks` lands.**
-        Nothing imports the hook yet, so no chunk contains MapLibre at all and that line reads the
-        same whether the map is lazy and correct or missing entirely.
-      - **The e2e gate was NOT widened.** `components/public/**` and `lib/map/**` stay out of the
-        six gated paths — spec §5 proposed it, the owner deferred it on 2026-09-10 to revisit when
-        stage 3's markers land, so a map-only diff does not require `npm run test:e2e`.
+- [x] One MapLibre instance, lazy-mounted, never remounted — landed 2026-09-10/11 on branch
+      `phase-4-stage-2`, plan at `docs/superpowers/plans/2026-09-10-map-and-timeline-stage-2.md`.
+      The instance lives in `app/(public)/trips/[slug]/layout.tsx`, so it survives navigation to
+      entry routes; `docs/decisions.md` §28. `useMapInstance` owns the lazy import, the one
+      instance, the single `setProjection` call site and the teardown; `TripMap` adds the
+      IntersectionObserver and the frame `[slug]` layout mounts. `size:public` gained
+      `findLazyChunks`, the positive control that distinguishes "lazy and correct" from "no map at
+      all". `e2e/trip-map.spec.ts` covers what no faster test can: a real canvas, the OSM
+      attribution, and one canvas surviving a trip → entry navigation — watched failing with
+      activation disabled. Suite **1508 passed / 2 todo / 0 skipped / 69 files**; `test:e2e` 9
+      passed (6 pre-existing + 3 new).
+- [ ] **Decide whether `components/public/**` and `lib/map/**` join the e2e gate globs.** Deferred
+      by the owner on 2026-09-10 when stage 2 offered it, and again in the session that closed
+      stage 2's task 6. Until then a diff touching only the map does not require
+      `npm run test:e2e`, and `e2e/trip-map.spec.ts` is run deliberately. Revisit when stage 3's
+      markers land.
 - [ ] Photo-thumbnail markers, clustering above ~50 points
       - **Blocked on a decision before this starts.** `dy:blurDataUrl` is NOT in the index — it
         lives on `Photo`, i.e. on the entry resource — so markers ship with no placeholder. Adding

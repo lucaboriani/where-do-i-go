@@ -520,3 +520,31 @@ OpenFreeMap's palette instead of the brief's; it is now commented out, and `""` 
 `MAP_TILES_URL` alongside the style URL, so a deployer could keep our cartography over their own
 tiles — rejected for now as a third variable serving a case nobody has asked for, and addable
 without breaking anything if someone does.
+
+---
+
+## 28. The map is mounted by the trip layout, and the e2e gate is not widened for it
+
+`CLAUDE.md` requires one MapLibre instance, mounted once, never remounted across navigation. Two
+places could hold it: the trip page, or a layout above both the trip page and its entry routes.
+
+**The layout.** Next preserves layout state across navigation, so the instance survives trip →
+entry → entry as a property of where it is mounted rather than as a discipline the components
+maintain. In `page.tsx` the same code would tear down a WebGL context on every navigation and the
+invariant would be violated by the file it lives in.
+
+**Consequences.** The map is above the page content on every entry route, which is what the
+timeline in stage 4 needs. `config.mapStyleUrl` is read in the layout, a server component, because
+`lib/config.ts` throws in the browser — the value crosses as a prop and there is no
+`NEXT_PUBLIC_` variant. `size:public` gained a positive control (`findLazyChunks`), because with
+the library lazy the composition ledger reports `maplibre-gl` absent whether the map is correct or
+missing entirely.
+
+**`components/public/**` and `lib/map/**` do NOT join the e2e gate globs.** The design suggested
+they should; the owner deferred it on 2026-09-10, to be revisited when stage 3's markers land. So
+`e2e/trip-map.spec.ts` exists and is run deliberately rather than by a path match, and a future
+diff touching only the map will not trip the gate. That is a known hole, recorded rather than
+papered over.
+
+**Also considered:** mounting the map in `page.tsx` with a client-side cache keyed by slug —
+rejected as a second state machine reimplementing what the router already guarantees.
