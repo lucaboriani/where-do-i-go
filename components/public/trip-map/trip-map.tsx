@@ -11,7 +11,6 @@ export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
 
 export default function TripMap({ bbox, styleUrl }: { bbox?: Bbox; styleUrl?: string }) {
   const container = useRef<HTMLDivElement>(null);
-  // No observer here means never scrolled into view, so activate at once.
   // ./notes.md#the-no-observer-fallback-and-why-it-is-not-a-hole
   const [active, setActive] = useState(() => typeof IntersectionObserver === "undefined");
 
