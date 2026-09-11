@@ -25,9 +25,6 @@ class FakeMap {
   addLayer(layer: { id: string }) {
     this.added.push(layer.id);
   }
-  getLayer(id: string) {
-    return this.added.includes(id) ? { id } : undefined;
-  }
 }
 
 function entry(slug: string, over: Partial<IndexEntry> = {}): IndexEntry {

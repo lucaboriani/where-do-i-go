@@ -19,7 +19,7 @@ export const MODE_DASHES: Record<TravelMode | "Unknown", number[]> = {
 
 const MODES = Object.keys(TRAVEL_MODE) as TravelMode[];
 
-export const DASH_BY_MODE: ExpressionSpecification = [
+export const DASH_BY_MODE = [
   "match",
   ["get", "mode"],
   ...MODES.flatMap((mode) => [mode, ["literal", MODE_DASHES[mode]]] as const),

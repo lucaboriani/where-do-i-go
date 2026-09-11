@@ -27,7 +27,7 @@ class FakeMarker {
 
 vi.mock("maplibre-gl", () => ({ Marker: FakeMarker }));
 
-type Feature = { properties: Record<string, unknown>; geometry: { coordinates: [number, number] } };
+type Feature = { properties: Record<string, unknown>; geometry: { type: string; coordinates: [number, number] } };
 
 class FakeMap {
   features: Feature[] = [];
@@ -49,7 +49,10 @@ class FakeMap {
 }
 
 function leaf(slug: string): Feature {
-  return { properties: { slug, title: slug, sortOrder: 1 }, geometry: { coordinates: [1, 2] } };
+  return {
+    properties: { slug, title: slug, sortOrder: 1 },
+    geometry: { type: "Point", coordinates: [1, 2] },
+  };
 }
 
 let map: FakeMap;
@@ -71,7 +74,10 @@ describe("useMapMarkers", () => {
   });
 
   it("ignores a cluster feature, which the GL layer draws instead", async () => {
-    map.features = [leaf("a"), { properties: { point_count: 7 }, geometry: { coordinates: [0, 0] } }];
+    map.features = [
+      leaf("a"),
+      { properties: { point_count: 7 }, geometry: { type: "Point", coordinates: [0, 0] } },
+    ];
     renderHook(() => useMapMarkers(map as never));
     await waitFor(() => expect(markers).toHaveLength(1));
   });

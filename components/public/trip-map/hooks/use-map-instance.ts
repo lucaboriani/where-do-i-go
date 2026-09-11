@@ -88,8 +88,6 @@ export function useMapInstance({
     () => () => {
       map.current?.remove();
       map.current = null;
-      setInstance(null);
-      setStyleLoaded(false);
     },
     [],
   );

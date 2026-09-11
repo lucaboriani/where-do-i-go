@@ -8,7 +8,6 @@ import { POINTS_SOURCE } from "./use-map-layers";
 type MapLibreMap = import("maplibre-gl").Map;
 type MapLibreMarker = import("maplibre-gl").Marker;
 type LeafProps = PointProps & { point_count?: number };
-type PointGeometry = { coordinates: [number, number] };
 
 export function useMapMarkers(map: MapLibreMap | null): void {
   const markers = useRef(new Map<string, MapLibreMarker>());
@@ -26,14 +25,16 @@ export function useMapMarkers(map: MapLibreMap | null): void {
       handler = () => {
         const seen = new Set<string>();
         for (const feature of map.querySourceFeatures(POINTS_SOURCE)) {
-          const props = feature.properties as unknown as LeafProps;
+          const props = feature.properties as LeafProps;
           if (props.point_count !== undefined) continue;
           seen.add(props.slug);
           if (live.has(props.slug)) continue;
-          const { coordinates } = feature.geometry as unknown as PointGeometry;
+          if (feature.geometry.type !== "Point") continue;
+          // GeoJSON's Position is number[], not the tuple setLngLat wants.
+          const [lng, lat] = feature.geometry.coordinates;
           live.set(
             props.slug,
-            new Marker({ element: buildMarkerElement(props) }).setLngLat(coordinates).addTo(map),
+            new Marker({ element: buildMarkerElement(props) }).setLngLat([lng, lat]).addTo(map),
           );
         }
         for (const [slug, marker] of live) {

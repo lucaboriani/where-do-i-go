@@ -326,6 +326,18 @@ block. A dependency on neither list is invisible to every check in this reposito
   for its v3-compatible surface), present in every real zod build and absent from Next's
   devtools, its production runtime, React, react-dom and the scheduler.
 
+### The next zod-shaped hole, not yet a marker
+
+`@maplibre/maplibre-gl-style-spec` is on neither `BANNED_DEPS` nor `eslint.config.mjs`'s public
+block, and three production modules import it — `lib/map/dashes.ts`, `lib/map/style.ts`,
+`use-map-layers.ts` — all correctly `import type` today. A value import (`validateStyleMin`, say)
+would not be free: bundled and minified by esbuild on its own, the same way this file measures
+`vaul`/`cmdk`/`sonner` above, it is 31.9 kB gzip (130,838 bytes raw) — bigger than the entire
+9.4 kB of ceiling headroom the zod leak left behind, so the byte ceiling alone would catch it, but
+the composition scan would not name it, the same gap zod sat in until 2026-09-11. Not added as a
+marker here: that needs the same two-direction verification (present in the real build, absent
+from every framework fixture) the other eleven got, which is a task of its own, not a note.
+
 ## the three guards that must fail rather than pass
 
 All three exist because, with `Finding[]` as a return type, "clean" and "I did not look" are the

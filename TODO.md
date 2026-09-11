@@ -1598,8 +1598,8 @@ statically importing the first three.
       markers land.
 - [x] Photo-thumbnail markers, clustering above ~50 points — landed 2026-09-11 on branch
       `phase-4-stage-3`, plan at `docs/superpowers/plans/2026-09-11-map-and-timeline-stage-3.md`,
-      seven tasks from `b2a1dc2`. Suite **1578 passed / 2 todo / 78 files**; dead-port control
-      1542 passed / 36 skipped, both `test/integration/` files; `size:public` 180.6 kB of 190
+      seven tasks from `b2a1dc2`. Suite **1583 passed / 2 todo / 79 files**; dead-port control
+      1547 passed / 36 skipped, both `test/integration/` files; `size:public` 180.6 kB of 190
       with `maplibre-gl` still absent and `findLazyChunks` still reporting the chunk present and
       unreferenced; `test:e2e` 10 passed (9 pre-existing + 1 new).
       - **Decided 2026-09-11, no longer blocked.** Marker placeholders are a CSS skeleton and
@@ -1633,6 +1633,12 @@ statically importing the first three.
       - **The e2e-gate question from the bullet above is now live rather than deferred**: stage
         3's markers have landed, which is what that bullet named as the revisit trigger. Left
         unanswered here on purpose — the decision is the owner's, not this task's.
+      - **Not reachable today, and left that way on purpose**: marker identity (`IndexEntry.slug`),
+        the cluster threshold, and the fitted camera are all fixed by whichever trip's data the
+        map hooks saw first, per-instance, never revisited on a second trip's data — unreachable
+        because no in-app link joins two trips yet (`components/public/trip-map/notes.md`,
+        "Navigating between trips, measured"). Stage 4 inherits closing it alongside that
+        measurement, not before.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
 - [ ] Bidirectional map/timeline highlighting
 - [ ] Mobile drawer with three snap points, map staying mounted throughout

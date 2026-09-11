@@ -125,3 +125,12 @@ renders not-found — no map frame at all
 would not exercise a trip-to-trip transition. Closing this needs a second
 published trip in the seed plus an in-app link between two trips. The answer
 is open, not guessed in either direction.
+
+Three assumptions in the markers/layers hooks are trip-local, unreachable today for the same
+reason: `useMapMarkers` keys a marker by `IndexEntry.slug`, unique within a trip and not proven
+across two; `useMapLayers`'s `addAll` fixes `cluster` from the first trip's entry count and never
+reconsiders it; `useMapInstance`'s `fitBounds` runs once, from the `style.load` handler, on
+whichever trip supplied it first. A same-slug collision, entry-count swing across the threshold,
+or camera left fitted to trip A's bbox on trip B's map are all consequences of one instance
+surviving a transition that has never been exercised — stage 4 inherits closing this alongside
+the trip-to-trip measurement above.
