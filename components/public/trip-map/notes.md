@@ -70,3 +70,31 @@ instance arrives.
 
 Two copies of that class string would drift, and the drift would be a layout
 shift that no test asserts against. One export, two call sites.
+
+## Navigating between trips, measured
+
+2026-09-11, Playwright driving Chromium against `npm run dev` on
+`localhost:3000`, with `**://*.openfreemap.org/**` aborted so no tile server
+was involved. Instance identity tracked by stamping `dataset.probe` on the live
+`canvas.maplibregl-canvas` node: a remount discards the div, MapLibre builds a
+new canvas, and the stamp is gone.
+
+Laziness holds in a real browser: landing on `/trips/2026-japan` shows 0
+canvases; scrolling to the bottom and back to the top shows 1.
+
+trip → entry → back → entry, three router navigations: ONE instance
+throughout. Canvas count stayed at 1 and the `dataset.probe` stamp survived
+all three.
+
+trip A → trip B was **not measured**, and the reason is itself measured, not
+assumed. No in-app link joins two trips — the home page links only
+`2026-japan`, and there is no `/trips` index. An injected `<a>` cannot
+substitute: `window.__navProbe` set before a click survives the real `<Link>`
+navigation above, but is `null` after the injected `<a>`, because that is a
+document load rather than a soft navigation and destroys everything regardless
+of the layout. The only other seeded trip, `2026-secret`, is a draft that
+renders not-found — no map frame at all
+(`[role="region"][aria-label="Trip map"]` count 0) — so even a working link
+would not exercise a trip-to-trip transition. Closing this needs a second
+published trip in the seed plus an in-app link between two trips. The answer
+is open, not guessed in either direction.
