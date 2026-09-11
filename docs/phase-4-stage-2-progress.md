@@ -1,118 +1,117 @@
-# Phase 4 stage 2 — partial, stopped after task 2 by instruction
+# Phase 4 stage 2 — complete on `phase-4-stage-2`, unmerged
 
-Branch `phase-4-stage-2`, from `main` @ `e8690a2`. **Unmerged.** The owner narrowed the run
-mid-flight on 2026-09-10: execute task 2 and its review, then stop. Tasks 3-6 are unstarted.
+All six tasks landed. Branch from `main` @ `e8690a2`; `main` is untouched.
 
-Plan: `docs/superpowers/plans/2026-09-10-map-and-timeline-stage-2.md`, six tasks.
+Plan: `docs/superpowers/plans/2026-09-10-map-and-timeline-stage-2.md`.
 Spec: `docs/superpowers/specs/2026-09-09-map-and-timeline-design.md` §5, with §1 for the bundle
 controls. The SDD ledger at `.superpowers/sdd/2026-09-10-map-and-timeline-stage-2/` is gitignored
-and **left in place**: it holds the eight rulings, the six task briefs and both review reports.
+and **left in place**: it holds fourteen rulings, six task briefs, and every review report.
+
+> This file previously described the branch as partial, stopped after task 2 — the owner paused
+> the run on 2026-09-10 and resumed it on 2026-09-11. That is why the commit list has a
+> "stops after task 2" commit in the middle of it.
 
 ## What landed
 
-**`7517322` — `lib/map` joins the fences it had been outside of since it was created.** Stage 1
-created `lib/map/` and could not fence it: stage 0 enumerated both the belt and the `maplibre-gl`
-ban by name and the directory did not exist yet. So a static `maplibre-gl` import in
-`lib/map/view.ts` was lint-clean, which is 252.8 kB into a public chunk against 190 kB of budget
-with no error at all. `lib/utils.ts` had the same property and a public component is about to
-import `cn` from it.
+| Commit | What |
+|---|---|
+| `7517322` | `lib/map/**` and `lib/utils.ts` join the eslint belt; the two `maplibre-gl` entries hoisted so the public block and the belt cannot drift; `.pod-data` into `globalIgnores` |
+| `4c591b3` | `useMapInstance` — the dynamic import inside the effect, one instance, the unconditional attribution control, one `setProjection` call site, teardown on unmount |
+| `5388e97` | `TripMap` — the client container, the IntersectionObserver, the stylesheet import, `MAP_FRAME_CLASS`, the barrel |
+| `66827d7` | `app/(public)/trips/[slug]/layout.tsx` — the map above `children`, which is what makes it survive navigation |
+| `bb6da60`, `b54f544` | the `[slug]` navigation measurement, and a correction to a false "no warnings" claim |
+| `7552c31`, `cdd8e53`, `68bb996` | `findLazyChunks`, its CLI-level coverage, and which half of it is actually new |
+| `1ee9ca3`, `f69fb02` | `e2e/trip-map.spec.ts`, decision §28, the `TODO.md` write-up, and the laziness correction |
 
-The two maplibre entries are hoisted into shared consts rather than copied, because flat config
-replaces a rule's options per file rather than merging them, so both blocks must carry both
-entries. The exact-specifier spelling survives untouched — a `maplibre-gl/**` group would also
-refuse the stylesheet subpath the attribution control needs. `.pod-data` joins `globalIgnores`.
-
-**`4c591b3` — the map instance is created once, lazily, and destroyed on unmount.**
-`components/public/trip-map/hooks/use-map-instance.ts`: the dynamic import inside the effect, one
-instance, the unconditional attribution control, one `setProjection` call site inside the
-`style.load` handler, `fitBounds` without animation, teardown on unmount. Eleven cases against a
-fake `maplibre-gl`, plus a source scan in `test/guardrails.test.ts` pinning the single call site.
-
-## Measurements, all run and read on `4c591b3`
+## The definition of done, run on `f69fb02` and read
 
 | Check | Result |
 |---|---|
-| `npm test` (Pod up) | **1494 passed / 2 todo / 0 skipped / 67 files** — from 1471/66 at the base |
-| dead-port control | **1458 passed / 36 skipped / 2 todo**, exactly the two `test/integration/` files |
+| `node -v` | v22.23.2 |
+| `npm test` (Pod up) | **1508 passed / 2 todo / 0 skipped / 69 files** — from 1471/66 at the branch base |
+| dead-port control | **1472 passed / 36 skipped**, exactly the two `test/integration/` files; verified those 36 run for real with the Pod up |
 | `npm run lint` | clean, `--max-warnings 0` |
 | `npm run typecheck` | clean |
 | `npm run validate:fixtures` | all fixtures valid |
 | `npm run check:vocab` | 50 `dy:` terms both directions |
 | `npm run check:commands` | 14 and 14 |
-| `npm run check:structure` | Structure OK, `active exemptions — 0` |
+| `npm run check:structure` | Structure OK; `active exemptions — 0`; production comment ratchet 0, test ratchet 545, both at the allowance |
 | `npm run build` | clean |
-| `npm run size:public` | within budget, every studio-only dependency absent |
+| `npm run size:public` | 178.2 kB gzip worst public route against 190 kB; every banned dependency absent |
+| `npm run test:e2e` | **9 passed** (4 media-pipeline, 2 solid-login, 3 trip-map) |
 
-`npm run test:e2e` was **not** run and is not required: the diff touches none of the six gated
-paths, and `components/public/**` is deliberately not among them — see the deferred decision below.
+**The positive control, verified by hand on the real build rather than only through the script:**
+the MapLibre chunk exists on disk (`static/chunks/1gawt8ufzox7b.js`) and is referenced by **0**
+prerendered pages, while a framework chunk on the same build is referenced by 20. That is both
+halves of what §1 asked for — the library is built, and no public page's HTML names it.
 
-**The `maplibre-gl absent` line in `size:public` is currently vacuous, and worth knowing before
-anyone reads it as reassurance.** Nothing imports the hook yet, so no chunk in the build contains
-MapLibre at all — verified by grepping `.next/static/chunks`. That line will read `absent`
-identically whether the map is correct, lazy, or entirely missing. Closing it is task 5's whole
-purpose (`findLazyChunks`), and until task 5 lands the budget says nothing about the map.
+## Four checks in this plan could not fail, and each was found by running it
 
-One full-suite dead-port run failed a single pre-existing studio case
-(`entry-editor.autodate-edges.test.tsx`, "refuses an offset-only second photo beside the first
-photo's clock"). It passed 5/5 in isolation under both configurations and the whole suite passed
-on re-run, so it is a load-dependent flake, not a regression — this branch touches nothing that
-file reaches. Recorded because a flake seen once and not written down gets rediscovered.
+This is the stage's most useful output, and it is the reason the plan's own instruction to
+mutation-test everything earned its cost.
 
-## Two defects in the plan, found by running it
+1. **The bbox-identity test case** — the "never remounted" invariant's only mechanical defence —
+   asserted that one instance exists after a rerender. True whether or not `bbox` sat in the
+   dependency array, because the effect's `map.current !== null` guard hides the second run. Now
+   counts reads of `container.current`, which the guard runs *before*.
+2. **Task 5's Step 6 mutation**, meant to prove the bundle control catches a module-scope import,
+   added an *unused* import that Turbopack tree-shakes. `size:public` stayed green. The faithful
+   mutation — the real, used dynamic import lifted to module scope — is caught by lint first, then
+   by `size:public`.
+3. **`size:public`'s `maplibre-gl absent` line**, which read identically whether the map was lazy
+   and correct or missing entirely. That is what `findLazyChunks` exists to fix.
+4. **The e2e laziness assertion.** The map frame sits at the top of the layout with nothing above
+   it and `rootMargin` is `200px`, so it is inside the observer's margin on load. The chunk is
+   requested ~770 ms *before* the scroll dance begins, and the canvas case that never scrolls gets
+   a canvas in 1.4 s. The assertion was dropped rather than left unfalsifiable.
 
-**The plan's hook does not pass this repository's lint.** Its sample writes a ref during render
-(`react-hooks/refs`) and calls `setStatus("loading")` synchronously inside the effect
-(`react-hooks/set-state-in-effect`). With `--max-warnings 0` and no `eslint-disable` permitted it
-was unshippable as written. The committed hook syncs the ref in an effect and derives the public
-status from `active` plus an internal `pending|ready|failed` outcome; `MapStatus` is unchanged.
-The synchronous `setStatus` also caused a real reproduced bug — a cascading render tore the effect
-down and rebuilt it, and two overlapping `import("maplibre-gl")` calls raced, one resolving to the
-real library instead of the mock.
+A fifth, adjacent: deleting `|| mapFailed` from `main()` passed the entire suite until Task 5's fix
+round added CLI-level cases — a control that was not itself controlled.
 
-**The plan's bbox-identity case was vacuous, and it was the "never remounted" invariant's only
-mechanical defence.** It asserted `created` stays at length 1 after a rerender — which is true
-whether or not `bbox` sits in the dependency array, because the effect's `map.current !== null`
-guard hides the second run. The mutation was measured staying green. The case now counts reads of
-`container.current`, which the guard runs *before*, so the count cannot be hidden; the rerender is
-synchronous, before any `await`, so the import promise provably cannot have resolved and the count
-is deterministic (confirmed over five consecutive runs).
+## Two things the owner should know
 
-What this established about the invariant itself: **the `map.current !== null` guard is what keeps
-an existing instance alive, not the dependency list.** The deps list matters only in the window
-before `map.current` is set, where a `bbox` identity change would start a second import chain —
-churn rather than a duplicate map, since the stale chain bails on `live` before constructing. Say
-it that way rather than "the deps array protects the invariant", which is what the plan implied.
+**The observer is implemented correctly but gates nothing on this page.** Because the frame is
+above the fold, the map always activates on load. The bundle win is unaffected — the chunk is
+absent from the prerendered HTML's chunk list, which is what `size:public` weighs — but the
+"don't download until scrolled" win is not realised on the trip page as laid out today. If that
+win matters, it needs content above the frame or a smaller `rootMargin`, and either is a design
+change rather than a bug fix.
 
-## What remains
+**A measurement in `components/public/trip-map/notes.md` was wrong and has been corrected in
+place.** It claimed laziness held in a real browser on a landing-then-scroll canvas count. That
+count was elapsed wall-clock time between two synchronous samples, not scroll-triggered
+activation. The correction is marked as one, with the date and the contradicting evidence.
 
-- **Task 3** `TripMap` — the `"use client"` container, the IntersectionObserver, the stylesheet
-  import, `MAP_FRAME_CLASS`, the barrel.
-- **Task 4** `app/(public)/trips/[slug]/layout.tsx` — the actual mechanism for "never remounted",
-  since Next preserves layout state across navigation. Includes the unmeasured question of whether
-  trip A → trip B remounts the layout, which goes in `notes.md` as a measurement either way.
-- **Task 5** `findLazyChunks` — the positive bundle control described above.
-- **Task 6** the Playwright spec, `docs/decisions.md` §28, and the `TODO.md` write-up.
+## Open, and deliberately so
 
-Task briefs for all four are already written, in the gitignored ledger directory.
+**`components/public/**` and `lib/map/**` do NOT join the e2e gate globs.** Spec §5 proposed it;
+§5 also makes the change conditional on the owner's sign-off, and the owner deferred it on
+2026-09-10, to revisit when stage 3's markers land. So `e2e/trip-map.spec.ts` is run deliberately
+rather than by a path match, and a future diff touching only the map will not trip the gate. A
+known hole, recorded in `docs/decisions.md` §28 and as an open item in `TODO.md`.
 
-Two review findings from task 2 are deferred rather than fixed, both Minor:
+**Whether changing `[slug]` remounts the layout is unmeasured.** trip → entry → back → entry keeps
+one canvas and the same DOM node — measured. trip A → trip B could not be exercised: no in-app
+link joins two trips, an injected plain `<a>` is a document load (measured, not assumed), and the
+only other seeded trip is a draft that renders not-found with no map frame. Closing it needs a
+second *published* trip in the seed plus a link between trips.
 
-- **`use-map-instance.ts:35-36`** — a container that is null when the effect first runs reports
-  `"loading"` forever, with no retry path, and no case covers it. Likely unreachable once task 3
-  drives `active` from an observer on the same div, but it is a stuck spinner if that precondition
-  is ever violated. Worth a test or a recorded precondition when task 3 lands.
-- **`components/public/trip-map/notes.md:26`** — the prose forward-references a `[slug]` heading
-  that task 4 was to add to the same file. With task 4 unstarted the reference dangles. Inherited
-  verbatim from the plan's sample prose, not introduced by the diff; a one-line fix.
-  `check:structure` does not catch it, and correctly so — it validates anchors that code points
-  at, not forward references inside prose.
+Two Minor findings were left deferred rather than fixed: `findLazyChunks` throws on zero chunks but
+not on all-empty sources, so its diagnostic would misreport unreadable chunks as "no chunk contains
+maplibre"; and `check:structure`'s test-comment ratchet sits at exactly its allowance, so the next
+e2e docblock over six lines fails the build.
 
-## The decision that is still open
+## What stage 3 inherits
 
-**`components/public/**` and `lib/map/**` do NOT join the e2e gate globs.** Spec §5 says they
-should, but §5 makes that change conditional on the owner's sign-off within the stage, and the
-owner deferred it on 2026-09-10, to revisit when stage 3's markers land. So a diff touching only
-the map does not require `npm run test:e2e`. That is a known hole, recorded rather than papered
-over — and it is why `test:e2e` was not part of this branch's definition of done.
-
-`docs/decisions.md` §28 does not exist yet: it was task 6's to write, and §27 is still the last.
+- `TripMap` takes `bbox` and `styleUrl` only. Markers need the `IndexEntry[]`, so the prop is added
+  there, along with `lib/map/points.ts`, `legs.ts`, `dashes.ts` and `view.ts` — all now inside a
+  fenced directory.
+- `useMapInstance` returns a status, not the instance. Widen it to `{ status, map }` in stage 3
+  rather than reaching into the ref from the component.
+- `setProjection` has exactly one call site. The globe view changes its argument rather than adding
+  a second call.
+- `SOURCE_ID` is `"openmaptiles"`; stage 3's point and leg sources must not collide with it.
+- **A trap:** `TripMap`'s SSR safety depends on the returned markup *not* branching on `active`.
+  The lazy `useState` initializer returns `true` on the server and `false` on the client, so any
+  future edit that makes the JSX depend on `active` — a loading state, a marker layer — becomes a
+  real hydration mismatch. Stage 3 is the likely first offender.
