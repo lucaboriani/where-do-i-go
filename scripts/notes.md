@@ -380,6 +380,18 @@ of the effect and keeping its callback body, which both `next lint` (`no-restric
 a rebuilt `size:public` catch, the latter via both `findStudioDeps` (`FOUND`) and the new leak
 line.
 
+**Only the presence half is genuinely new.** `findStudioDeps` scans `measured.chunks` — chunks a
+page references — so a chunk nothing references is invisible to it; that blind spot is why
+`maplibre-gl absent` went quiet the day the map went lazy, and `findLazyChunks`'s "no chunk at
+all" case (`test/public-bundle-cli.test.ts`, "fails the run when no chunk anywhere on disk
+contains maplibre") is the only thing that still catches it. The leak half duplicates
+`findStudioDeps` **for as long as `maplibre-gl` stays in `BANNED_DEPS`**: `main` hands
+`findLazyChunks` that same entry's markers, so any chunk both referenced and marker-matching is
+already a `findStudioDeps` finding on identical bytes, and `violations` forces exit 1 on its own —
+confirmed by deleting `|| mapFailed` from `main`'s exit line, which left the leak case green.
+Drop `maplibre-gl` from `BANNED_DEPS` and the leak direction loses that CLI coverage, back to the
+unit cases in `test/public-bundle.test.ts` alone.
+
 ## why this module is importable and pure
 
 Nothing runs and no build output is read unless the file is executed directly.
