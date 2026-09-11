@@ -1596,14 +1596,49 @@ statically importing the first three.
       stage 2's task 6. Until then a diff touching only the map does not require
       `npm run test:e2e`, and `e2e/trip-map.spec.ts` is run deliberately. Revisit when stage 3's
       markers land.
-- [ ] Photo-thumbnail markers, clustering above ~50 points
-      - **Blocked on a decision before this starts.** `dy:blurDataUrl` is NOT in the index — it
-        lives on `Photo`, i.e. on the entry resource — so markers ship with no placeholder. Adding
-        it to `IndexEntry` is a change to the normative read model (§7.4, "keep it strictly to what
-        those views need") and nothing mechanical would stop it: `check:vocab` passes because the
-        term is already in `lib/vocab.ts`, `validate:fixtures` passes because it is an
-        `xsd:string`, and `size:public` is indifferent. Ask before doing. The alternative —
-        fetching each entry for its blur — destroys the one-fetch purpose the index exists for.
+- [x] Photo-thumbnail markers, clustering above ~50 points — landed 2026-09-11 on branch
+      `phase-4-stage-3`, plan at `docs/superpowers/plans/2026-09-11-map-and-timeline-stage-3.md`,
+      seven tasks from `b2a1dc2`. Suite **1583 passed / 2 todo / 79 files**; dead-port control
+      1547 passed / 36 skipped, both `test/integration/` files; `size:public` 180.6 kB of 190
+      with `maplibre-gl` still absent and `findLazyChunks` still reporting the chunk present and
+      unreferenced; `test:e2e` 10 passed (9 pre-existing + 1 new).
+      - **Decided 2026-09-11, no longer blocked.** Marker placeholders are a CSS skeleton and
+        `IndexEntry` stays at eleven fields — `docs/decisions.md` §29. `dy:blurDataUrl` was NOT
+        added to the index: it is a normative §7.4 change costing 100-600 bytes per entry in the
+        one resource every public page view fetches, and nothing mechanical would have caught it
+        (`check:vocab` passes, `validate:fixtures` passes, `size:public` is indifferent). Revisit
+        with evidence if a flat shape proves too weak on a real map.
+      - `buildPoints`/`buildLegs` (pure, `lib/map/`), `useMapInstance`/`useMapLayers`/
+        `useMapMarkers` (the hooks), and `buildMarkerElement` (the leaf DOM) are wired into
+        `TripMap`, which now takes `entries` and hands them to the layers and markers hooks — the
+        layout passes what the index already read. Markers are DOM elements, clusters are GL,
+        threshold 50 — `docs/decisions.md` §30.
+      - **Two things found only by the new browser case, neither anticipated by the plan.**
+        (1) `useMapLayers` gated adding sources on `map.isStyleLoaded()`, which in real MapLibre
+        also waits on every source's tiles — including the basemap's, aborted by the e2e stub —
+        and stays false long after `style.load` has already fired once, past the point anything
+        can still catch it. `useMapInstance` now tracks `styleLoaded` itself, from the same
+        `style.load` handler it already registers at construction with no race. Notes at
+        `components/public/trip-map/notes.md#why-styleloaded-is-not-isstyleloaded`.
+        (2) `maplibre-gl` 6.6.0's own worker-URL detection is unusable under Turbopack, dev and a
+        production build alike, and fails with no visible error — every worker-dependent feature
+        (GeoJSON tiling, real vector-tile parsing) silently never completes. Fixed by two new
+        public routes serving the worker and its own dependency from the installed package, and
+        one `setWorkerUrl()` call — `docs/decisions.md` §31, which was not anticipated by any
+        prior stage and is flagged there for the owner's attention given its severity.
+      - `lib/map/dashes.ts` stopped importing `TravelMode` as a zod value for its `.options` list
+        — that alone shipped all of `zod` into the trip page's public bundle, the entire 38 kB
+        this task measured over budget — and reads `Object.keys` off `lib/vocab.ts`'s zod-free
+        `TRAVEL_MODE` instead, still cross-checked against the schema by `dashes.test.ts`.
+      - **The e2e-gate question from the bullet above is now live rather than deferred**: stage
+        3's markers have landed, which is what that bullet named as the revisit trigger. Left
+        unanswered here on purpose — the decision is the owner's, not this task's.
+      - **Not reachable today, and left that way on purpose**: marker identity (`IndexEntry.slug`),
+        the cluster threshold, and the fitted camera are all fixed by whichever trip's data the
+        map hooks saw first, per-instance, never revisited on a second trip's data — unreachable
+        because no in-app link joins two trips yet (`components/public/trip-map/notes.md`,
+        "Navigating between trips, measured"). Stage 4 inherits closing it alongside that
+        measurement, not before.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
 - [ ] Bidirectional map/timeline highlighting
 - [ ] Mobile drawer with three snap points, map staying mounted throughout

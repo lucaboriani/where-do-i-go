@@ -88,3 +88,34 @@ and a cased road at the same zoom reads as a competing route.
 `admin_level` is a number in the OpenMapTiles schema, so the boundary filters
 compare numerically. A string comparison silently matches nothing, which looks
 like a tile problem.
+
+## Why leaves are HTML and clusters are GL
+
+A thumbnail is a Pod URL. An `<img>` loads it with no CORS dance at all, where
+`map.addImage` needs a decoded bitmap the Pod is under no obligation to serve
+cross-origin. Stage 3 §6 puts leaf markers in the DOM for exactly this reason;
+the two GL layers here are the clusters, which draw nothing but a circle and a
+count and never touch a photo.
+
+`dy:precisionMeters` choosing a pin glyph versus a soft circle (§6) is styling,
+not geometry, so it is a CSS rule on the leaf marker rather than a second
+source or paint property here.
+
+## Why dashes.ts reads mode names from vocab.ts, not schema.ts
+
+Measured 2026-09-11, on the build produced by wiring `use-map-layers` into
+`TripMap` (phase 4 stage 3, task 7): `dashes.ts`'s `TravelMode.options` read
+`TravelMode` as a **value** out of `lib/pod/schema.ts`, and a client component
+importing a zod value pulls the whole `zod` package with it. The trip page's
+worst-route weight went from 178.2 kB gzip to 216.6 kB — the missing 38 kB was
+one chunk, confirmed by grep for `ZodError`/`ZodType`, that nothing before
+this task had ever made a public client component reach.
+
+`lib/vocab.ts`'s `TRAVEL_MODE` carries the same eight keys in the same order
+— it has to, `check:vocab` holds it to `docs/data-model.md` in both
+directions — and it is already imported client-side elsewhere (the studio's
+entry editor) with no such cost, because it is plain string constants with no
+zod in the chain. `Object.keys(TRAVEL_MODE)` replaces `TravelMode.options` as
+the iteration source; `dashes.test.ts` keeps checking coverage against
+`TravelMode.options` from the schema, so the two lists drifting apart is
+still a failing test rather than a silent gap.

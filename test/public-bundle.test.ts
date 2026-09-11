@@ -259,6 +259,12 @@ const ARTIFACTS: { aliases: string[]; files: string[] }[] = [
       "node_modules/@radix-ui/react-scroll-area/dist/index.mjs",
     ],
   },
+  {
+    // `zod/index.js` is a 422-byte re-export barrel — too small even to pass
+    // realSource's own minimum. This is where `$ZodError` is actually defined.
+    aliases: ["zod"],
+    files: ["node_modules/zod/v4/core/errors.js"],
+  },
 ];
 
 /** Real framework code that must never be flagged. */

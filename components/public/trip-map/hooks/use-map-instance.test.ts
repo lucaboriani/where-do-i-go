@@ -14,8 +14,11 @@ class FakeMap {
   readonly controls: unknown[] = [];
   readonly projections: unknown[] = [];
   readonly fitted: unknown[] = [];
+  // Ordering check for the "before creating a map" case below.
+  readonly workerUrlsAtConstruction: number;
   removed = 0;
   constructor(readonly options: Record<string, unknown>) {
+    this.workerUrlsAtConstruction = workerUrls.length;
     created.push(this);
   }
   on(event: string, handler: () => void) {
@@ -49,7 +52,13 @@ class FakeAttributionControl {
   constructor(readonly options: unknown) {}
 }
 
-vi.mock("maplibre-gl", () => ({ Map: FakeMap, AttributionControl: FakeAttributionControl }));
+const workerUrls: string[] = [];
+
+vi.mock("maplibre-gl", () => ({
+  Map: FakeMap,
+  AttributionControl: FakeAttributionControl,
+  setWorkerUrl: (url: string) => workerUrls.push(url),
+}));
 
 const BBOX = { west: 129.87, south: 31.59, east: 141.02, north: 35.71 };
 
@@ -63,6 +72,7 @@ let useMapInstance: typeof import("./use-map-instance").useMapInstance;
 
 beforeEach(async () => {
   created.length = 0;
+  workerUrls.length = 0;
   ({ useMapInstance } = await import("./use-map-instance"));
 });
 
@@ -76,13 +86,24 @@ describe("useMapInstance", () => {
     const { result } = renderHook(() => useMapInstance(opts));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(created).toHaveLength(0);
-    expect(result.current).toBe("idle");
+    expect(result.current.status).toBe("idle");
   });
 
   it("creates exactly one map when it becomes active", async () => {
     const opts = harness();
     renderHook(() => useMapInstance(opts));
     await waitFor(() => expect(created).toHaveLength(1));
+  });
+
+  it("points maplibre at this app's own worker route before creating a map", async () => {
+    // See the worker route's own notes.md for why this call exists at all.
+    const opts = harness();
+    renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(workerUrls).toEqual(["/maplibre-gl-worker.mjs"]);
+    // Ordering, not just occurrence: the worker pool is built at Map
+    // construction, so calling setWorkerUrl afterwards would be too late.
+    expect(created[0].workerUrlsAtConstruction).toBe(1);
   });
 
   it("adds the attribution control unconditionally, because removing it is never allowed", async () => {
@@ -132,9 +153,9 @@ describe("useMapInstance", () => {
     const opts = harness();
     const { result } = renderHook(() => useMapInstance(opts));
     await waitFor(() => expect(created).toHaveLength(1));
-    expect(result.current).toBe("loading");
+    expect(result.current.status).toBe("loading");
     created[0].emit("load");
-    await waitFor(() => expect(result.current).toBe("ready"));
+    await waitFor(() => expect(result.current.status).toBe("ready"));
   });
 
   it("does not rebuild the map when the bbox object identity changes", async () => {
@@ -183,5 +204,25 @@ describe("useMapInstance", () => {
     const style = created[0].options.style as { layers: unknown[] };
     expect(Array.isArray(style.layers)).toBe(true);
     expect(style.layers).toHaveLength(17);
+  });
+
+  it("reports styleLoaded only once style.load fires, not before it or without it", async () => {
+    const opts = harness();
+    const { result } = renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(result.current.styleLoaded).toBe(false);
+    created[0].emit("style.load");
+    await waitFor(() => expect(result.current.styleLoaded).toBe(true));
+  });
+
+  it("hands back the instance once it exists, so layers can be added to it", async () => {
+    const { result } = renderHook(() => useMapInstance(harness()));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(result.current.map).toBe(created[0]);
+  });
+
+  it("has no instance to hand back while inactive", () => {
+    const { result } = renderHook(() => useMapInstance(harness({ active: false })));
+    expect(result.current.map).toBeNull();
   });
 });

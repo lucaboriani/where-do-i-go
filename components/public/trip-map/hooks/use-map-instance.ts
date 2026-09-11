@@ -9,8 +9,14 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { buildBasemapStyle } from "@/lib/map/style";
+import { fitOptions, PROJECTION, type Bbox } from "@/lib/map/view";
 
-export type Bbox = { west: number; south: number; east: number; north: number };
+type MapLibreMap = import("maplibre-gl").Map;
+
+// Re-served by app/(public)/maplibre-gl-worker.mjs/route.ts: maplibre-gl's own
+// import.meta.url guess is "" under Turbopack — see that route's notes.md.
+const WORKER_URL = "/maplibre-gl-worker.mjs";
+
 export type MapStatus = "idle" | "loading" | "ready" | "failed";
 
 export type MapInstanceOptions = {
@@ -20,9 +26,17 @@ export type MapInstanceOptions = {
   styleUrl?: string;
 };
 
-export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanceOptions): MapStatus {
+export function useMapInstance({
+  container,
+  active,
+  bbox,
+  styleUrl,
+}: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null; styleLoaded: boolean } {
   const [outcome, setOutcome] = useState<"pending" | "ready" | "failed">("pending");
-  const map = useRef<import("maplibre-gl").Map | null>(null);
+  const [instance, setInstance] = useState<MapLibreMap | null>(null);
+  // NOT map.isStyleLoaded() — see use-map-layers.ts's gate on this value.
+  const [styleLoaded, setStyleLoaded] = useState(false);
+  const map = useRef<MapLibreMap | null>(null);
 
   // Ref, not effect deps: see ../notes.md#why-the-effect-depends-on-activation-alone
   const latest = useRef({ bbox, styleUrl });
@@ -38,8 +52,9 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
     let live = true;
 
     void import("maplibre-gl")
-      .then(({ Map, AttributionControl }) => {
+      .then(({ Map, AttributionControl, setWorkerUrl }) => {
         if (!live) return;
+        setWorkerUrl(WORKER_URL);
         const { bbox: bounds, styleUrl: url } = latest.current;
         const instance = new Map({
           container: node,
@@ -49,19 +64,16 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
         // Never conditional: OpenStreetMap requires it and CLAUDE.md forbids removing it.
         instance.addControl(new AttributionControl({ compact: true }));
         instance.on("style.load", () => {
-          instance.setProjection({ type: "mercator" });
+          instance.setProjection(PROJECTION);
           if (bounds !== undefined) {
-            instance.fitBounds(
-              [
-                [bounds.west, bounds.south],
-                [bounds.east, bounds.north],
-              ],
-              { padding: 32, animate: false },
-            );
+            const { bounds: box, ...camera } = fitOptions(bounds);
+            instance.fitBounds(box, camera);
           }
+          setStyleLoaded(true);
         });
         instance.once("load", () => setOutcome("ready"));
         map.current = instance;
+        setInstance(instance);
       })
       .catch(() => {
         if (live) setOutcome("failed");
@@ -80,6 +92,9 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
     [],
   );
 
-  if (!active) return "idle";
-  return outcome === "pending" ? "loading" : outcome;
+  return {
+    status: !active ? "idle" : outcome === "pending" ? "loading" : outcome,
+    map: instance,
+    styleLoaded,
+  };
 }

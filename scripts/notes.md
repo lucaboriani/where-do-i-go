@@ -295,7 +295,7 @@ fails there rather than sitting here matching nothing.
 **Re-derive this when a studio dependency is added** — here and in `eslint.config.mjs`'s public
 block. A dependency on neither list is invisible to every check in this repository.
 
-### The individual markers, and the two that were wrong
+### The individual markers, and the three that were wrong
 
 - **`n3`** — the RDF stack. `lib/pod/read.ts` is unauthenticated, shared, and parses Turtle on
   the server, so `n3` in a client chunk means the read path reached the browser. Its markers are
@@ -316,6 +316,27 @@ block. A dependency on neither list is invisible to every check in this reposito
   preserves because they are object and destructuring keys. The tempting markers fail the
   absent-from-the-framework half: `suppressHydrationWarning` is in react-dom, and
   `(prefers-color-scheme: dark)` is in Next's own runtime and devtools.
+- **`zod`** — added 2026-09-11 after a value import of `TravelMode` (a schema, not a type)
+  shipped the whole library into a public map chunk, 38 kB gzip, invisible to this scan until
+  then. The tempting marker, the bare class name `ZodError`, fails the same
+  absent-from-the-framework half as `next-themes`' did: `node_modules/next/dist/compiled/
+  next-devtools/index.js` bundles its own zod-based error class under that exact name — Next
+  depends on zod too. `$ZodError` is zod v4's own internal name for the same class
+  (`v4/classic/errors.js` imports it from `v4/core/index.js` before re-exporting the bare name
+  for its v3-compatible surface), present in every real zod build and absent from Next's
+  devtools, its production runtime, React, react-dom and the scheduler.
+
+### The next zod-shaped hole, not yet a marker
+
+`@maplibre/maplibre-gl-style-spec` is on neither `BANNED_DEPS` nor `eslint.config.mjs`'s public
+block, and three production modules import it — `lib/map/dashes.ts`, `lib/map/style.ts`,
+`use-map-layers.ts` — all correctly `import type` today. A value import (`validateStyleMin`, say)
+would not be free: bundled and minified by esbuild on its own, the same way this file measures
+`vaul`/`cmdk`/`sonner` above, it is 31.9 kB gzip (130,838 bytes raw) — bigger than the entire
+9.4 kB of ceiling headroom the zod leak left behind, so the byte ceiling alone would catch it, but
+the composition scan would not name it, the same gap zod sat in until 2026-09-11. Not added as a
+marker here: that needs the same two-direction verification (present in the real build, absent
+from every framework fixture) the other eleven got, which is a task of its own, not a note.
 
 ## the three guards that must fail rather than pass
 

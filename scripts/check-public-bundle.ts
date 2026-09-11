@@ -43,14 +43,14 @@ export const BANNED_DEPS: { name: string; markers: string[] }[] = [
   },
   {
     // RDF/JS term names, NOT `n3` — that hits React's minified DOM code. A
-    // solid-client leak reports as both deps, accurately: ./notes.md#the-individual-markers-and-the-two-that-were-wrong
+    // solid-client leak reports as both deps, accurately: ./notes.md#the-individual-markers-and-the-three-that-were-wrong
     name: "n3",
     markers: ["blankNode", "namedNode", "defaultGraph"],
   },
   { name: "@inrupt/solid-client", markers: ["SolidDataset"] },
   {
     // The pre-bundled build contains no `@inrupt` at all, so a specifier-based
-    // marker misses it: ./notes.md#the-individual-markers-and-the-two-that-were-wrong
+    // marker misses it: ./notes.md#the-individual-markers-and-the-three-that-were-wrong
     name: "@inrupt/solid-client-authn-browser",
     markers: ["handleIncomingRedirect"],
   },
@@ -63,9 +63,16 @@ export const BANNED_DEPS: { name: string; markers: string[] }[] = [
   { name: "cmdk", markers: ["cmdk-item", "cmdk-input", "cmdk-list"] },
   {
     // Public API names, which a minifier preserves as object keys. The tempting
-    // markers are in react-dom and Next's own runtime: ./notes.md#the-individual-markers-and-the-two-that-were-wrong
+    // markers are in react-dom and Next's own runtime: ./notes.md#the-individual-markers-and-the-three-that-were-wrong
     name: "next-themes",
     markers: ["disableTransitionOnChange", "enableColorScheme", "resolvedTheme"],
+  },
+  {
+    // Added 2026-09-11 (38 kB gzip, invisible here until then). NOT the bare
+    // "ZodError": Next's own devtools bundle a zod-like class under that exact
+    // name. ./notes.md#the-individual-markers-and-the-three-that-were-wrong
+    name: "zod",
+    markers: ["$ZodError"],
   },
 ];
 
