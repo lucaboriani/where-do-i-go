@@ -88,3 +88,15 @@ and a cased road at the same zoom reads as a competing route.
 `admin_level` is a number in the OpenMapTiles schema, so the boundary filters
 compare numerically. A string comparison silently matches nothing, which looks
 like a tile problem.
+
+## Why leaves are HTML and clusters are GL
+
+A thumbnail is a Pod URL. An `<img>` loads it with no CORS dance at all, where
+`map.addImage` needs a decoded bitmap the Pod is under no obligation to serve
+cross-origin. Stage 3 §6 puts leaf markers in the DOM for exactly this reason;
+the two GL layers here are the clusters, which draw nothing but a circle and a
+count and never touch a photo.
+
+`dy:precisionMeters` choosing a pin glyph versus a soft circle (§6) is styling,
+not geometry, so it is a CSS rule on the leaf marker rather than a second
+source or paint property here.
