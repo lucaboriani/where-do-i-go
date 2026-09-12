@@ -324,10 +324,17 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
   than restating it. One exception: a trap warning at the point of danger stays inline, as one
   shouted line plus a pointer.
 - **One component, one folder** — named file, one-line `index.ts` barrel, its test, its
-  `notes.md`. The rule binds `.tsx`; flat `state/` and `hooks/` modules beside it are fine. A
-  barrel re-exports one component, never a directory of them. `components/ui/**` stays flat.
-- **`lib/` holds no React.** Pure and reusable goes to `lib/studio/<topic>/`; presentation stays
-  in the component folder.
+  `notes.md`. The rule binds `.tsx`; a flat `state/` module beside it is fine. A barrel
+  re-exports one component, never a directory of them. `components/ui/**` stays flat.
+- **Every React hook lives in `hooks/<area>/`** — a root directory beside `components/`, never
+  inside a component folder. `hooks/studio/**` is fenced from the public path exactly as
+  `lib/studio` is, bare directory and subpath both; `hooks/map/**` is publicly reachable and
+  belongs in the belt. A new `hooks/<area>/` joins `eslint.config.mjs`, `vitest.config.ts`'s
+  include list and `check:structure`'s `DIRS` **in the same commit** — a root directory no check
+  names is invisible to all of them, and its tests simply stop running. See
+  `docs/code-structure.md`.
+- **`lib/` holds no React.** Pure and reusable goes to `lib/studio/<topic>/`; hooks go to
+  `hooks/<area>/`; presentation stays in the component folder.
 - **Tests live beside their subject** — same directory, base name matching the part before the
   first dot. Three kinds have no subject and stay in `test/`: the shared harness, the Pod
   integration suites in `test/integration/`, and the tests whose subject is the repository

@@ -404,6 +404,63 @@ describe("check:structure, on fixtures that each break one rule", { timeout: 30_
     );
   });
 
+  /** hooks/ is a ROOT directory, sibling of components/. A directory absent
+   *  from DIRS is not scanned at all, so every rule below reports nothing
+   *  about it and the run stays green — the same silence a missing include
+   *  glob buys a test file. Six lines pass, seven fail, at hooks/ too. */
+  it("scans hooks/, where a six-line comment block passes and a seven-line one fails", () => {
+    const six = compliant();
+    mkdirSync(join(six, "hooks", "studio"), { recursive: true });
+    writeFileSync(
+      join(six, "hooks", "studio", "use-x.ts"),
+      `${"// prose\n".repeat(6)}export const u = 1;\n`,
+    );
+    expect(runCli(six).status, "six lines is at the bound, not over it").toBe(0);
+
+    const seven = compliant();
+    mkdirSync(join(seven, "hooks", "studio"), { recursive: true });
+    writeFileSync(
+      join(seven, "hooks", "studio", "use-x.ts"),
+      `${"// prose\n".repeat(7)}export const u = 1;\n`,
+    );
+    const run = runCli(seven);
+    expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toContain("hooks/studio/use-x.ts");
+  });
+
+  /** The pointer this refactor actually breaks: the map hooks cite
+   *  `../notes.md#…`, which is trip-map/notes.md today and hooks/notes.md
+   *  after the move — a file nobody is creating. Unscanned, it breaks silently. */
+  it("resolves notes pointers from hooks/, which is where ../notes.md breaks on the move", () => {
+    const root = compliant();
+    mkdirSync(join(root, "hooks", "map"), { recursive: true });
+    writeFileSync(
+      join(root, "hooks", "map", "use-y.ts"),
+      "// see ../notes.md#why-styleloaded-is-not-isstyleloaded\nexport const y = 1;\n",
+    );
+    const run = runCli(root);
+    expect(run.status, run.transcript).toBe(1);
+    expect(run.stdout, run.transcript).toMatch(
+      /points at \.\.\/notes\.md#why-styleloaded-is-not-isstyleloaded, which does not exist/,
+    );
+  });
+
+  /** 130, the render tendency, because these are React hooks — the drift
+   *  report's other pair is 50. A hooks/ entry in the wrong pair still prints
+   *  a row, so the tendency NUMBER is what this matches on. */
+  it("reports hooks/ drift at the 130 tendency, not at lib's 50", () => {
+    const root = compliant();
+    mkdirSync(join(root, "hooks", "studio"), { recursive: true });
+    const body = `${"  let x = 1;\n".repeat(140)}`;
+    writeFileSync(
+      join(root, "hooks", "studio", "use-long.ts"),
+      `export function useLong() {\n${body}}\n`,
+    );
+    const run = runCli(root);
+    expect(run.status, "the drift report reports; it never fails").toBe(0);
+    expect(run.stdout, run.transcript).toMatch(/hooks\/studio\/use-long\.ts:1 .*\(tendency 130\)/);
+  });
+
   it("reports drift under --root too, which is what cwd: ROOT buys", () => {
     // The 25th case, added because nothing else pins `cwd: ROOT`. Without it
     // ESLint's basePath is the repository, this file is out of basePath, and

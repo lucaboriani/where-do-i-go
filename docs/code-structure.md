@@ -110,11 +110,44 @@ A tab bar of twelve `index.tsx` files is the opposite of readable, and stack tra
 knowingly.
 
 **The rule binds `.tsx` — components — not the `.ts` files beside them.** A component folder may
-hold flat `state/` and `hooks/` modules without each earning a directory. Giving a five-line
-reducer helper its own folder is the reductio, and a rule demanding it would be weakened under
-deadline rather than followed. The first draft of the check scanned `.ts` too and would have
-hard-failed the ten modules the reducer design puts in `state/` and `hooks/` — the check would
-have banned the refactor it was written to enable.
+hold a flat `state/` module without it earning a directory. Giving a five-line reducer helper its
+own folder is the reductio, and a rule demanding it would be weakened under deadline rather than
+followed. The first draft of the check scanned `.ts` too and would have hard-failed the ten
+modules the reducer design puts in `state/` and `hooks/` — the check would have banned the
+refactor it was written to enable.
+
+## Why hooks live at the root, not in the component folder
+
+Until 2026-09-12 hooks were colocated: `components/studio/entry-editor/hooks/` held five,
+`components/public/trip-map/hooks/` three. That is what this section prescribed, and it is not a
+Next.js convention — Next is unopinionated outside `app/`, and its own project-structure guide
+says the naming of `components`, `lib` and `hooks` "has no special framework significance".
+
+Two things decided the move. `trip-map`'s three hooks are map machinery rather than that
+component's private business — stage 5's globe wants `useMapInstance` — and a hooks folder nested
+under one component is the wrong home for something two components share. And the nesting
+buys nothing at three files: `entry-editor`'s eleven earn a directory, `trip-map`'s six do not.
+
+**`hooks/<area>/`, not a flat `hooks/`, because the public/studio wall is written in paths.**
+`eslint.config.mjs` bans `components/studio/**` from `app/(public)/**` and `components/public/**`.
+The five studio hooks import `lib/studio/session`, `lib/pod/write` and `lib/media/*` — `@inrupt/*`
+transitively — so a flat root `hooks/` would have taken them out from behind that ban and left the
+fence a hand-typed list of five filenames, which is the shape this file already records as having
+failed. `hooks/studio/**` keeps the same mechanism, bare directory and subpath both.
+
+**What a new root directory goes invisible to, measured before the move rather than after:**
+
+| Check | Why it went blind |
+|---|---|
+| `vitest.config.ts` include | `test/ lib/ components/ app/`. `hooks/**` matches none — eight test files stop being collected, in silence. The `.tsx IS LOAD-BEARING` shout is the same trap. |
+| `eslint.config.mjs` | 200 lines for `components/**`+`app/**`, 80 for `lib/**`+`scripts/**`. `hooks/**` matched neither, so the bound disappeared rather than tightening. Hooks take the render bound. |
+| `scripts/check-structure.ts` | `DIRS` and the tendency-report pairs both name directories one by one. |
+| `test/guardrails.test.ts` | the `setProjection` single-call-site scan runs `git grep -- lib components app`; after the move it finds nothing, and an empty result read as a pass. |
+| the belt block | `hooks/map/**` is reachable from a public page and was fenced by nothing until added. |
+
+Four of the five fail *open*. That is the general form worth carrying: **a root directory that no
+check names is invisible to all of them at once**, and the failure is a green run, not a red one.
+Hence the same-commit rule in `CLAUDE.md`.
 
 **A barrel re-exports ONE component, never a directory of them.** `studio-client.tsx`
 dynamic-imports the shell with `ssr: false`, and an aggregating `components/studio/index.ts`

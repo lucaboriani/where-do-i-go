@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ESLint } from "eslint";
 import { existsSync, readdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import config from "../eslint.config.mjs";
 import { BLUR_BUDGET_BYTES, withinBlurBudget } from "@/lib/media/targets";
@@ -87,6 +87,21 @@ function resolveBeltModules(patterns: string[]): string[] {
 }
 
 const BELTED_MODULES = resolveBeltModules(beltFilesArray());
+
+/** The public boundary block's files array, located by content the way the
+ *  belt's is. A "<dir>/**" entry is a prefix, anything else is one exact path
+ *  — the only two shapes that array uses. */
+function boundaryCovers(file: string): boolean {
+  const entries = config as Array<{ files?: string[] }>;
+  const block = entries.find((c) => (c.files ?? []).includes("app/not-found.tsx"));
+  if (!block?.files) {
+    throw new Error(
+      "No block in eslint.config.mjs fences app/not-found.tsx — the public boundary block " +
+        "moved or was renamed, and boundaryCovers cannot find it.",
+    );
+  }
+  return block.files.some((f) => (f.endsWith("/**") ? file.startsWith(f.slice(0, -2)) : file === f));
+}
 
 describe("guardrails actually fire", () => {
   it("rejects a raw vocabulary IRI outside lib/vocab.ts", async () => {
@@ -1159,24 +1174,42 @@ describe("guardrails actually fire", () => {
 describe("the belt's scope, walked from real public entry points", () => {
   const ROOT = resolve(process.cwd());
 
-  it("names every lib/** module reachable from a public page in the belt's files array", () => {
+  it("names every module reachable from a public page in the belt, wherever it lives", () => {
     const entries = publicEntryPoints(ROOT);
     // Non-vacuity: an extraction that found no entry points would make the
     // closure below empty and this case pass having walked nothing.
     expect(entries.length).toBeGreaterThan(0);
     expect(entries).toContain("app/(public)/page.tsx");
 
-    const libModules = [...transitiveClosure(entries, ROOT)].filter((f) => f.startsWith("lib/")).sort();
+    const reachable = [...transitiveClosure(entries, ROOT)].filter((f) => /\.tsx?$/.test(f)).sort();
     // Same non-vacuity one level down: a walker that resolved no specifier
-    // would make "every reachable lib module is belted" vacuously true.
-    expect(libModules.length).toBeGreaterThan(0);
+    // would make "every reachable module is fenced" vacuously true.
+    expect(reachable.length).toBeGreaterThan(0);
 
-    const unbelted = libModules.filter((m) => !BELTED_MODULES.includes(m));
+    /** NO LONGER FILTERED TO lib/**. A publicly reachable module now lives
+     *  under hooks/ too, and a hand-typed directory list is exactly what let
+     *  lib/pod/rdf.ts hide. Either the boundary block fences the file itself
+     *  or the belt does; nothing else is a fence. */
+    const unbelted = reachable.filter((f) => !boundaryCovers(f) && !BELTED_MODULES.includes(f));
     expect(
       unbelted,
       "each of these is imported, directly or transitively, by a public page — so a public route " +
         "can reach @inrupt/* or lib/studio through it exactly as it could through lib/pod/read.ts " +
         "before the belt existed. Add it to the belt block's files array in eslint.config.mjs.",
+    ).toEqual([]);
+  });
+
+  it("reaches the three map hooks at their post-move path, and belts them there", () => {
+    const reachable = [...transitiveClosure(publicEntryPoints(ROOT), ROOT)];
+    const hooks = reachable.filter((f) => f.startsWith("hooks/")).sort();
+    expect(hooks).toEqual([
+      "hooks/map/use-map-instance.ts",
+      "hooks/map/use-map-layers.ts",
+      "hooks/map/use-map-markers.ts",
+    ]);
+    expect(
+      hooks.filter((f) => !BELTED_MODULES.includes(f)),
+      "trip-map imports these from a public page, so they are belt territory at their new home.",
     ).toEqual([]);
   });
 });
@@ -1212,6 +1245,109 @@ describe("lib/map is fenced like the public path it serves", () => {
     const code = `import { getDefaultSession } from "@inrupt/solid-client-authn-browser";\n`;
     expect(ruleIds(await lint("lib/utils.ts", code))).toContain("no-restricted-imports");
   });
+});
+
+/** hooks/studio/** is the studio's React layer: it imports lib/studio/session,
+ *  lib/pod/write and lib/media, so @inrupt/* sits one step behind every one of
+ *  these five hooks. The fence names the BARE DIRECTORY AND THE SUBPATH, the
+ *  precedent lib/studio and lib/media both set — gitignore semantics mean
+ *  "**\/hooks/studio/**" alone does not match a bare "@/hooks/studio". */
+describe("the studio fence reaches hooks/studio", () => {
+  it.each([
+    ["app/(public)/thing.tsx", "@/hooks/studio/use-entry-save"],
+    ["components/public/thing.tsx", "@/hooks/studio/use-photo-pipeline"],
+    ["app/not-found.tsx", "@/hooks/studio/use-settings-gate"],
+    ["app/global-error.tsx", "@/hooks/studio/use-entry-draft"],
+    // The spelling an agent editing inside components/public produces.
+    ["components/public/trip-map/trip-map.tsx", "../../../hooks/studio/use-entry-form"],
+    // The bare directory, which the subpath glob does NOT cover. hooks/studio
+    // will have no index.ts on day one; the day it does, dropping a filename
+    // bypasses the whole fence.
+    ["app/(public)/thing.tsx", "@/hooks/studio"],
+  ])("rejects %s importing %s", async (path, moduleSpecifier) => {
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport default function T() { return <div>{String(mod)}</div>; }\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(
+      msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n"),
+    ).toContain(moduleSpecifier);
+  });
+
+  /** The anti-over-reach half, and a scope pin besides: the fix is a pattern
+   *  group in the boundary block, never a new entry in its `files` array.
+   *  Widen `files` to "hooks/**" instead and all five of these turn red. */
+  it.each([
+    ["app/(studio)/studio/page.tsx", "@/hooks/studio/use-entry-save"],
+    ["components/studio/entry-editor/entry-editor.tsx", "@/hooks/studio/use-entry-form"],
+    ["hooks/studio/use-entry-save.ts", "@/lib/pod/write"],
+    ["hooks/studio/use-photo-pipeline.ts", "@/lib/media/pipeline"],
+    ["hooks/studio/use-settings-gate.ts", "@/lib/studio/session"],
+  ])("allows %s to import %s", async (path, moduleSpecifier) => {
+    // JSX-free on purpose: these paths include .ts files, where a JSX snippet
+    // yields one fatal message and no rule messages at all.
+    const msgs = await lint(
+      path,
+      `import * as mod from "${moduleSpecifier}";\nexport const used = String(mod);\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+});
+
+/** hooks/map/** is publicly reachable — trip-map imports all three hooks — so
+ *  it is belt territory, fenced from @inrupt/* and lib/studio and held to the
+ *  maplibre rules exactly as lib/map is. */
+describe("the belt reaches hooks/map", () => {
+  it("names hooks/map in the belt's files array, which is what extends the sweeps above", () => {
+    // Derived, not hand-typed: with hooks/map in that array the two BELTED_MODULES
+    // sweeps cover the hooks for free, and this is the assertion that says so.
+    expect(beltFilesArray().filter((f) => f.startsWith("hooks/map"))).not.toEqual([]);
+    expect(BELTED_MODULES).toEqual(
+      expect.arrayContaining([
+        "hooks/map/use-map-instance.ts",
+        "hooks/map/use-map-layers.ts",
+        "hooks/map/use-map-markers.ts",
+      ]),
+    );
+  });
+
+  it.each([
+    "maplibre-gl",
+    "maplibre-gl/dist/maplibre-gl.mjs",
+    "@/lib/studio/session",
+    "@inrupt/solid-client-authn-browser",
+  ])("rejects %s at hooks/map/use-map-instance.ts", async (moduleSpecifier) => {
+    const msgs = await lint(
+      "hooks/map/use-map-instance.ts",
+      `import * as mod from "${moduleSpecifier}";\nexport default String(mod);\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  /** PASSES BEFORE THE MOVE, through the everywhere block, and it is here for
+   *  after: flat config REPLACES a rule's options, so whichever block matches
+   *  hooks/map must repeat the ACL paths entry. THE MESSAGE IS THE ASSERTION —
+   *  the belt's own "@inrupt/*" pattern refuses this import either way, so a
+   *  rule-id check passes with the paths entry dropped. Measured both ways. */
+  it("keeps the ACL ban at hooks/map, by its own message and not the belt's", async () => {
+    const msgs = await lint(
+      "hooks/map/use-map-instance.ts",
+      `import { setPublicResourceAccess } from "@inrupt/solid-client";\nexport default setPublicResourceAccess;\n`,
+    );
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(msgs.map((m) => m.message).join("\n")).toContain("lib/pod/access.ts");
+  });
+
+  it.each(["maplibre-gl/dist/maplibre-gl.css", "@/lib/map/view", "@/lib/pod/read"])(
+    "allows %s at hooks/map, because a fence that refuses everything is useless",
+    async (moduleSpecifier) => {
+      const msgs = await lint("hooks/map/use-map-instance.ts", `import "${moduleSpecifier}";\n`);
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
 });
 
 /**
@@ -1297,6 +1433,20 @@ describe("function length", () => {
     expect(ruleIds(await lint("components/ui/thing.tsx", longUi))).toContain(
       "max-lines-per-function",
     );
+  });
+
+  /** A root hooks/ matches neither files array, so the bound vanishes rather
+   *  than loosening — nothing reports it. These are React hooks and they live
+   *  at 200 today under components/**, so 200 is what they keep. */
+  it("holds a hook to the render bound of 200, and not to lib's 80", async () => {
+    const over = await lint("hooks/studio/use-entry-draft.ts", longRender);
+    expect(ruleIds(over)).toContain("max-lines-per-function");
+    // The number, not just the rule id: this is the whole 200-versus-80 claim.
+    expect(over.map((m) => m.message).join()).toMatch(/Maximum allowed is 200/);
+
+    const under = await lint("hooks/map/use-map-instance.ts", longUtil);
+    expect(fatals(under)).toEqual([]);
+    expect(ruleIds(under)).not.toContain("max-lines-per-function");
   });
 });
 
@@ -1474,17 +1624,39 @@ describe("the §6.4 blur budget cannot drift between lib/media and lib/pod", () 
 });
 
 describe("setProjection has one call site", () => {
+  /** THE PATHSPEC IS THE SCAN. `hooks` is in it because the call site moved
+   *  there, and a directory left out is not an error: git greps the rest and
+   *  reports nothing, which is indistinguishable from a clean tree. The
+   *  control case below is what tells those two apart. */
+  const PATHSPEC = ["lib", "components", "app", "hooks"];
+
+  /** Status AND body, the way the collection guard does it: `git grep -l`
+   *  exits 1 when it matches nothing, so a silent empty list is impossible. */
+  function gitLines(args: string[]): string[] {
+    const run = spawnSync("git", args, { encoding: "utf8" });
+    const transcript = `\n$ git ${args.join(" ")}\n[exit ${run.status}]\n${run.stdout}${run.stderr}`;
+    expect(run.status, transcript).toBe(0);
+    const lines = run.stdout.split("\n").filter(Boolean);
+    expect(lines.length, transcript).toBeGreaterThan(0);
+    return lines;
+  }
+
+  it("greps a pathspec that really contains the hooks, so an empty scan cannot read as clean", () => {
+    const tracked = gitLines(["ls-files", "--", ...PATHSPEC]);
+    expect(
+      tracked.filter((f) => f.startsWith("hooks/")),
+      "the pathspec below covers no hooks/ file, so the scan grades a directory that is not there",
+    ).not.toEqual([]);
+  });
+
   it("is reached from the style.load handler and from nowhere else in the tree", () => {
     // Excludes *.test.ts: the fake Map in use-map-instance.test.ts must define
     // a same-named setProjection method to stand in for the real one, and a
     // dumb text scan cannot tell that apart from a second production call site.
-    const hits = execFileSync(
-      "git",
-      ["grep", "-l", "setProjection(", "--", "lib", "components", "app", ":(exclude)**/*.test.ts", ":(exclude)**/*.test.tsx"],
-      { encoding: "utf8" },
-    )
-      .split("\n")
-      .filter(Boolean);
-    expect(hits).toEqual(["components/public/trip-map/hooks/use-map-instance.ts"]);
+    const hits = gitLines([
+      "grep", "-l", "setProjection(", "--",
+      ...PATHSPEC, ":(exclude)**/*.test.ts", ":(exclude)**/*.test.tsx",
+    ]);
+    expect(hits).toEqual(["hooks/map/use-map-instance.ts"]);
   });
 });
