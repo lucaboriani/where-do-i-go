@@ -257,7 +257,7 @@ app/(public)/trips/[slug]/layout.tsx           server: reads the index, renders 
 components/public/trip-map/trip-map.tsx        "use client": container, IntersectionObserver
 components/public/trip-map/index.ts            the one-line barrel the layout rule requires
 components/public/trip-map/notes.md            the reasoning behind the anchors below
-components/public/trip-map/hooks/use-map-instance.ts   the dynamic import, create, destroy
+hooks/map/use-map-instance.ts                  the dynamic import, create, destroy
 ```
 
 The barrel and the `notes.md` are not optional: `componentFoldersAreOwn()` in

@@ -10,7 +10,7 @@ import { attachedOf, photosFor, usePhotoPipeline } from "./use-photo-pipeline";
 import type { PhotoPipelineSeed } from "./use-photo-pipeline";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { Photo } from "@/lib/pod/schema";
-import type { PhotoSlot } from "../state/actions";
+import type { PhotoSlot } from "@/components/studio/entry-editor/state/actions";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
 const upload = vi.hoisted(() => vi.fn());

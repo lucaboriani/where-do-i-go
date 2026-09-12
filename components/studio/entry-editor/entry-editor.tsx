@@ -10,11 +10,11 @@
 import { useMemo } from "react";
 import { BUTTON } from "./field";
 import DraftBanner, { HOLD_REASON_ID } from "./draft-banner";
-import { draftTextOf, useEntryDraft } from "./hooks/use-entry-draft";
-import { useEntryForm } from "./hooks/use-entry-form";
-import { useEntrySave } from "./hooks/use-entry-save";
-import { attachedOf, usePhotoPipeline } from "./hooks/use-photo-pipeline";
-import { useSettingsGate } from "./hooks/use-settings-gate";
+import { draftTextOf, useEntryDraft } from "@/hooks/studio/use-entry-draft";
+import { useEntryForm } from "@/hooks/studio/use-entry-form";
+import { useEntrySave } from "@/hooks/studio/use-entry-save";
+import { attachedOf, usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
+import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
 import WhereFields from "./fields/where-fields";
@@ -97,13 +97,13 @@ export default function EntryEditor({
 
   /** THE TWENTY VALUES THE FORM IS, as one reducer, with every seeding decision
    *  in `initialEntryFormState`: ./state/notes.md#guard-inside-the-transition
-   *  NOT DESTRUCTURED ANY MORE: ./hooks/notes.md#the-seventeen-names-came-back-together */
+   *  NOT DESTRUCTURED ANY MORE: hooks/studio/notes.md#the-seventeen-names-came-back-together */
   const tripIris = trips.map((choice) => choice.iri);
   const form = useEntryForm({ existing, tripIris });
   const values = form.values;
 
   /** WHAT §7.6 DECIDED, and everything downstream of it, read on mount:
-   *  ./hooks/notes.md#the-gate-is-read-on-mount-and-never-again. `form.set` is
+   *  hooks/studio/notes.md#the-gate-is-read-on-mount-and-never-again. `form.set` is
    *  memoised with `[]`, which is what keeps `onDefaultPrecision` out of the
    *  read effect's dependency loop — same file, #why-the-seed-is-built-outside-the-render-callback */
   const gate = useSettingsGate({
@@ -126,7 +126,7 @@ export default function EntryEditor({
 
   /** The four steps, the six things they can leave to say, and the three values
    *  that make the next save an update. `settle` arrives at the submit handler:
-   *  ./hooks/notes.md#the-save-and-the-draft-meet-at-the-submit-handler */
+   *  hooks/studio/notes.md#the-save-and-the-draft-meet-at-the-submit-handler */
   const { target, addressFixed, outcome, saving, save } = useEntrySave({
     session,
     trips,
@@ -141,7 +141,7 @@ export default function EntryEditor({
 
   /** What the browser kept, the debounce that keeps it, and the settle that
    *  stops it being a trap. `entryUrl` is `target`'s, which is the thing that
-   *  moves: ./hooks/notes.md#the-scope-follows-the-target-and-that-was-once-argued-backwards */
+   *  moves: hooks/studio/notes.md#the-scope-follows-the-target-and-that-was-once-argued-backwards */
   const { offered, storageRefused, markTouched, settleDraft, discard, clearOffer } = useEntryDraft({
     storage,
     webId: session.info.webId,
@@ -152,7 +152,7 @@ export default function EntryEditor({
   /* ─────────────────────────────────────────────────── the photo pipeline ── */
 
   /** Process, upload, hold a `Photo` — never the `File` — and then offer §11.3's
-   *  coordinate and §11.5's two time halves. ./hooks/use-photo-pipeline.ts */
+   *  coordinate and §11.5's two time halves. hooks/studio/use-photo-pipeline.ts */
   const { attachAll } = usePhotoPipeline({
     session,
     podRoot,

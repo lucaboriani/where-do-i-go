@@ -1,7 +1,7 @@
 /**
  * The twenty values the form IS, as one `useReducer`, plus the named callbacks
  * the five field groups get instead of `dispatch`.
- * ../state/notes.md#guard-inside-the-transition
+ * components/studio/entry-editor/state/notes.md#guard-inside-the-transition
  */
 
 import { useMemo, useReducer } from "react";
@@ -13,9 +13,9 @@ import {
   wallClockNow,
   wallClockOf,
 } from "@/lib/time/offsets";
-import { sourceOf } from "../state/actions";
-import { entryFormReducer } from "../state/entry-form-reducer";
-import type { EntryFormState, PhotoSlot, RestoreContext, TextField } from "../state/actions";
+import { sourceOf } from "@/components/studio/entry-editor/state/actions";
+import { entryFormReducer } from "@/components/studio/entry-editor/state/entry-form-reducer";
+import type { EntryFormState, PhotoSlot, RestoreContext, TextField } from "@/components/studio/entry-editor/state/actions";
 import type { Entry, Status as EntryStatus, TravelMode as Mode } from "@/lib/pod/schema";
 import type { Draft } from "@/lib/studio/drafts";
 
@@ -100,7 +100,7 @@ export interface EntryFormSetters {
 export interface EntryForm {
   values: EntryFormState;
   /** Which photo supplied each of the three, or `null`. Derived rather than
-   *  stored: ../state/notes.md#what-is-derived-and-what-had-to-stay-stored */
+   *  stored: components/studio/entry-editor/state/notes.md#what-is-derived-and-what-had-to-stay-stored */
   sources: { coordinate: string | null; occurred: string | null; offset: string | null };
   /** What the offset control offers. Derived from one field, exactly as
    *  `sources` is from three: ./notes.md#the-offset-option-list-is-the-forms-own */

@@ -15,7 +15,7 @@ const instances: { active: boolean }[] = [];
 // some value.
 const SENTINEL_MAP = { sentinel: true };
 
-vi.mock("./hooks/use-map-instance", () => ({
+vi.mock("@/hooks/map/use-map-instance", () => ({
   useMapInstance: (options: { active: boolean }) => {
     instances.push({ active: options.active });
     return { status: options.active ? "loading" : "idle", map: SENTINEL_MAP, styleLoaded: false };
@@ -23,14 +23,14 @@ vi.mock("./hooks/use-map-instance", () => ({
 }));
 
 const layerCalls: { map: unknown; entries: unknown; styleLoaded: unknown }[] = [];
-vi.mock("./hooks/use-map-layers", () => ({
+vi.mock("@/hooks/map/use-map-layers", () => ({
   useMapLayers: (map: unknown, entries: unknown, styleLoaded: unknown) => {
     layerCalls.push({ map, entries, styleLoaded });
   },
 }));
 
 const markerCalls: unknown[] = [];
-vi.mock("./hooks/use-map-markers", () => ({
+vi.mock("@/hooks/map/use-map-markers", () => ({
   useMapMarkers: (map: unknown) => {
     markerCalls.push(map);
   },

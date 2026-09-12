@@ -57,11 +57,13 @@ three times — here; in `playwright.config.ts`, "23 component tests" against 26
 `docs/testing-gates.md`, 33 against a real 36. All three were removed rather than corrected, the
 last two on 2026-09-09.
 
-## why the include list has four globs and excludes .spec.ts
+## why the include list has five globs and excludes .spec.ts
 
 `components/**` and `app/**` were added **ahead** of the moves that needed them, so a colocated
-test could not land uncollected. `test/vitest-collection.test.ts` fails if any of the four stops
-matching a file that exists.
+test could not land uncollected. `hooks/**` was added *with* the move that needed it, on
+2026-09-12, which is the same-commit rule in `CLAUDE.md` — a root directory the include list does
+not name loses its tests in silence. `test/vitest-collection.test.ts` fails if any of the five
+stops matching a file that exists.
 
 `.spec.ts` is excluded and **both halves matter**. `test/fixtures/swallowed-stray.spec.ts` is a
 fixture that MUST fail, and `test/network-guard.test.ts` spawns it as a child through
@@ -397,3 +399,22 @@ per file rather than merging them — two hand-kept copies is exactly the shape 
 `ACL_PRIMITIVES` repetition nearly drifted on. The exact-specifier spelling of `MAPLIBRE_PATH` is
 unchanged: a `maplibre-gl/**` group would also refuse `maplibre-gl/dist/maplibre-gl.css`, which
 the attribution control needs, and no negation rescues it under gitignore semantics.
+
+## why the belt names any studio directory
+
+The belt fences its members from `**/studio` and `**/studio/**`, not from `**/lib/studio` and
+`**/hooks/studio`. The narrower pair was written first and measured wrong: from `hooks/map` the
+studio hooks are a *sibling*, spelled `../studio/use-entry-save`, and that specifier contains no
+`hooks/` segment for a glob to match. `**/studio/**` alone catches the subpath but not a bare
+`../studio`, so the group carries the bare form too — the same asymmetry
+`#why-a-fence-names-the-bare-directory-as-well-as-the-subpath` records for `lib/media`.
+
+Naming any directory called `studio` is deliberately broader than the hole it closes. A belt
+member is by construction in the public import closure, and nothing in that closure has business
+importing a directory named `studio` by any spelling or from any depth. The breadth costs an
+allow-case if a public-reachable module ever legitimately wants one, which would itself be the
+bug.
+
+This is the second time the relative spelling has escaped a fence written in absolute terms. The
+first was `components/studio/**` missing the parenthesised route group; both were found by
+measuring specifiers rather than reading globs.

@@ -26,7 +26,7 @@ export function useMapLayers(map: MapLibreMap | null, entries: IndexEntry[], sty
   useEffect(() => {
     // NOT map.isStyleLoaded(): styleLoaded is useMapInstance's own tracking of
     // the style.load event, which can fire while isStyleLoaded() still waits
-    // on source tiles — ../notes.md#why-styleloaded-is-not-isstyleloaded.
+    // on source tiles — ./notes.md#why-styleloaded-is-not-isstyleloaded.
     if (map === null || !styleLoaded) return;
 
     const points = buildPoints(entries);

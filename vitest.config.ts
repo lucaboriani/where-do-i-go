@@ -14,14 +14,15 @@ export default defineConfig({
      *  ./notes.md#why-the-vitest-environment-is-node */
     environment: "node",
     setupFiles: ["test/setup.ts"],
-        /** `.tsx` IS LOAD-BEARING - test/support/notes.md#why-a-walker. Four globs,
+        /** `.tsx` IS LOAD-BEARING - test/support/notes.md#why-a-walker. Five globs,
      *  and `.spec.ts` excluded for two separate reasons:
-     *  ./notes.md#why-the-include-list-has-four-globs-and-excludes-spects */
+     *  ./notes.md#why-the-include-list-has-five-globs-and-excludes-spects */
     include: [
       "test/**/*.test.{ts,tsx}",
       "lib/**/*.test.{ts,tsx}",
       "components/**/*.test.{ts,tsx}",
       "app/**/*.test.{ts,tsx}",
+      "hooks/**/*.test.{ts,tsx}",
     ],
   },
 });

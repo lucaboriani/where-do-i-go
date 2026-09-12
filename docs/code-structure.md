@@ -110,11 +110,61 @@ A tab bar of twelve `index.tsx` files is the opposite of readable, and stack tra
 knowingly.
 
 **The rule binds `.tsx` — components — not the `.ts` files beside them.** A component folder may
-hold flat `state/` and `hooks/` modules without each earning a directory. Giving a five-line
-reducer helper its own folder is the reductio, and a rule demanding it would be weakened under
-deadline rather than followed. The first draft of the check scanned `.ts` too and would have
-hard-failed the ten modules the reducer design puts in `state/` and `hooks/` — the check would
-have banned the refactor it was written to enable.
+hold a flat `state/` module without it earning a directory. Giving a five-line reducer helper its
+own folder is the reductio, and a rule demanding it would be weakened under deadline rather than
+followed. The first draft of the check scanned `.ts` too and would have hard-failed the ten
+modules the reducer design puts in `state/` and `hooks/` — the check would have banned the
+refactor it was written to enable.
+
+## Why hooks live at the root, not in the component folder
+
+Until 2026-09-12 hooks were colocated: `components/studio/entry-editor/hooks/` held five,
+`components/public/trip-map/hooks/` three. That is what this section prescribed, and it is not a
+Next.js convention — Next is unopinionated outside `app/`, and its own project-structure guide
+says the naming of `components`, `lib` and `hooks` "has no special framework significance".
+
+Two things decided the move. `trip-map`'s three hooks are map machinery rather than that
+component's private business — stage 5's globe wants `useMapInstance` — and a hooks folder nested
+under one component is the wrong home for something two components share. And the nesting
+buys nothing at three files: `entry-editor`'s eleven earn a directory, `trip-map`'s six do not.
+
+**`hooks/<area>/`, not a flat `hooks/`, because the public/studio wall is written in paths.**
+`eslint.config.mjs` bans `components/studio/**` from `app/(public)/**` and `components/public/**`.
+The five studio hooks import `lib/studio/session`, `lib/pod/write` and `lib/media/*` — `@inrupt/*`
+transitively — so a flat root `hooks/` would have taken them out from behind that ban and left the
+fence a hand-typed list of five filenames, which is the shape this file already records as having
+failed. `hooks/studio/**` keeps the same mechanism, bare directory and subpath both.
+
+**What a new root directory goes invisible to, measured before the move rather than after —
+and, for each, whether the blindness shows up red or green:**
+
+| Check | Why it went blind | How it failed |
+|---|---|---|
+| `eslint.config.mjs` bounds | 200 lines for `components/**`+`app/**`, 80 for `lib/**`+`scripts/**`; `hooks/**` matched neither, so the bound disappeared rather than tightening | **open** |
+| `scripts/check-structure.ts` | `DIRS` and the tendency pairs name directories one by one | **open** |
+| the belt block | `hooks/map/**` is reachable from a public page and was fenced by nothing; the closure walk that would have said so was itself scoped to `lib/**` | **open** |
+| `vitest.config.ts` include | `test/ lib/ components/ app/` matches no `hooks/` file, so eight test files stop being collected | red |
+| the `setProjection` scan | `git grep -- lib components app` finds nothing at the new path | red |
+
+**Three fail open, and the two that fail red are red for different reasons.**
+`test/vitest-collection.test.ts` diffs the whole repository against `vitest list` rather than
+walking a directory list — it survives any move by construction. The `setProjection` scan does
+not: its pathspec is hand-typed, exactly the shape that goes blind. It failed red anyway because
+it asserts an exact expected path and, since this branch, the grep's exit status too, so an empty
+result cannot read as clean. Measured on this tree, not reasoned about — the first draft of this
+table claimed four of five failed open and was wrong about that row in the direction that
+flatters the author, and the correction itself then credited a `execFileSync` throw this branch
+had already replaced with `spawnSync`.
+
+A sixth is not a check but a gate, and it fails open with no test behind it at all: `CLAUDE.md`'s
+path-scoped `test:e2e` list named `components/studio/**`, which is where the media and write
+seams' hooks used to live. `hooks/studio/**` joined that list in the same commit — see
+`docs/testing-gates.md`.
+
+The general form worth carrying: **a directory-scoped check cannot notice a directory it does not
+name**, and the ones that survive a move are the ones written against the whole tree. Hence the
+same-commit rule in `CLAUDE.md`, and hence preferring a derived list to a typed one wherever a
+check can manage it.
 
 **A barrel re-exports ONE component, never a directory of them.** `studio-client.tsx`
 dynamic-imports the shell with `ssr: false`, and an aggregating `components/studio/index.ts`

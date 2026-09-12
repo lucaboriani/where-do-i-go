@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * A fake maplibre-gl stands in for the real one — jsdom has no WebGL.
- * ./../notes.md#what-the-hook-test-can-and-cannot-see
+ * ./notes.md#what-the-hook-test-can-and-cannot-see
  */
 
 import { renderHook, waitFor } from "@testing-library/react";
@@ -162,7 +162,7 @@ describe("useMapInstance", () => {
     // created.length alone can't tell a real second effect run from a no-op:
     // map.current's own guard hides it. A read count on container.current
     // can't be hidden that way, since the guard runs before that read.
-    // ./../notes.md#why-the-effect-depends-on-activation-alone
+    // ./notes.md#why-the-effect-depends-on-activation-alone
     const node = document.createElement("div");
     document.body.append(node);
     let reads = 0;

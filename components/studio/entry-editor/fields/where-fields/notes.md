@@ -258,7 +258,7 @@ is back to a number that appeared from nowhere.
 The precision select's own note is §9 step 3: whatever it says,
 `dy:precisionMeters` says the same and the pair beside it is that grid's. The
 owner's own `dy:defaultPrecisionMeters` is preselected and is in the list
-VERBATIM — `../../hooks/notes.md#the-settings-value-joins-the-option-list` for
+VERBATIM — `hooks/studio/notes.md#the-settings-value-joins-the-option-list` for
 why it is not rounded onto the fixed grids in either direction. Its
 `"Unavailable"` option is only ever reachable with the control dead: §7.6 has no
 default and this app supplies none, so an empty value means the settings have
