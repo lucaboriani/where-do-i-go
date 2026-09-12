@@ -160,7 +160,7 @@ was true of stage 1 and is now false of the coordinate half:
 - **And it asks the same gate every other coordinate writer asks.** Settings
   that cannot be read leave the three controls dead (§9's fail-closed posture),
   and a photo does not get past that either —
-  `hooks/notes.md#the-gate-is-asked-again-for-a-photo-and-fails-closed`.
+  `hooks/studio/notes.md#the-gate-is-asked-again-for-a-photo-and-fails-closed`.
 - **And it says so on screen.** A value that appeared without being typed has to
   name where it came from, or the owner cannot tell it from something they did
   yesterday — `fields/where-fields/notes.md#one-provenance-note-for-the-pair`.
@@ -227,7 +227,7 @@ injected pipeline is disposed by whoever injected it; the unmount cleanup only
 ever disposes one the component created. `dispose()` is not a cancel — it
 terminates the worker and rejects everything pending — so disposing a caller's
 instance would break a photo it was still processing.
-`hooks/notes.md#whoever-creates-the-pipeline-disposes-it`.
+`hooks/studio/notes.md#whoever-creates-the-pipeline-disposes-it`.
 
 ## storage is injected so the failure can be scripted
 
@@ -257,7 +257,7 @@ with the number measured after the extraction rather than predicted before it:
 `savedAtText`, 31 code lines of the 195. It was the one block in here that
 qualified as a sixth presentational group by Stage B's own Task 5 argument, and
 Stage B left it out for timing rather than merit
-(`hooks/notes.md#what-the-195-are-and-what-they-are-not`). The reason it was left
+(`hooks/studio/notes.md#what-the-195-are-and-what-they-are-not`). The reason it was left
 had expired; the merit had not.
 
 **What the 164 are.** Roughly 55 lines of composition — the props, the reducer,

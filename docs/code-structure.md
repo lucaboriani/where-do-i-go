@@ -145,6 +145,10 @@ failed. `hooks/studio/**` keeps the same mechanism, bare directory and subpath b
 | `test/guardrails.test.ts` | the `setProjection` single-call-site scan runs `git grep -- lib components app`; after the move it finds nothing, and an empty result read as a pass. |
 | the belt block | `hooks/map/**` is reachable from a public page and was fenced by nothing until added. |
 
+A sixth is not a check but a gate: `CLAUDE.md`'s path-scoped `test:e2e` list named
+`components/studio/**`, which is where the media and write seams' hooks used to live.
+`hooks/studio/**` joined that list in the same commit — see `docs/testing-gates.md`.
+
 Four of the five fail *open*. That is the general form worth carrying: **a root directory that no
 check names is invisible to all of them at once**, and the failure is a green run, not a red one.
 Hence the same-commit rule in `CLAUDE.md`.

@@ -4,7 +4,7 @@
  * THE IMPORT MUST STAY INSIDE THE EFFECT — at module scope Next prerenders
  * maplibre-gl into the eager chunk, which is 252.8 kB against a 190 kB budget.
  * Same trap, same shape as studio-client.tsx's auth import.
- * ../notes.md#why-a-bare-dynamic-import-and-not-nextdynamic
+ * ./notes.md#why-a-bare-dynamic-import-and-not-nextdynamic
  */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
@@ -38,7 +38,7 @@ export function useMapInstance({
   const [styleLoaded, setStyleLoaded] = useState(false);
   const map = useRef<MapLibreMap | null>(null);
 
-  // Ref, not effect deps: see ../notes.md#why-the-effect-depends-on-activation-alone
+  // Ref, not effect deps: see ./notes.md#why-the-effect-depends-on-activation-alone
   const latest = useRef({ bbox, styleUrl });
   useEffect(() => {
     latest.current = { bbox, styleUrl };

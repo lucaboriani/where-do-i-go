@@ -166,7 +166,7 @@ A box can be non-empty because the owner typed, because a photo filled it, or
 because a draft was restored into it; the first two forbid a fill, and the value
 alone tells none of them apart. **And a box can be empty and still forbid one**:
 on an EDIT both boxes start empty by design —
-`../hooks/notes.md#empty-coordinate-boxes-on-an-edit` — and `save()` reads empty
+`hooks/studio/notes.md#empty-coordinate-boxes-on-an-edit` — and `save()` reads empty
 as "leave the stored coordinate alone". So on an edit emptiness does not mean
 "there is no value"; it means "the value on the Pod stands", and filling it IS
 an overwrite of something the owner has not touched, merely spelled as an offer.
@@ -593,7 +593,7 @@ chosen to avoid a version bump. `?? placeName` is therefore "leave the control
 showing whatever it is showing", which on an edit is the stored value.
 
 **It is also what keeps the place text's seeding argument true.**
-`../hooks/notes.md#why-the-place-text-is-prefilled` says these controls need no
+`hooks/studio/notes.md#why-the-place-text-is-prefilled` says these controls need no
 `touchedPlaceText` flag because they are seeded from the entry — and a restore
 is the one moment that stops being true, since it writes the controls from
 something other than the entry. Leaving an absent field alone is what closes

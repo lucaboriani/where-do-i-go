@@ -57,11 +57,13 @@ three times — here; in `playwright.config.ts`, "23 component tests" against 26
 `docs/testing-gates.md`, 33 against a real 36. All three were removed rather than corrected, the
 last two on 2026-09-09.
 
-## why the include list has four globs and excludes .spec.ts
+## why the include list has five globs and excludes .spec.ts
 
 `components/**` and `app/**` were added **ahead** of the moves that needed them, so a colocated
-test could not land uncollected. `test/vitest-collection.test.ts` fails if any of the four stops
-matching a file that exists.
+test could not land uncollected. `hooks/**` was added *with* the move that needed it, on
+2026-09-12, which is the same-commit rule in `CLAUDE.md` — a root directory the include list does
+not name loses its tests in silence. `test/vitest-collection.test.ts` fails if any of the five
+stops matching a file that exists.
 
 `.spec.ts` is excluded and **both halves matter**. `test/fixtures/swallowed-stray.spec.ts` is a
 fixture that MUST fail, and `test/network-guard.test.ts` spawns it as a child through

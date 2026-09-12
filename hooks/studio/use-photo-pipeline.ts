@@ -11,7 +11,7 @@ import { describe } from "@/lib/pod/result";
 import type { EntryForm } from "./use-entry-form";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { Photo } from "@/lib/pod/schema";
-import type { PhotoSlot } from "../state/actions";
+import type { PhotoSlot } from "@/components/studio/entry-editor/state/actions";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
 /** The photos the entry will carry. PICKING APPENDS AND NEVER REPLACES, once
@@ -117,7 +117,7 @@ export function usePhotoPipeline({
     /* A FILL IS A CHANGE TO THE FORM, and every change arms the autosave —
        unconditionally now, because whether anything filled is the
        transition's answer and not this caller's:
-       ../state/notes.md#what-stayed-outside-the-reducer-and-why */
+       components/studio/entry-editor/state/notes.md#what-stayed-outside-the-reducer-and-why */
     markTouched();
   }
 

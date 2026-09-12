@@ -169,7 +169,7 @@ appears, name it here; do not reintroduce a total.
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
-lib/media/**   lib/pod/write.ts
+lib/media/**   lib/pod/write.ts   hooks/studio/**
 ```
 
 then `npm run test:e2e` must pass too, as

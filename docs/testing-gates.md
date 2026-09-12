@@ -8,7 +8,7 @@ why the gate is scoped to the diff rather than added to the list.
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
-lib/media/**   lib/pod/write.ts
+lib/media/**   lib/pod/write.ts   hooks/studio/**
 ```
 
 then `npm run test:e2e` must pass too. **Two seams, not one.**
@@ -30,6 +30,12 @@ the four paths on the first line, so neither the gate nor CI would have asked fo
 that catches it, and it need never have run.
 
 `lib/pod/write.ts` is on the same seam for the same reason, added 2026-09-06 alongside it.
+
+`hooks/studio/**` is the React half of both seams, added 2026-09-12 when the hooks left the
+component folders. `use-photo-pipeline.ts` drives the media pipeline and `use-entry-save.ts` the
+§10 write sequence; before the move they sat inside `components/studio/**` and were gated by it,
+and a root directory named by no glob is gated by nothing. The same failure the five checks in
+`docs/code-structure.md` tabulate — this is the sixth, and the only one not caught by a test.
 `putGuarded` took a `Blob` body in phase 3, so it is now the single function every image
 derivative reaches the Pod through — the media path's last mile, and the one carrying the
 `If-None-Match: *` that makes a re-upload answer 412 instead of overwriting. It sits in

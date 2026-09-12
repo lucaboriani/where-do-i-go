@@ -251,6 +251,14 @@ const eslintConfig = defineConfig([
                 "lib/studio is studio-only. It wraps @inrupt/solid-client-authn-browser, so importing it from a public route drags the auth library into the public bundle indirectly — the ban on the library itself, one step removed.",
             },
             {
+              // The hooks moved to a ROOT directory on 2026-09-12, out from
+              // behind the components/studio ban; this is that ban at their new
+              // home. Bare directory as well as subpath, as lib/studio has it.
+              group: ["**/hooks/studio", "**/hooks/studio/**"],
+              message:
+                "hooks/studio is studio-only. Every hook there reaches lib/studio, lib/pod/write or lib/media, so importing one from a public route drags the auth library into the public bundle indirectly — the ban on components/studio, one directory removed.",
+            },
+            {
               // The bare directory AND the subpath, matching the lib/studio
               // fence above: "**/lib/media/**" alone does NOT match a bare
               // "@/lib/media". Measured, and closed before an index.ts exists:
@@ -287,6 +295,10 @@ const eslintConfig = defineConfig([
       "lib/pod/rdf.ts",
       "lib/map/**/*.ts",
       "lib/utils.ts",
+      // NOT "hooks/**/*.ts": resolveBeltModules in test/guardrails.test.ts reads
+      // one directory level and throws on a glob matching no production file,
+      // and hooks/ itself holds only the two area directories.
+      "hooks/map/**/*.ts",
     ],
     rules: {
       "no-restricted-imports": [
@@ -323,7 +335,7 @@ const eslintConfig = defineConfig([
    *  flat config REPLACES a rule's options rather than merging them:
    *  ./notes.md#why-the-function-length-bounds-are-200-and-80-in-blocks-of-their-own */
   {
-    files: ["components/**/*.{ts,tsx}", "app/**/*.{ts,tsx}"],
+    files: ["components/**/*.{ts,tsx}", "app/**/*.{ts,tsx}", "hooks/**/*.{ts,tsx}"],
     rules: {
       "max-lines-per-function": [
         "error",

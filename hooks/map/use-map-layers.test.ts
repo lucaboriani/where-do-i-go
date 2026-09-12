@@ -89,7 +89,7 @@ describe("useMapLayers", () => {
 
   it("adds the sources once styleLoaded flips true, rather than never", () => {
     // NOT map.isStyleLoaded(): useMapInstance is the one source of truth for
-    // this now — ../notes.md#why-styleloaded-is-not-isstyleloaded.
+    // this now — ./notes.md#why-styleloaded-is-not-isstyleloaded.
     const { rerender } = renderHook(
       ({ loaded }: { loaded: boolean }) => useMapLayers(map as never, [entry("a")], loaded),
       { initialProps: { loaded: false } },

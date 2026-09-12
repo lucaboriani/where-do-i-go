@@ -1,4 +1,4 @@
-# hooks — notes
+# hooks/studio — notes
 
 `use-entry-form.ts` is the first of the five, and the only one Task 6 wrote: it
 owns the `useReducer` and hands the field groups values and callbacks. The other
@@ -176,7 +176,7 @@ answer — that their own choice is a guess.
 
 ## Two bearings the move made stale, recorded rather than repaired
 
-The precedent is `field/notes.md#what-travelled-here-already-wrong`: prose
+The precedent is `components/studio/entry-editor/field/notes.md#what-travelled-here-already-wrong`: prose
 rewritten inside an extraction commit is what makes the extraction
 unreviewable.
 
@@ -190,7 +190,7 @@ unreviewable.
 2. The same notes say "A REF, AND READ AT THE MOMENT OF THE FILL RATHER
    THAN FROM A CLOSURE". The property survives; the mechanism is now that React
    folds queued actions in order, which is
-   `../state/notes.md#guard-inside-the-transition`.
+   `components/studio/entry-editor/state/notes.md#guard-inside-the-transition`.
 
 ## Why the setters are fifteen names and not one `dispatch`
 
@@ -235,7 +235,7 @@ three sources are the gate's, and leaving it behind would have meant returning
 
 ## two bearings the move made stale, recorded rather than repaired
 
-`field/notes.md#what-travelled-here-already-wrong` is the precedent.
+`components/studio/entry-editor/field/notes.md#what-travelled-here-already-wrong` is the precedent.
 
 1. `coordinateNote`'s and `precisionOptions`' docblocks both end by pointing at
    "the select below" / "see the select below". There is no select in this file
@@ -438,7 +438,7 @@ in both halves**: the ref IS in the draft section, and `attach` no longer writes
 it. The rule it names is real and still holds — it is why `markTouched` and
 `settleDraft` sit below the declaration in this file — but the conclusion it
 draws is about a layout that no longer exists. Recorded rather than repaired,
-on `field/notes.md#what-travelled-here-already-wrong`'s precedent.
+on `components/studio/entry-editor/field/notes.md#what-travelled-here-already-wrong`'s precedent.
 
 ## `markTouched` alone arms nothing
 
@@ -825,7 +825,7 @@ rather than a disposed pipeline the second mount inherits.
 §11.3's offer keeps two guards that are not the transition's. The whole argument
 for the rest — the form and not `place.geo`, at full precision, and why the
 refusal is one record for the pair — is `applyPhotoCoordinate`'s, in
-`../state/apply-photo-offer.ts`. What is left here is the §9 gate, which reads
+`components/studio/entry-editor/state/apply-photo-offer.ts`. What is left here is the §9 gate, which reads
 state that reducer does not hold, and the tag's own absence.
 
 **`gps` is optional and the guard is not decoration.** `readMetadata` returns
@@ -1376,7 +1376,7 @@ that removes the exemption is how a reviewable diff stops being reviewable.
 **It left on 2026-09-09**, in Stage C's Task 7, in a commit whose only subject it
 was: `draft-banner/`, 31 of the 195 code lines, and `EntryEditor` measured at 164
 afterwards. The estimate above was one line out. The current number and what it
-is made of live in `../notes.md#what-the-164-are-and-why-they-stay`; everything
+is made of live in `components/studio/entry-editor/notes.md#what-the-164-are-and-why-they-stay`; everything
 above this paragraph is the measurement as it stood after the four hooks, which
 is what it is here to record.
 
@@ -1396,7 +1396,7 @@ the files does. The trail as of 2026-09-08:
 | `coordinateAuthor` · `TimeAuthor` | `state/actions.ts` |
 | `COORDINATE_SOURCE_ID` · `OFFSET_GUESS_ID` | `fields/where-fields/`, `fields/when-fields/` |
 
-Recorded rather than repaired, on `field/notes.md#what-travelled-here-already-wrong`'s
+Recorded rather than repaired, on `components/studio/entry-editor/field/notes.md#what-travelled-here-already-wrong`'s
 precedent, and the header is one of the eleven blocks Stage C's comment sweep
 owns. What it says about the DESIGN — the five ordering decisions, §9's
 fail-closed posture, why a value that appeared without being typed has to name

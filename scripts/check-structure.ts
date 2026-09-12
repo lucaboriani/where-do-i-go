@@ -29,7 +29,7 @@ function files(dir: string, withTests: boolean, out: string[] = []): string[] {
   return out;
 }
 
-const DIRS = ["components", "app", "lib", "scripts", "test", "e2e"];
+const DIRS = ["components", "app", "hooks", "lib", "scripts", "test", "e2e"];
 
 /** Root config files too: `eslint.config.mjs`, `playwright.config.ts`,
  *  `vitest.config.ts`, `proxy.ts`. Not recursive - `DIRS` covers the rest.
@@ -204,7 +204,7 @@ async function driftReport(): Promise<string[]> {
   // The NAMESPACE, not `.default`, which is undefined: ./notes.md#no-default-export
   const parser = await import("@typescript-eslint/parser");
   const lines: string[] = [];
-  for (const [dirs, max] of [[["components", "app"], 130], [["lib", "scripts"], 50]] as const) {
+  for (const [dirs, max] of [[["components", "app", "hooks"], 130], [["lib", "scripts"], 50]] as const) {
     const list = dirs.flatMap((d) => files(join(ROOT, d), false));
     if (list.length === 0) continue;
     const e = new ESLint({

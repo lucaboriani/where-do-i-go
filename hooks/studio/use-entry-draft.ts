@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { nowWithOffset } from "@/lib/time/offsets";
-import type { EntryFormState } from "../state/actions";
+import type { EntryFormState } from "@/components/studio/entry-editor/state/actions";
 import type { Photo } from "@/lib/pod/schema";
 import type { Draft, StorageLike } from "@/lib/studio/drafts";
 

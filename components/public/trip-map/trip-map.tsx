@@ -6,9 +6,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
 import { type Bbox } from "@/lib/map/view";
 import type { IndexEntry } from "@/lib/pod/schema";
-import { useMapInstance } from "./hooks/use-map-instance";
-import { useMapLayers } from "./hooks/use-map-layers";
-import { useMapMarkers } from "./hooks/use-map-markers";
+import { useMapInstance } from "@/hooks/map/use-map-instance";
+import { useMapLayers } from "@/hooks/map/use-map-layers";
+import { useMapMarkers } from "@/hooks/map/use-map-markers";
 
 // Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
