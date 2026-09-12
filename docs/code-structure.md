@@ -146,12 +146,15 @@ and, for each, whether the blindness shows up red or green:**
 | `vitest.config.ts` include | `test/ lib/ components/ app/` matches no `hooks/` file, so eight test files stop being collected | red |
 | the `setProjection` scan | `git grep -- lib components app` finds nothing at the new path | red |
 
-**Three fail open, and the two that fail red are the interesting ones.** Neither is red by luck:
+**Three fail open, and the two that fail red are red for different reasons.**
 `test/vitest-collection.test.ts` diffs the whole repository against `vitest list` rather than
-walking a directory list, and `git grep` exits 1 on no match, which `execFileSync` turns into a
-throw. Both were built by someone who assumed the file tree would move. Measured on this tree,
-not reasoned about — the first draft of this table claimed four of five failed open and was
-wrong about the `setProjection` row in the direction that flatters the author.
+walking a directory list — it survives any move by construction. The `setProjection` scan does
+not: its pathspec is hand-typed, exactly the shape that goes blind. It failed red anyway because
+it asserts an exact expected path and, since this branch, the grep's exit status too, so an empty
+result cannot read as clean. Measured on this tree, not reasoned about — the first draft of this
+table claimed four of five failed open and was wrong about that row in the direction that
+flatters the author, and the correction itself then credited a `execFileSync` throw this branch
+had already replaced with `spawnSync`.
 
 A sixth is not a check but a gate, and it fails open with no test behind it at all: `CLAUDE.md`'s
 path-scoped `test:e2e` list named `components/studio/**`, which is where the media and write

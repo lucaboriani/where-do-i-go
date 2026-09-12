@@ -1379,21 +1379,31 @@ describe("the belt reaches hooks/map", () => {
  *  React layer, and @inrupt/solid-client with it, today. Which spelling does
  *  the work, and why no unrelated rule can green these:
  *  ./notes.md#the-belt-never-fenced-its-members-from-the-studio-hooks */
-describe("the belt fences its members from hooks/studio", () => {
-  it.each(BELTED_MODULES)("rejects @/hooks/studio/use-photo-pipeline at %s", async (path) => {
-    const msgs = await lint(
-      path,
-      `import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";\nexport default usePhotoPipeline;\n`,
-    );
-    expect(fatals(msgs)).toEqual([]);
-    expect(ruleIds(msgs)).toContain("no-restricted-imports");
-  });
+describe("the belt fences its members from the studio, hooks and route group alike", () => {
+  /** GAP 3 rides the same sweep, so it widens as the belt does: `**\/studio`
+   *  cannot see `app/(studio)`, and the studio ROOT LAYOUT is what a belt
+   *  member may import today — the auth library into a public chunk with
+   *  `npm run lint` green. Which rows are load-bearing and which incidental:
+   *  ./notes.md#the-belt-cannot-see-a-parenthesised-route-group */
+  const STUDIO_SPELLINGS = ["@/hooks/studio/use-photo-pipeline", "@/app/(studio)/layout"];
+  it.each(BELTED_MODULES.flatMap((path) => STUDIO_SPELLINGS.map((s) => [path, s])))(
+    "rejects %s importing %s",
+    async (path, moduleSpecifier) => {
+      const msgs = await lint(path, `import * as mod from "${moduleSpecifier}";\nexport default String(mod);\n`);
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    },
+  );
 
   it.each([
     ["the bare directory, which is the load-bearing row", "@/hooks/studio"],
     ["the subpath", "@/hooks/studio/use-entry-save"],
     ["the relative sibling, which never spells hooks/", "../studio/use-entry-save"],
     ["the relative sibling, bare", "../studio"],
+    ["the studio ROOT LAYOUT, which no `**/studio` glob can see", "@/app/(studio)/layout"],
+    ["the route group, bare — load-bearing for the same reason", "@/app/(studio)"],
+    ["a page inside it: INCIDENTAL, that directory is itself named studio", "@/app/(studio)/studio/page"],
+    ["the route group reached relatively, which pins parenthesis AND sibling at once", "../../app/(studio)/layout"],
   ])("rejects %s from a belt member — %s", async (_shape, moduleSpecifier) => {
     const msgs = await lint(
       "hooks/map/use-map-instance.ts",
@@ -1405,14 +1415,16 @@ describe("the belt fences its members from hooks/studio", () => {
   });
 
   /** The anti-over-reach half. A belt member keeps React, its sibling hook and
-   *  the lib modules it drives; and the fix belongs in the BELT block, so
-   *  hooks/studio importing itself stays legal — put a studio pattern in the
-   *  everywhere block instead and the last row is the one that notices. */
+   *  the lib modules it drives; and the fix belongs in the BELT block, so the
+   *  studio importing itself stays legal — put either studio pattern in the
+   *  everywhere block instead and the last two rows are what notice. Measured
+   *  both ways through overrideConfig, never by editing the config. */
   it.each([
     ["hooks/map/use-map-instance.ts", "react"],
     ["hooks/map/use-map-markers.ts", "./use-map-layers"],
     ["hooks/map/use-map-layers.ts", "@/lib/pod/schema"],
     ["hooks/studio/use-photo-pipeline.ts", "@/hooks/studio/use-entry-draft"],
+    ["app/(studio)/layout.tsx", "@/app/(studio)/studio/page"],
   ])("still allows %s to import %s", async (path, moduleSpecifier) => {
     const msgs = await lint(path, `import * as mod from "${moduleSpecifier}";\nexport const used = String(mod);\n`);
     expect(fatals(msgs)).toEqual([]);

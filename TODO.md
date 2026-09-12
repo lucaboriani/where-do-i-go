@@ -1523,10 +1523,16 @@ Six things a new root directory was invisible to are closed in the same commits,
 `test:e2e` gate, which named `components/studio/**` and so stopped covering the media and write
 seams' hooks the moment they moved. `hooks/studio/**` is on that list now.
 
-- [ ] **The belt block fences its members from `lib/studio` and `@inrupt/*`, and from nothing
-      else.** Measured 2026-09-12: `lib/pod/read.ts` may import `exifreader`, `@/lib/media`,
-      `@/lib/pod/write`, `@/lib/pod/save-entry`, `@/lib/pod/entry-model` or `radix-ui` with
-      `npm run lint` green, though the boundary block bans all six. Pre-existing, not caused by
+- [ ] **The belt block fences its members from `studio` and `@inrupt/*`, and from nothing else.**
+      **Mirror the boundary block's groups; do not work from a list.** Measured 2026-09-12:
+      `lib/pod/read.ts` may import `exifreader`, `@/lib/media`, `@/lib/pod/write`,
+      `@/lib/pod/save-entry`, `@/lib/pod/entry-model`, `@/lib/pod/access`, `radix-ui`,
+      `@radix-ui/react-slot`, `vaul`, `sonner` or `next-themes` with `npm run lint` green,
+      though the boundary block bans every one. The first enumeration here named six and was
+      four short — `@/lib/pod/access` is the one that matters, because `lib/pod/cached.ts` IS
+      imported by public pages and that import is the ACL implementation plus
+      `@inrupt/solid-client` in a public chunk. A fence written as a list is only as good as the
+      list; `ACL_PRIMITIVES` carries the same warning. Pre-existing, not caused by
       the move, and it applies to all 21 belt members — which is why it is here rather than in
       that branch: widening the group changes the fence for `lib/vocab.ts`, `lib/utils.ts`,
       `lib/pod/cached.ts`, `lib/pod/rdf.ts` and all of `lib/map`, each needing its own measured
@@ -1536,8 +1542,23 @@ seams' hooks the moment they moved. `hooks/studio/**` is on that list now.
       `npm run size:public`. The repo-file half has a late net — the closure walk turns red once
       something public actually imports it, as an "unbelted module" failure rather than an
       actionable message.
-- [ ] `test/guardrails.test.ts` is at **989 code lines against the 1000 hard bound**. The next
+- [ ] `test/guardrails.test.ts` is at **991 code lines against the 1000 hard bound** — measured
+      with an eslint `max-lines` override, not counted by eye, after 989 was reported. The next
       case that wants to live there needs the file split first.
+- [ ] **The derived belt sweep is loud on one axis and silent on two.** `resolveBeltModules`
+      reads ONE directory level, so `hooks/map/sub/x.ts` is fenced by the config and missed by
+      the sweep; and a belt entry spelled without `/**/` falls through to the literal-path branch
+      and gets linted at a path that does not exist. Both silent. The closure walk is the
+      backstop, but only for modules something public actually imports — members belted ahead of
+      use (`lib/time/offsets.ts`, `lib/place/precision.ts`) are not in the closure and have no
+      net at all.
+- [ ] **Two stale things in `hooks/studio/notes.md`, both pre-existing and neither caught by any
+      check.** Its headings at :177 and :236 differ only in case, so they slug identically and
+      the second resolves as `…-1`; and both cite
+      `components/studio/entry-editor/field/notes.md#what-travelled-here-already-wrong`, a file
+      that does not exist. `check:structure` validates pointers only inside code comments, so
+      markdown-to-markdown references rot in silence — the same class as `TODO.md`'s own moved
+      anchor, fixed in `28ecaad`.
 
 ## Phase 4 — map and timeline
 

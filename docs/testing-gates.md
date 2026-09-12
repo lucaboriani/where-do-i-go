@@ -1,8 +1,10 @@
 # The e2e gate, and why the definition of done is nine commands plus one
 
 `CLAUDE.md` `## How work is done here` carries the rule: nine unconditional commands, plus
-`npm run test:e2e` when the diff touches one of six paths. **This file is why those six**, and
-why the gate is scoped to the diff rather than added to the list.
+`npm run test:e2e` when the diff touches one of the paths below. **This file is why those
+paths**, and why the gate is scoped to the diff rather than added to the list. No count here on
+purpose: the list gained `hooks/studio/**` on 2026-09-12 while three sentences elsewhere still
+said "six", and a reader reconciling a numeral against a list deletes the newest entry.
 
 **A tenth command, path-scoped rather than unconditional.** If the diff touches any of
 

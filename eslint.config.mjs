@@ -322,8 +322,9 @@ const eslintConfig = defineConfig([
             {
               // "**/studio", not "**/hooks/studio": from hooks/map the sibling
               // spells ../studio, which contains no "hooks/" segment at all.
-              // ./notes.md#why-the-belt-names-any-studio-directory
-              group: ["@inrupt/*", "**/studio", "**/studio/**"],
+              // The route group needs its own pair — no "studio" segment there
+              // either. ./notes.md#why-the-belt-names-any-studio-directory
+              group: ["@inrupt/*", "**/studio", "**/studio/**", "**/(studio)", "**/(studio)/**"],
               message:
                 "This module is imported by public routes. Importing lib/studio, hooks/studio or an Inrupt package here puts the auth library in the public bundle indirectly — the same failure the app/(public) fence prevents, one level down.",
             },

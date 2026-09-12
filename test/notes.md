@@ -103,3 +103,44 @@ count moved rather than the skip.
 `.ts`, a production `.tsx` and a `.test.tsx` at a single level, which is all three things the
 resolver has to get right. It is not itself a belt member and does not need to be: what is under
 test is the resolver's reading of the glob, not the fence at that path.
+
+## the belt cannot see a parenthesised route group
+
+The same hole, one fence over. The belt group is `["@inrupt/*", "**/studio", "**/studio/**"]`, and
+**`**/studio` does not match `app/(studio)`** — gitignore semantics match whole path segments, and
+`(studio)` is a different segment from `studio`. So every belt member, which is every module a
+public page can reach, may import the studio ROOT LAYOUT today. That layout is where the auth
+library enters the studio tree, so this is `@inrupt/*` in a public chunk with `npm run lint` green.
+The boundary block already carries `**/(studio)/**` for exactly this reason.
+
+Measured under `ESLint.lintText` against the real config, zero messages on each:
+
+```
+hooks/map/use-map-layers.ts    <-  @/app/(studio)/layout
+hooks/map/use-map-instance.ts  <-  @/app/(studio)
+lib/pod/cached.ts              <-  @/app/(studio)/layout
+lib/utils.ts                   <-  @/app/(studio)/layout
+hooks/map/use-map-instance.ts  <-  ../../app/(studio)/layout
+```
+
+**Which rows are load-bearing**, measured against a candidate fix applied through ESLint's
+`overrideConfig` — `group: [..., "**/(studio)", "**/(studio)/**"]` — rather than by editing
+`eslint.config.mjs`:
+
+- `@/app/(studio)/layout` and the bare `@/app/(studio)` are the load-bearing rows. Both are green
+  before the fix and red after it, and nothing but a parenthesis-aware pattern moves them.
+- `@/app/(studio)/studio/page` is **incidental**: it is refused today, by `**/studio/**` catching
+  the route directory that happens to be *named* `studio`. Rename that route and the row proves
+  nothing. It stays as a row because it is the one shape that shows the coverage is accidental.
+- the relative `../../app/(studio)/layout` is load-bearing too, and IS a row: a relative specifier
+  escaping a fence written in absolute terms is the defect that produced this finding twice over
+  (`../studio` slipping `**/hooks/studio`, `(studio)` slipping `components/studio/**`), so the one
+  row that pins parenthesis and sibling together earns its line.
+- **the bare `**/(studio)` is the half that does the work.** Measured one half at a time: it alone
+  turns all three spellings red, while `**/(studio)/**` alone leaves the bare `@/app/(studio)`
+  green — gitignore semantics again, exactly as the radix-ui and lib/studio groups record. Keep
+  both anyway, for the same reason those do: it is a matcher property, not a promise.
+
+The last allow row — `app/(studio)/layout.tsx <- @/app/(studio)/studio/page` — is a scope pin, not
+decoration. Put the two patterns in the everywhere block instead of the belt block and it goes red
+along with the studio's own page/shell allow-case further up the file; measured both ways.

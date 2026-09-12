@@ -175,7 +175,7 @@ lib/media/**   lib/pod/write.ts   hooks/studio/**
 then `npm run test:e2e` must pass too, as
 `env -u CLAUDECODE -u AI_AGENT E2E_PORT=3007 npm run test:e2e`.
 
-**Two seams, not one: auth and media.** Why each of those six paths is listed, why the gate is
+**Two seams, not one: auth and media.** Why each of those paths is listed, why the gate is
 scoped to the diff instead of joining the list above, why it over-fires on test-only diffs
 deliberately, and the control that proves the integration suites ran rather than skipped — all in
 **`docs/testing-gates.md`**. Read it before narrowing a glob or skipping the run.
@@ -208,7 +208,7 @@ no server-side session anywhere in the system.
 | `docs/phase-0-spike.md` | Platform assumptions still unverified. |
 | `TODO.md` | Ordered task list, including installation and setup. Start here. |
 | `docs/code-structure.md` | Why the size and comment rules are what they are, with the measurements |
-| `docs/testing-gates.md` | Why the e2e gate lists those six paths, and how to prove a run was not empty |
+| `docs/testing-gates.md` | Why the e2e gate lists the paths it does, and how to prove a run was not empty |
 | `AGENTS.md` | Pointer file; hosts the Next.js managed block. Do not delete. |
 
 ## Blocked until decided
@@ -331,10 +331,11 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
   `lib/studio` is, bare directory and subpath both; `hooks/map/**` is publicly reachable and
   belongs in the belt. `vitest.config.ts`, `check:structure`'s `DIRS` and the length bound are
   already wildcarded at `hooks/**` and need nothing for a new area. The two that are hand-typed
-  do: a studio-shaped area joins the boundary block's pattern group, a publicly reachable one
-  joins the belt block's `files` array — **in the same commit**, because an area in neither is
-  fenced by nothing and no check says so until something public imports it. See
-  `docs/code-structure.md`.
+  do, and a studio-shaped area on the auth or media seam makes three: the boundary block's
+  pattern group, the belt block's `files` array for a publicly reachable area, and the
+  path-scoped `test:e2e` list above — **all in the same commit**, because an area in none of
+  them is fenced by nothing and no check says so until something public imports it. The e2e
+  list is the one with no test behind it at all. See `docs/code-structure.md`.
 - **`lib/` holds no React.** Pure and reusable goes to `lib/studio/<topic>/`; hooks go to
   `hooks/<area>/`; presentation stays in the component folder.
 - **Tests live beside their subject** — same directory, base name matching the part before the
