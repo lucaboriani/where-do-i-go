@@ -135,23 +135,33 @@ transitively — so a flat root `hooks/` would have taken them out from behind t
 fence a hand-typed list of five filenames, which is the shape this file already records as having
 failed. `hooks/studio/**` keeps the same mechanism, bare directory and subpath both.
 
-**What a new root directory goes invisible to, measured before the move rather than after:**
+**What a new root directory goes invisible to, measured before the move rather than after —
+and, for each, whether the blindness shows up red or green:**
 
-| Check | Why it went blind |
-|---|---|
-| `vitest.config.ts` include | `test/ lib/ components/ app/`. `hooks/**` matches none — eight test files stop being collected, in silence. The `.tsx IS LOAD-BEARING` shout is the same trap. |
-| `eslint.config.mjs` | 200 lines for `components/**`+`app/**`, 80 for `lib/**`+`scripts/**`. `hooks/**` matched neither, so the bound disappeared rather than tightening. Hooks take the render bound. |
-| `scripts/check-structure.ts` | `DIRS` and the tendency-report pairs both name directories one by one. |
-| `test/guardrails.test.ts` | the `setProjection` single-call-site scan runs `git grep -- lib components app`; after the move it finds nothing, and an empty result read as a pass. |
-| the belt block | `hooks/map/**` is reachable from a public page and was fenced by nothing until added. |
+| Check | Why it went blind | How it failed |
+|---|---|---|
+| `eslint.config.mjs` bounds | 200 lines for `components/**`+`app/**`, 80 for `lib/**`+`scripts/**`; `hooks/**` matched neither, so the bound disappeared rather than tightening | **open** |
+| `scripts/check-structure.ts` | `DIRS` and the tendency pairs name directories one by one | **open** |
+| the belt block | `hooks/map/**` is reachable from a public page and was fenced by nothing; the closure walk that would have said so was itself scoped to `lib/**` | **open** |
+| `vitest.config.ts` include | `test/ lib/ components/ app/` matches no `hooks/` file, so eight test files stop being collected | red |
+| the `setProjection` scan | `git grep -- lib components app` finds nothing at the new path | red |
 
-A sixth is not a check but a gate: `CLAUDE.md`'s path-scoped `test:e2e` list named
-`components/studio/**`, which is where the media and write seams' hooks used to live.
-`hooks/studio/**` joined that list in the same commit — see `docs/testing-gates.md`.
+**Three fail open, and the two that fail red are the interesting ones.** Neither is red by luck:
+`test/vitest-collection.test.ts` diffs the whole repository against `vitest list` rather than
+walking a directory list, and `git grep` exits 1 on no match, which `execFileSync` turns into a
+throw. Both were built by someone who assumed the file tree would move. Measured on this tree,
+not reasoned about — the first draft of this table claimed four of five failed open and was
+wrong about the `setProjection` row in the direction that flatters the author.
 
-Four of the five fail *open*. That is the general form worth carrying: **a root directory that no
-check names is invisible to all of them at once**, and the failure is a green run, not a red one.
-Hence the same-commit rule in `CLAUDE.md`.
+A sixth is not a check but a gate, and it fails open with no test behind it at all: `CLAUDE.md`'s
+path-scoped `test:e2e` list named `components/studio/**`, which is where the media and write
+seams' hooks used to live. `hooks/studio/**` joined that list in the same commit — see
+`docs/testing-gates.md`.
+
+The general form worth carrying: **a directory-scoped check cannot notice a directory it does not
+name**, and the ones that survive a move are the ones written against the whole tree. Hence the
+same-commit rule in `CLAUDE.md`, and hence preferring a derived list to a typed one wherever a
+check can manage it.
 
 **A barrel re-exports ONE component, never a directory of them.** `studio-client.tsx`
 dynamic-imports the shell with `ssr: false`, and an aggregating `components/studio/index.ts`

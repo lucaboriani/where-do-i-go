@@ -1619,7 +1619,7 @@ statically importing the first three.
         and stays false long after `style.load` has already fired once, past the point anything
         can still catch it. `useMapInstance` now tracks `styleLoaded` itself, from the same
         `style.load` handler it already registers at construction with no race. Notes at
-        `components/public/trip-map/notes.md#why-styleloaded-is-not-isstyleloaded`.
+        `hooks/map/notes.md#why-styleloaded-is-not-isstyleloaded`.
         (2) `maplibre-gl` 6.6.0's own worker-URL detection is unusable under Turbopack, dev and a
         production build alike, and fails with no visible error — every worker-dependent feature
         (GeoJSON tiling, real vector-tile parsing) silently never completes. Fixed by two new

@@ -295,10 +295,12 @@ const eslintConfig = defineConfig([
       "lib/pod/rdf.ts",
       "lib/map/**/*.ts",
       "lib/utils.ts",
-      // NOT "hooks/**/*.ts": resolveBeltModules in test/guardrails.test.ts reads
-      // one directory level and throws on a glob matching no production file,
-      // and hooks/ itself holds only the two area directories.
-      "hooks/map/**/*.ts",
+      // NOT "hooks/**/*.{ts,tsx}": resolveBeltModules in test/guardrails.test.ts
+      // reads one directory level and throws on a glob matching no production
+      // file, and hooks/ itself holds only the two area directories. The
+      // extensions match the length block's — a hook returning a marker
+      // element is a .tsx, and a .ts-only glob leaves it unfenced.
+      "hooks/map/**/*.{ts,tsx}",
     ],
     rules: {
       "no-restricted-imports": [
@@ -318,9 +320,12 @@ const eslintConfig = defineConfig([
           ],
           patterns: [
             {
-              group: ["@inrupt/*", "**/lib/studio", "**/lib/studio/**"],
+              // "**/studio", not "**/hooks/studio": from hooks/map the sibling
+              // spells ../studio, which contains no "hooks/" segment at all.
+              // ./notes.md#why-the-belt-names-any-studio-directory
+              group: ["@inrupt/*", "**/studio", "**/studio/**"],
               message:
-                "This module is imported by public routes. Importing lib/studio or an Inrupt package here puts the auth library in the public bundle indirectly — the same failure the app/(public) fence prevents, one level down.",
+                "This module is imported by public routes. Importing lib/studio, hooks/studio or an Inrupt package here puts the auth library in the public bundle indirectly — the same failure the app/(public) fence prevents, one level down.",
             },
             MAPLIBRE_PATTERN,
           ],

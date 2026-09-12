@@ -60,10 +60,11 @@ function beltFilesArray(): string[] {
   return block.files;
 }
 
-/** A files entry is a literal path, or "<dir>/**\/*.ts" naming every
- *  production .ts file directly under dir — the only two shapes the belt
- *  uses today. Throws on a glob that matched nothing rather than silently
- *  sweeping an empty list. */
+/** A files entry is a literal path, or "<dir>/**\/*.{ts,tsx}" naming every
+ *  production file of those extensions directly under dir — the only two
+ *  shapes the belt uses. The extension group is READ, not assumed: a resolver
+ *  hard-coded to .ts drops a .tsx member from the derived sweep in silence.
+ *  Throws on a glob that matched nothing rather than sweeping an empty list. */
 function resolveBeltModules(patterns: string[]): string[] {
   const out: string[] = [];
   for (const pattern of patterns) {
@@ -73,9 +74,11 @@ function resolveBeltModules(patterns: string[]): string[] {
       continue;
     }
     const dir = pattern.slice(0, cut);
+    const exts = extensionsOf(pattern);
     const files = existsSync(dir)
       ? readdirSync(dir, { withFileTypes: true })
-          .filter((e) => e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts"))
+          .filter((e) => e.isFile() && exts.some((ext) => e.name.endsWith(`.${ext}`)))
+          .filter((e) => !/\.test\.tsx?$/.test(e.name))
           .map((e) => `${dir}/${e.name}`)
       : [];
     if (files.length === 0) {
@@ -101,6 +104,26 @@ function boundaryCovers(file: string): boolean {
     );
   }
   return block.files.some((f) => (f.endsWith("/**") ? file.startsWith(f.slice(0, -2)) : file === f));
+}
+
+/** The extension set a files glob ends in: "hooks/**\/*.{ts,tsx}" -> ["ts","tsx"],
+ *  "hooks/map/**\/*.ts" -> ["ts"]. Throws rather than returning [] on a shape it
+ *  cannot read, so a config rewritten some other way fails loudly instead of
+ *  making the comparison below vacuously true. */
+function extensionsOf(pattern: string): string[] {
+  const m = /\*\.(?:\{([a-z,]+)\}|([a-z]+))$/.exec(pattern);
+  if (!m) throw new Error(`"${pattern}" does not end in an extension group; extensionsOf cannot read it.`);
+  return (m[1] ?? m[2]).split(",").sort();
+}
+
+/** The hooks glob in the max-lines-per-function block — located by content,
+ *  like the two above, because it is the spelling the belt is measured against. */
+function lengthBlockHookGlob(): string {
+  const entries = config as Array<{ files?: string[] }>;
+  const block = entries.find((c) => (c.files ?? []).includes("components/**/*.{ts,tsx}"));
+  const glob = block?.files?.find((f) => f.startsWith("hooks/"));
+  if (!glob) throw new Error("No block in eslint.config.mjs pairs components/**/*.{ts,tsx} with a hooks/ glob — the render-length block moved, and there is nothing to measure the belt's glob against.");
+  return glob;
 }
 
 describe("guardrails actually fire", () => {
@@ -1348,6 +1371,125 @@ describe("the belt reaches hooks/map", () => {
       expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
     },
   );
+});
+
+/** GAP 1. The belt's one pattern group is ["@inrupt/*", "**\/lib/studio",
+ *  "**\/lib/studio/**"], and hooks/map joined that block on 2026-09-12 without
+ *  hooks/studio joining the group — so a belt member may import the studio's
+ *  React layer, and @inrupt/solid-client with it, today. Which spelling does
+ *  the work, and why no unrelated rule can green these:
+ *  ./notes.md#the-belt-never-fenced-its-members-from-the-studio-hooks */
+describe("the belt fences its members from hooks/studio", () => {
+  it.each(BELTED_MODULES)("rejects @/hooks/studio/use-photo-pipeline at %s", async (path) => {
+    const msgs = await lint(
+      path,
+      `import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";\nexport default usePhotoPipeline;\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+  });
+
+  it.each([
+    ["the bare directory, which is the load-bearing row", "@/hooks/studio"],
+    ["the subpath", "@/hooks/studio/use-entry-save"],
+    ["the relative sibling, which never spells hooks/", "../studio/use-entry-save"],
+    ["the relative sibling, bare", "../studio"],
+  ])("rejects %s from a belt member — %s", async (_shape, moduleSpecifier) => {
+    const msgs = await lint(
+      "hooks/map/use-map-instance.ts",
+      `import * as mod from "${moduleSpecifier}";\nexport default String(mod);\n`,
+    );
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).toContain("no-restricted-imports");
+    expect(msgs.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.message).join("\n")).toContain(moduleSpecifier);
+  });
+
+  /** The anti-over-reach half. A belt member keeps React, its sibling hook and
+   *  the lib modules it drives; and the fix belongs in the BELT block, so
+   *  hooks/studio importing itself stays legal — put a studio pattern in the
+   *  everywhere block instead and the last row is the one that notices. */
+  it.each([
+    ["hooks/map/use-map-instance.ts", "react"],
+    ["hooks/map/use-map-markers.ts", "./use-map-layers"],
+    ["hooks/map/use-map-layers.ts", "@/lib/pod/schema"],
+    ["hooks/studio/use-photo-pipeline.ts", "@/hooks/studio/use-entry-draft"],
+  ])("still allows %s to import %s", async (path, moduleSpecifier) => {
+    const msgs = await lint(path, `import * as mod from "${moduleSpecifier}";\nexport const used = String(mod);\n`);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+  });
+});
+
+/** GAP 2. The belt spells its member "hooks/map/**\/*.ts" while the SAME COMMIT
+ *  spelled the length block "hooks/**\/*.{ts,tsx}" — the two disagree about
+ *  what a hook file is, and a hook returning a marker element IS a .tsx. What
+ *  is measured as open at a .tsx, and why the ACL ban is deliberately not a
+ *  case here: ./notes.md#the-belt-glob-is-ts-only-and-hooks-is-react-territory */
+describe("the belt's glob counts a .tsx hook as a hook", () => {
+  it("spells its hooks glob with the extensions the length block uses, not a narrower set", () => {
+    const beltHooks = beltFilesArray().filter((f) => f.startsWith("hooks/"));
+    // Non-vacuity: with no hooks entry at all, the comparison below is
+    // trivially true and this case grades an empty list.
+    expect(beltHooks).not.toEqual([]);
+    const wanted = extensionsOf(lengthBlockHookGlob());
+    expect(wanted).toContain("tsx");
+    expect(beltHooks.map((f) => [f, extensionsOf(f)])).toEqual(beltHooks.map((f) => [f, wanted]));
+  });
+
+  /** The control. A .tsx under hooks/map is linted by SOMETHING, so a clean
+   *  no-restricted-imports result below is the fence missing rather than the
+   *  path being ignored — this file's own "verified nothing" check. */
+  it("lints a .tsx under hooks/map at all", async () => {
+    const msgs = await lint("hooks/map/use-map-instance.tsx", `const p = "https://schema.org/name";\nexport default p;\n`);
+    expect(fatals(msgs)).toEqual([]);
+    expect(ruleIds(msgs)).toContain("no-restricted-syntax");
+  });
+
+  it.each([
+    "maplibre-gl",
+    "maplibre-gl/dist/maplibre-gl.mjs",
+    "@inrupt/solid-client-authn-browser",
+    "@/lib/studio/session",
+    "@/hooks/studio/use-entry-save",
+  ])("rejects %s at hooks/map/use-map-instance.tsx, exactly as at the .ts", async (moduleSpecifier) => {
+    const code = `import * as mod from "${moduleSpecifier}";\nexport default function H() { return <div>{String(mod)}</div>; }\n`;
+    const tsx = await lint("hooks/map/use-map-instance.tsx", code);
+    expect(fatals(tsx)).toEqual([]);
+    expect(ruleIds(tsx)).toContain("no-restricted-imports");
+  });
+
+  it.each(["maplibre-gl/dist/maplibre-gl.css", "@/lib/map/view", "@/lib/pod/read"])(
+    "allows %s at a .tsx under hooks/map, so the widened glob is a fence and not a ban",
+    async (moduleSpecifier) => {
+      const msgs = await lint(
+        "hooks/map/use-map-instance.tsx",
+        `import "${moduleSpecifier}";\nexport default function H() { return <div />; }\n`,
+      );
+      expect(fatals(msgs)).toEqual([]);
+      expect(ruleIds(msgs)).not.toContain("no-restricted-imports");
+    },
+  );
+
+  /** AND THE DERIVED SWEEP HAS TO WIDEN WITH IT, or every BELTED_MODULES sweep
+   *  above goes green while covering less than the config claims. The fixture
+   *  directory and why it is that one:
+   *  ./notes.md#the-derived-sweep-has-to-widen-with-the-glob */
+  it("derives a .tsx member from a {ts,tsx} glob, and keeps a .ts glob narrow", () => {
+    const dir = "components/public/trip-map";
+    // The control: the fixture directory really has all three shapes, or this
+    // case grades an empty listing and proves nothing.
+    const fixtures = ["index.ts", "trip-map.tsx", "trip-map.test.tsx"];
+    expect(fixtures.filter((f) => !existsSync(resolve(dir, f))), "the fixture directory").toEqual([]);
+    const both = resolveBeltModules([`${dir}/**/*.{ts,tsx}`]);
+    expect(both).toContain(`${dir}/trip-map.tsx`);
+    expect(both).toContain(`${dir}/index.ts`);
+    expect(both.filter((f) => f.includes(".test."))).toEqual([]);
+
+    // The other direction: a .ts-only glob must not start sweeping .tsx in.
+    const tsOnly = resolveBeltModules([`${dir}/**/*.ts`]);
+    expect(tsOnly).toContain(`${dir}/index.ts`);
+    expect(tsOnly.filter((f) => f.endsWith(".tsx"))).toEqual([]);
+  });
 });
 
 /**

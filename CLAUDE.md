@@ -303,7 +303,7 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
 
 | Rule | Tendency | Hard bound | Applies to |
 |---|---|---|---|
-| Render function | 130 | 200 | `components/**`, `app/**` |
+| Render function | 130 | 200 | `components/**`, `app/**`, `hooks/**` |
 | Util / lib function | 50 | 80 | `lib/**`, `scripts/**` |
 | Inline comment block | 3 lines | 6 lines | **production code**, except `components/ui/**` |
 | Test file | 600 | 1000 | `**/*.test.{ts,tsx}` |
@@ -329,9 +329,11 @@ Numbers are **tendencies, then hard bounds**. Both exclude comment-only and blan
 - **Every React hook lives in `hooks/<area>/`** — a root directory beside `components/`, never
   inside a component folder. `hooks/studio/**` is fenced from the public path exactly as
   `lib/studio` is, bare directory and subpath both; `hooks/map/**` is publicly reachable and
-  belongs in the belt. A new `hooks/<area>/` joins `eslint.config.mjs`, `vitest.config.ts`'s
-  include list and `check:structure`'s `DIRS` **in the same commit** — a root directory no check
-  names is invisible to all of them, and its tests simply stop running. See
+  belongs in the belt. `vitest.config.ts`, `check:structure`'s `DIRS` and the length bound are
+  already wildcarded at `hooks/**` and need nothing for a new area. The two that are hand-typed
+  do: a studio-shaped area joins the boundary block's pattern group, a publicly reachable one
+  joins the belt block's `files` array — **in the same commit**, because an area in neither is
+  fenced by nothing and no check says so until something public imports it. See
   `docs/code-structure.md`.
 - **`lib/` holds no React.** Pure and reusable goes to `lib/studio/<topic>/`; hooks go to
   `hooks/<area>/`; presentation stays in the component folder.
