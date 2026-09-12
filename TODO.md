@@ -1511,6 +1511,34 @@ first; and the fifteen phase-3 follow-ups above are untouched.
 
 **Phase 4 next.**
 
+## Hooks moved to `hooks/<area>/` — 2026-09-12
+
+Eight React hooks left the component folders for a root `hooks/`: three to `hooks/map/`, five to
+`hooks/studio/`. The rule is in `CLAUDE.md` § Code structure, the reasoning and the measurements
+in `docs/code-structure.md` § "Why hooks live at the root". Not a Next.js convention — Next is
+unopinionated outside `app/`; this is a repository choice, made because `trip-map`'s three hooks
+are map machinery that stage 5's globe will want, and three files never earned a nested folder.
+
+Six things a new root directory was invisible to are closed in the same commits, including the
+`test:e2e` gate, which named `components/studio/**` and so stopped covering the media and write
+seams' hooks the moment they moved. `hooks/studio/**` is on that list now.
+
+- [ ] **The belt block fences its members from `lib/studio` and `@inrupt/*`, and from nothing
+      else.** Measured 2026-09-12: `lib/pod/read.ts` may import `exifreader`, `@/lib/media`,
+      `@/lib/pod/write`, `@/lib/pod/save-entry`, `@/lib/pod/entry-model` or `radix-ui` with
+      `npm run lint` green, though the boundary block bans all six. Pre-existing, not caused by
+      the move, and it applies to all 21 belt members — which is why it is here rather than in
+      that branch: widening the group changes the fence for `lib/vocab.ts`, `lib/utils.ts`,
+      `lib/pod/cached.ts`, `lib/pod/rdf.ts` and all of `lib/map`, each needing its own measured
+      allow-case. **The package half is the urgent half**: `resolveSpecifier` in
+      `test/support/imports.ts` returns `undefined` for a bare package specifier by design, so
+      `exifreader` in a belt member is invisible to every test in the suite and caught only by
+      `npm run size:public`. The repo-file half has a late net — the closure walk turns red once
+      something public actually imports it, as an "unbelted module" failure rather than an
+      actionable message.
+- [ ] `test/guardrails.test.ts` is at **989 code lines against the 1000 hard bound**. The next
+      case that wants to live there needs the file split first.
+
 ## Phase 4 — map and timeline
 
 Design at `docs/superpowers/specs/2026-09-09-map-and-timeline-design.md` — six stages, plans
