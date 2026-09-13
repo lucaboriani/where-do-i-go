@@ -1,12 +1,22 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import TripTimeline from "./trip-timeline";
 import type { IndexEntry } from "@/lib/pod/schema";
 
 // No `globals: true`, so RTL's auto-cleanup never registers itself; without
 // this, renders stack up in document.body across cases.
 afterEach(cleanup);
+
+// Pinned the way lib/time/offsets.test.ts pins it for this same arithmetic:
+// unpinned, a runner set to Asia/Tokyo would pass the +09:00 case below for
+// the wrong reason.
+const REAL_TZ = process.env.TZ;
+process.env.TZ = "Australia/Lord_Howe";
+afterAll(() => {
+  if (REAL_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = REAL_TZ;
+});
 
 const entry = (over: Partial<IndexEntry>): IndexEntry => ({
   iri: "https://pod.example/t/i#it",
