@@ -101,10 +101,30 @@ await put(
     `    dy:occurredAt      "2026-03-31T10:15:00+09:00"^^xsd:dateTime ;\n` +
     `    dy:lat             34.6851 ;\n` +
     `    dy:long            135.8048 ;\n` +
+    // Without this the marker is a pin at four decimals, which claims an exact
+    // coordinate the fuzzed data does not have (docs/design-brief.md).
+    `    dy:precisionMeters 500 ;\n` +
     `    dy:travelModeFrom  dy:Train ;\n` +
     `    dy:sortOrder       2 .\n`,
 );
 await put("travel/trips/2026-japan/entries/2026-03-29-arrival.ttl", ENTRY);
+// The resource the index entry above points at. Without it the entry route
+// prerenders a "Not found" page for a slug the timeline links to.
+// The file name IS the slug — lib/pod/read.ts's assertEntrySlug rejects a mismatch.
+await put(
+  "travel/trips/2026-japan/entries/2026-03-31-nara.ttl",
+  ENTRY.replace('"2026-03-29-arrival"', '"2026-03-31-nara"')
+    .replace('"First night in Shinjuku"@en', '"Deer and temples in Nara"@en')
+    .replace(
+      'dy:occurredAt        "2026-03-29T21:40:00+09:00"',
+      'dy:occurredAt        "2026-03-31T10:15:00+09:00"',
+    )
+    .replace("dy:travelModeFrom    dy:Flight", "dy:travelModeFrom    dy:Train")
+    .replace('"Shinjuku, Tokyo"@en', '"Nara"@en')
+    .replace('schema:addressLocality "Tokyo"@en', 'schema:addressLocality "Nara"@en')
+    .replaceAll("35.6938", "34.6851")
+    .replaceAll("139.7034", "135.8048"),
+);
 
 // A draft trip, so the publication boundary can actually be exercised in dev.
 // diary.ttl lists it exactly as it lists the published one — there is no index
