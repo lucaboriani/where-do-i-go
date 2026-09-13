@@ -301,6 +301,7 @@ const eslintConfig = defineConfig([
       // extensions match the length block's — a hook returning a marker
       // element is a .tsx, and a .ts-only glob leaves it unfenced.
       "hooks/map/**/*.{ts,tsx}",
+      "hooks/trip/**/*.{ts,tsx}",
     ],
     rules: {
       "no-restricted-imports": [
