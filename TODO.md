@@ -1640,11 +1640,10 @@ statically importing the first three.
       attribution, and one canvas surviving a trip → entry navigation — watched failing with
       activation disabled. Suite **1508 passed / 2 todo / 0 skipped / 69 files**; `test:e2e` 9
       passed (6 pre-existing + 3 new).
-- [ ] **Decide whether `components/public/**` and `lib/map/**` join the e2e gate globs.** Deferred
-      by the owner on 2026-09-10 when stage 2 offered it, and again in the session that closed
-      stage 2's task 6. Until then a diff touching only the map does not require
-      `npm run test:e2e`, and `e2e/trip-map.spec.ts` is run deliberately. Revisit when stage 3's
-      markers land.
+- [x] **Decide whether `components/public/**` and `lib/map/**` join the e2e gate globs.** Deferred
+      by the owner on 2026-09-10 when stage 2 offered it, again in the session that closed stage
+      2's task 6, and a third time through stage 3. **Decided 2026-09-13**: yes, and `hooks/map/**`
+      joins them — `docs/decisions.md` §32, stage 4a above.
 - [x] Photo-thumbnail markers, clustering above ~50 points — landed 2026-09-11 on branch
       `phase-4-stage-3`, plan at `docs/superpowers/plans/2026-09-11-map-and-timeline-stage-3.md`,
       seven tasks from `b2a1dc2`. Suite **1583 passed / 2 todo / 79 files**; dead-port control
@@ -1689,7 +1688,30 @@ statically importing the first three.
         "Navigating between trips, measured"). Stage 4 inherits closing it alongside that
         measurement, not before.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
-- [ ] Bidirectional map/timeline highlighting
+- [x] Bidirectional map/timeline highlighting — landed 2026-09-13 on branch `phase-4-stage-4a`,
+      plan at `docs/superpowers/plans/2026-09-13-map-and-timeline-stage-4a.md`, six tasks from
+      `f5305f5`. Suite 1720 passed / 2 todo / 0 skipped / 84 files; dead-port control 36 passed /
+      36 skipped, both `test/integration/` files; `size:public` 185.4 kB of 190 with every
+      studio-only dependency absent; `test:e2e` 11 passed (10 pre-existing + 1 new).
+      - `TripHighlightContext`/`useHighlightState` (`hooks/trip/`) hold one `activeSlug`: a pointer
+        raised by hovering or focusing a `TimelineRow` outranks the route's own slug
+        (`useSelectedLayoutSegment()`), and clearing falls back to the route rather than to nothing.
+      - The active marker gets `ring-2 ring-accent-bright` via `classList`, keyed by
+        `el.dataset.slug`, reconciled without rebuilding markers; the active leg is painted by
+        `setFeatureState({ source: "trip-legs", id: slug }, { active: true })`, keyed by the
+        promoted `toSlug` id.
+      - `e2e/trip-timeline.spec.ts` covers both mechanisms in one case — hover, then the route —
+        watched failing with `TripMap`'s `activeSlug` argument removed from both hooks
+        (`e2e/notes.md#one-entry-no-leg-and-the-mutation-control`). The seed's one valid entry has
+        no arriving leg, so the case does not assert on `trip-legs` feature state.
+      - **The e2e gate widened.** `components/public/**`, `lib/map/**` and `hooks/map/**` joined
+        the path-scoped `test:e2e` list, closing the question stage 2 and stage 3 both deferred
+        (`docs/decisions.md` §32). It does not cover a `maplibre-gl` version bump, which touches
+        `package.json`/`package-lock.json` instead and is recorded rather than closed.
+      - **The stage-3 defect is still open.** Marker identity, the cluster threshold and the
+        fitted camera remain fixed by whichever trip's data the map hooks saw first — still
+        unreachable, because the timeline links entries WITHIN one trip and no in-app link joins
+        two trips yet. Whoever builds that link inherits the measurement.
 - [ ] Mobile drawer with three snap points, map staying mounted throughout
 - [ ] Globe view for the all-trips map
 

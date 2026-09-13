@@ -170,15 +170,16 @@ appears, name it here; do not reintroduce a total.
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts   hooks/studio/**
+components/public/**   lib/map/**   hooks/map/**
 ```
 
 then `npm run test:e2e` must pass too, as
 `env -u CLAUDECODE -u AI_AGENT E2E_PORT=3007 npm run test:e2e`.
 
-**Two seams, not one: auth and media.** Why each of those paths is listed, why the gate is
-scoped to the diff instead of joining the list above, why it over-fires on test-only diffs
-deliberately, and the control that proves the integration suites ran rather than skipped — all in
-**`docs/testing-gates.md`**. Read it before narrowing a glob or skipping the run.
+**Three seams, not one: auth, media, and the public map.** Why each of those paths is listed, why
+the gate is scoped to the diff instead of joining the list above, why it over-fires on test-only
+diffs deliberately, and the control that proves the integration suites ran rather than skipped —
+all in **`docs/testing-gates.md`**. Read it before narrowing a glob or skipping the run.
 
 "It should pass" is not done. **Never report work as complete on the strength of a command you
 did not run, or a result you did not read.** If something fails, say which and why — a failure
