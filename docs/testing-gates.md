@@ -11,9 +11,10 @@ said "six", and a reader reconciling a numeral against a list deletes the newest
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts   hooks/studio/**
+components/public/**   lib/map/**   hooks/map/**
 ```
 
-then `npm run test:e2e` must pass too. **Two seams, not one.**
+then `npm run test:e2e` must pass too. **Three seams, not one.**
 
 Since tests moved beside their subjects on 2026-09-08, those globs also match a diff that only
 adds or edits a **test** file under `lib/media/**` or `lib/studio/**`. That over-fires, and
@@ -66,6 +67,15 @@ development build, and that double invocation is the whole reason `restoreSessio
 synchronously (phase-0 question 2: the first `handleIncomingRedirect` returned
 `isLoggedIn: false`). Under `next start` the effect runs once and the spec would pass with the
 memo deleted.
+
+`components/public/**`, `lib/map/**` and `hooks/map/**` are the map seam, added 2026-09-13
+(`docs/decisions.md` §32) after three deferrals recorded in §28. `e2e/trip-map.spec.ts` and
+`e2e/trip-timeline.spec.ts` are what catch a browser-only failure here — stage 3's `maplibre-gl`
+worker bug left the canvas painting and the attribution control intact while every worker-dependent
+feature silently never ran, which is exactly the shape no faster test sees. The same three globs do
+not reach a `maplibre-gl` version bump: that touches `package.json` and `package-lock.json`
+instead, and §32 records the gap rather than closing it, because adding the lockfile would gate
+nearly every dependency bump.
 
 
 ## Running it

@@ -23,6 +23,9 @@ class FakeMarker {
   remove() {
     this.removed += 1;
   }
+  getElement() {
+    return this.element as HTMLElement;
+  }
 }
 
 vi.mock("maplibre-gl", () => ({ Marker: FakeMarker }));
@@ -115,5 +118,78 @@ describe("useMapMarkers", () => {
     await waitFor(() => expect(markers).toHaveLength(1));
     unmount();
     expect(map.handlers.get("moveend") ?? []).toHaveLength(0);
+  });
+
+  it("marks the active marker's element without rebuilding any marker", async () => {
+    map.features = [leaf("kyoto"), leaf("osaka")];
+    const { rerender } = renderHook(({ slug }) => useMapMarkers(map as never, slug), {
+      initialProps: { slug: null as string | null },
+    });
+    await waitFor(() => expect(markers).toHaveLength(2));
+    const created = markers.length;
+    rerender({ slug: "kyoto" });
+    // waitFor rather than a bare read: it lets a wrongly-rebuilt marker's async
+    // creation finish before the count below can be compared.
+    await waitFor(() => {
+      const kyoto = markers.findLast((m) => m.element?.dataset.slug === "kyoto")?.element;
+      expect(kyoto?.className).toContain("ring-2");
+      expect(kyoto?.className).toContain("ring-accent-bright");
+    });
+    const osaka = markers.findLast((m) => m.element?.dataset.slug === "osaka")?.element;
+    expect(osaka?.className).not.toContain("ring-2");
+    // The reconcile effect must NOT re-run: rebuilding every marker on every
+    // hover is the failure this case exists to catch.
+    expect(markers.length).toBe(created);
+  });
+
+  it("marks a marker created while a slug is already active", async () => {
+    renderHook(() => useMapMarkers(map as never, "kyoto"));
+    await waitFor(() => expect(map.handlers.get("sourcedata") ?? []).not.toHaveLength(0));
+    map.features = [leaf("kyoto")];
+    map.emit("sourcedata");
+    await waitFor(() => expect(markers).toHaveLength(1));
+    expect(markers[0].element?.className).toContain("ring-2");
+  });
+
+  it("raises its own slug when the pointer enters the marker element", async () => {
+    map.features = [leaf("kyoto"), leaf("osaka")];
+    const onEnter = vi.fn();
+    renderHook(() => useMapMarkers(map as never, null, onEnter, vi.fn()));
+    await waitFor(() => expect(markers).toHaveLength(2));
+    const osaka = markers.find((m) => m.element?.dataset.slug === "osaka")?.element;
+    osaka?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(onEnter).toHaveBeenCalledWith("osaka");
+  });
+
+  it("clears when the pointer leaves the marker element", async () => {
+    map.features = [leaf("kyoto")];
+    const onLeave = vi.fn();
+    renderHook(() => useMapMarkers(map as never, null, vi.fn(), onLeave));
+    await waitFor(() => expect(markers).toHaveLength(1));
+    markers[0].element?.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the latest callbacks without rebuilding a single marker", async () => {
+    map.features = [leaf("kyoto")];
+    const first = vi.fn();
+    const second = vi.fn();
+    // An inline arrow from the caller is the normal case, so a new identity on
+    // every render must reach the listener through a ref, not through the
+    // reconcile effect's deps — rebuilding markers on hover is the failure.
+    const { rerender } = renderHook(({ onEnter }) => useMapMarkers(map as never, null, onEnter), {
+      initialProps: { onEnter: first },
+    });
+    await waitFor(() => expect(markers).toHaveLength(1));
+    rerender({ onEnter: second });
+    // Flushes the reconcile effect's dynamic import: a wrongly-rebuilt marker
+    // tears down and re-creates asynchronously, so a bare read after rerender
+    // would still see the pre-rebuild count. See the sibling case above.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    markers[0].element?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(second).toHaveBeenCalledWith("kyoto");
+    expect(first).not.toHaveBeenCalled();
+    expect(markers).toHaveLength(1);
+    expect(markers[0].removed).toBe(0);
   });
 });

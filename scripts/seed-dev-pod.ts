@@ -88,8 +88,43 @@ await put(
   ),
 );
 await put("travel/trips/2026-japan/trip.ttl", TRIP);
-await put("travel/trips/2026-japan/entries.ttl", INDEX);
+// §7.4 names <#e-2026-03-31-nara> in dy:entry but never describes it, so
+// lib/pod/read.ts drops it and the seed has no arriving leg to test against.
+// Give it the fields to become a real placed entry, sorted after arrival.
+await put(
+  "travel/trips/2026-japan/entries.ttl",
+  `${INDEX.trimEnd()}\n\n<#e-2026-03-31-nara>\n` +
+    `    a dy:IndexEntry ;\n` +
+    `    dy:entryResource   <entries/2026-03-31-nara.ttl#it> ;\n` +
+    `    dcterms:title      "Deer and temples in Nara"@en ;\n` +
+    `    dy:slug            "2026-03-31-nara" ;\n` +
+    `    dy:occurredAt      "2026-03-31T10:15:00+09:00"^^xsd:dateTime ;\n` +
+    `    dy:lat             34.6851 ;\n` +
+    `    dy:long            135.8048 ;\n` +
+    // Without this the marker is a pin at four decimals, which claims an exact
+    // coordinate the fuzzed data does not have (docs/design-brief.md).
+    `    dy:precisionMeters 500 ;\n` +
+    `    dy:travelModeFrom  dy:Train ;\n` +
+    `    dy:sortOrder       2 .\n`,
+);
 await put("travel/trips/2026-japan/entries/2026-03-29-arrival.ttl", ENTRY);
+// The resource the index entry above points at. Without it the entry route
+// prerenders a "Not found" page for a slug the timeline links to.
+// The file name IS the slug — lib/pod/read.ts's assertEntrySlug rejects a mismatch.
+await put(
+  "travel/trips/2026-japan/entries/2026-03-31-nara.ttl",
+  ENTRY.replace('"2026-03-29-arrival"', '"2026-03-31-nara"')
+    .replace('"First night in Shinjuku"@en', '"Deer and temples in Nara"@en')
+    .replace(
+      'dy:occurredAt        "2026-03-29T21:40:00+09:00"',
+      'dy:occurredAt        "2026-03-31T10:15:00+09:00"',
+    )
+    .replace("dy:travelModeFrom    dy:Flight", "dy:travelModeFrom    dy:Train")
+    .replace('"Shinjuku, Tokyo"@en', '"Nara"@en')
+    .replace('schema:addressLocality "Tokyo"@en', 'schema:addressLocality "Nara"@en')
+    .replaceAll("35.6938", "34.6851")
+    .replaceAll("139.7034", "135.8048"),
+);
 
 // A draft trip, so the publication boundary can actually be exercised in dev.
 // diary.ttl lists it exactly as it lists the published one — there is no index

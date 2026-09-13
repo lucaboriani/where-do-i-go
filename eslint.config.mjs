@@ -297,10 +297,11 @@ const eslintConfig = defineConfig([
       "lib/utils.ts",
       // NOT "hooks/**/*.{ts,tsx}": resolveBeltModules in test/guardrails.test.ts
       // reads one directory level and throws on a glob matching no production
-      // file, and hooks/ itself holds only the two area directories. The
+      // file, and hooks/ holds area directories and no modules of its own. The
       // extensions match the length block's — a hook returning a marker
       // element is a .tsx, and a .ts-only glob leaves it unfenced.
       "hooks/map/**/*.{ts,tsx}",
+      "hooks/trip/**/*.{ts,tsx}",
     ],
     rules: {
       "no-restricted-imports": [

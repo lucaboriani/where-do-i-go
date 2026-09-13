@@ -9,6 +9,10 @@ import type { IndexEntry } from "@/lib/pod/schema";
 import { useMapInstance } from "@/hooks/map/use-map-instance";
 import { useMapLayers } from "@/hooks/map/use-map-layers";
 import { useMapMarkers } from "@/hooks/map/use-map-markers";
+import { useMapHighlight } from "@/hooks/map/use-map-highlight";
+import { useTripHighlight } from "@/hooks/trip/highlight-context";
+
+type MapLibreMap = import("maplibre-gl").Map;
 
 // Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
@@ -44,9 +48,22 @@ export default function TripMap({
     return () => observer.disconnect();
   }, [active]);
 
+  const { activeSlug, raise, clear } = useTripHighlight();
   const { map, styleLoaded } = useMapInstance({ container, active, bbox, styleUrl });
   useMapLayers(map, entries, styleLoaded);
-  useMapMarkers(map);
+  // Inline arrows are safe here: useMapMarkers holds the pair in a ref, so a
+  // fresh identity per render cannot re-run its reconcile effect.
+  useMapMarkers(map, activeSlug, (slug) => raise(slug, "map"), clear);
+  useMapHighlight(map, activeSlug, styleLoaded);
+
+  // e2e-only handle, and free: playwright.config.ts runs `next dev`, so this is
+  // true for every e2e run and false for every deploy.
+  // ./notes.md#the-map-handle-attached-for-e2e
+  useEffect(() => {
+    const node = container.current;
+    if (process.env.NODE_ENV === "production" || node === null || map === null) return;
+    (node as HTMLDivElement & { __map?: MapLibreMap }).__map = map;
+  }, [map]);
 
   return <div ref={container} role="region" aria-label="Trip map" className={MAP_FRAME_CLASS} />;
 }

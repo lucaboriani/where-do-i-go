@@ -33,6 +33,12 @@ describe("buildMarkerElement", () => {
   });
 
   it("uses no arbitrary Tailwind values, which the guardrail bans outside components/ui", () => {
-    expect(buildMarkerElement({ ...base, precisionMeters: 5000 }).className).not.toMatch(/\[[^\]]+\]/);
+    expect(buildMarkerElement({ ...base, precisionMeters: 5000 }).className).not.toMatch(
+      /\[[^\]]+\]/,
+    );
+  });
+
+  it("never applies MARKER_ACTIVE itself; the hook toggles it after building", () => {
+    expect(buildMarkerElement(base).className).not.toContain("ring-2");
   });
 });

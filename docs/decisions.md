@@ -667,3 +667,20 @@ for the same reason: local success does not predict the serverless runtime.
 because it adds a script `CLAUDE.md`'s Commands block and `check:commands` would both need to
 learn about, for a result no more correct than reading the installed package directly through a
 route Next already prerenders to static output.
+
+---
+
+## 32. The e2e gate covers the public map; a dependency bump still does not
+
+`components/public/**`, `lib/map/**` and `hooks/map/**` joined the path-scoped `test:e2e` list on
+2026-09-13, closing §28 after three deferrals. The map is real browser-dependent code and stage 3
+proved no faster test sees its failures.
+
+**This does not cover the hazard that motivated it.** The stage 3 worker bug recurs through a
+`maplibre-gl` version bump renaming the worker's sibling chunk — that touches `package.json` and
+`package-lock.json`, neither of which is on the list, and adding the map paths does not put them
+there. Adding the lockfile would close it and make nearly every dependency bump demand a Pod, a
+browser and a free port; `docs/testing-gates.md` argues a gate people stop running is worse than a
+narrow one. What stands between the repo and a silent repeat is
+`app/(public)/maplibre-gl-worker.mjs/route.test.ts`, which parses the served bytes and pins the
+single relative import — and which runs in `npm test`, not behind this gate.

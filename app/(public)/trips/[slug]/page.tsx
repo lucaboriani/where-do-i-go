@@ -1,9 +1,9 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { allTripSlugs, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
+import TripTimeline from "@/components/public/trip-timeline";
 
 export async function generateStaticParams() {
   return (await allTripSlugs()).map((slug) => ({ slug }));
@@ -96,20 +96,7 @@ async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
       )}
 
       {index.ok ? (
-        <ol className="mt-8 space-y-3">
-          {index.value.entries.map((e) => (
-            <li key={e.iri}>
-              <Link className="text-accent-bright underline" href={`/trips/${slug}/${e.slug}`}>
-                {e.title.value}
-              </Link>
-              {e.occurredAt && (
-                <span className="ml-2 text-sm text-muted-foreground">
-                  {e.occurredAt.slice(0, 10)}
-                </span>
-              )}
-            </li>
-          ))}
-        </ol>
+        <TripTimeline slug={slug} entries={index.value.entries} />
       ) : (
         // The index is one resource. Losing it must not lose the trip page.
         <p className="mt-8 text-muted-foreground">{describe(index.error)}</p>

@@ -29,11 +29,37 @@ vi.mock("@/hooks/map/use-map-layers", () => ({
   },
 }));
 
-const markerCalls: unknown[] = [];
+type MarkerCall = {
+  map: unknown;
+  activeSlug: unknown;
+  onEnter?: (slug: string) => void;
+  onLeave?: () => void;
+};
+const markerCalls: MarkerCall[] = [];
 vi.mock("@/hooks/map/use-map-markers", () => ({
-  useMapMarkers: (map: unknown) => {
-    markerCalls.push(map);
+  useMapMarkers: (map: unknown, activeSlug: unknown, onEnter?: never, onLeave?: never) => {
+    markerCalls.push({ map, activeSlug, onEnter, onLeave });
   },
+}));
+
+const highlightCalls: { map: unknown; activeSlug: unknown; styleLoaded: unknown }[] = [];
+vi.mock("@/hooks/map/use-map-highlight", () => ({
+  useMapHighlight: (map: unknown, activeSlug: unknown, styleLoaded: unknown) => {
+    highlightCalls.push({ map, activeSlug, styleLoaded });
+  },
+}));
+
+// A mutable module-level value: each test sets it before render rather than
+// standing up a real TripHighlightProvider, which needs next/navigation's
+// router context for no benefit here — only the value threaded through matters.
+type Highlight = {
+  activeSlug: string | null;
+  raise: ReturnType<typeof vi.fn>;
+  clear: ReturnType<typeof vi.fn>;
+};
+let tripHighlight: Highlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
+vi.mock("@/hooks/trip/highlight-context", () => ({
+  useTripHighlight: () => tripHighlight,
 }));
 
 function entry(over: Partial<IndexEntry> = {}): IndexEntry {
@@ -73,6 +99,8 @@ beforeEach(() => {
   observers.length = 0;
   layerCalls.length = 0;
   markerCalls.length = 0;
+  highlightCalls.length = 0;
+  tripHighlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
 });
 
 afterEach(() => {
@@ -129,7 +157,26 @@ describe("TripMap", () => {
     expect(layerCalls.at(-1)?.entries).toBe(entries);
     expect(layerCalls.at(-1)?.styleLoaded).toBe(false);
     expect(layerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
-    expect(markerCalls.at(-1)).toBe(SENTINEL_MAP);
+    expect(markerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
+  });
+
+  it('gives the markers hook a hover pair that raises with source "map" and clears', () => {
+    installObserver();
+    render(<TripMap />);
+    markerCalls.at(-1)?.onEnter?.("osaka");
+    expect(tripHighlight.raise).toHaveBeenCalledWith("osaka", "map");
+    markerCalls.at(-1)?.onLeave?.();
+    expect(tripHighlight.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("threads the trip highlight's activeSlug into the markers hook and the legs-highlight hook", () => {
+    installObserver();
+    tripHighlight = { ...tripHighlight, activeSlug: "kyoto" };
+    render(<TripMap />);
+    expect(markerCalls.at(-1)?.activeSlug).toBe("kyoto");
+    expect(highlightCalls.at(-1)?.map).toBe(SENTINEL_MAP);
+    expect(highlightCalls.at(-1)?.activeSlug).toBe("kyoto");
+    expect(highlightCalls.at(-1)?.styleLoaded).toBe(false);
   });
 
   it("renders the same markup with and without entries, because the server has neither", () => {

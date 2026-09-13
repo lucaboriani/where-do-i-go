@@ -69,3 +69,48 @@ registers synchronously at construction, with zero gap for the event to beat it.
 takes `styleLoaded` as a dependency rather than reading `map.isStyleLoaded()`, so its effect
 re-runs exactly when the flag flips, regardless of whether that happens before or after the
 render on which `map` itself first appears.
+
+## Why the legs source promotes toSlug
+
+`buildLegs` (`lib/map/legs.ts`) gives each leg feature `properties: { mode, fromSlug, toSlug }`
+and no `id` — GeoJSON features are anonymous unless a source says otherwise. `setFeatureState`
+addresses features by id, so `LEGS_SOURCE` sets `promoteId: "toSlug"`, lifting that property into
+the id MapLibre already tracks. A leg is identified by the entry it arrives at, matching the
+"mode belongs to the arriving leg" rule the same file's comment already states.
+
+## A highlight can land on nothing
+
+`setFeatureState({ source, id }, ...)` on an id absent from the source's data does not throw and
+does not warn — it is silently discarded. A slug that is stale, misspelled, or belongs to an
+unplaced entry produces a page that behaves exactly as if the highlight had worked, with no
+signal that it did not.
+
+**One case fires on every trip, by design.** `buildLegs` (`lib/map/legs.ts`) builds its legs from
+`placed.slice(1)` — a leg is the arrival at an entry, and the first entry is arrived at from
+nowhere — so the first entry's slug is never a `toSlug` and never an id in `LEGS_SOURCE`.
+Highlighting it therefore paints a marker and no leg, which is correct and is not a defect. It
+does mean a browser test that only ever highlights the first entry would assert nothing about
+feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reason.
+`useMapHighlight` cannot detect this case; it is recorded here rather than guarded against,
+since guarding it would mean re-deriving the same slug set `buildLegs` already computed just
+to check membership.
+
+## Why activeSlug is a ref in the reconcile effect
+
+`useMapMarkers`'s first effect builds every marker from `map.querySourceFeatures`, keyed only on
+`[map]` — the same "one MapLibre instance, mounted once" invariant `use-map-instance.ts` protects.
+Listing `activeSlug` there too would re-run it on every hover, which tears down and rebuilds every
+marker rather than restyling one: expensive, and visible as a flash on the whole layer.
+
+So a second effect, keyed on `[activeSlug]` alone, owns the class: it writes `active.current` for
+the next marker the first effect creates, and toggles `MARKER_ACTIVE` on every live marker's
+element. Task 5's mutation control is what checks this holds — adding `activeSlug` to the first
+effect's deps and confirming the no-rebuild test goes red on marker count, then reverting.
+
+## Why MARKER_ACTIVE is split before classList
+
+`MARKER_ACTIVE` is `"ring-2 ring-accent-bright"`, two Tailwind classes as one string, matching how
+`marker-element.ts`'s `BASE` is already composed. But `classList.add`/`classList.toggle` take one
+token each and throw `InvalidCharacterError` on a token containing a space — confirmed against
+jsdom 2026-09-13, not just spec text. `ACTIVE_CLASSES = MARKER_ACTIVE.split(" ")` is computed once
+at module scope; both call sites spread or iterate it rather than passing the joined string.

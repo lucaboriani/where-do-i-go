@@ -2,6 +2,7 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LAYERS, LEGS_SOURCE, POINTS_SOURCE, useMapLayers } from "./use-map-layers";
+import { MAP_COLORS } from "@/lib/map/tokens";
 import type { IndexEntry } from "@/lib/pod/schema";
 
 class FakeSource {
@@ -15,6 +16,9 @@ class FakeMap {
   readonly sources = new Map<string, FakeSource>();
   readonly added: string[] = [];
   readonly sourceOptions: Record<string, Record<string, unknown>> = {};
+  // Full spec per layer, alongside `added`: the id-only list can't back a
+  // paint assertion, and existing cases still read `added`.
+  readonly layerSpecs: Record<string, Record<string, unknown>> = {};
   addSource(id: string, options: Record<string, unknown>) {
     this.sources.set(id, new FakeSource());
     this.sourceOptions[id] = options;
@@ -22,8 +26,9 @@ class FakeMap {
   getSource(id: string) {
     return this.sources.get(id);
   }
-  addLayer(layer: { id: string }) {
+  addLayer(layer: { id: string } & Record<string, unknown>) {
     this.added.push(layer.id);
+    this.layerSpecs[layer.id] = layer;
   }
 }
 
@@ -97,5 +102,21 @@ describe("useMapLayers", () => {
     expect(map.sources.size).toBe(0);
     rerender({ loaded: true });
     expect([...map.sources.keys()].sort()).toEqual([LEGS_SOURCE, POINTS_SOURCE].sort());
+  });
+
+  it("promotes toSlug to the feature id, or setFeatureState has nothing to key on", () => {
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    expect(map.sourceOptions[LEGS_SOURCE].promoteId).toBe("toSlug");
+  });
+
+  it("paints the active leg with the bright accent, keyed on feature state", () => {
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    const paint = map.layerSpecs[LAYERS.line].paint as Record<string, unknown>;
+    expect(paint["line-color"]).toEqual([
+      "case",
+      ["boolean", ["feature-state", "active"], false],
+      MAP_COLORS.accentBright,
+      MAP_COLORS.accent,
+    ]);
   });
 });

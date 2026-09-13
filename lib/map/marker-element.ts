@@ -6,6 +6,8 @@ const BASE = "size-10 overflow-hidden border-2 border-accent bg-surface";
  *  matching decimal count. */
 const EXACT = "rounded-sm";
 const FUZZED = "rounded-full opacity-80";
+// Kept out of BASE: applied by a classList.toggle, not composed at build time.
+export const MARKER_ACTIVE = "ring-2 ring-accent-bright";
 
 export function buildMarkerElement({ slug, title, thumbnail, precisionMeters }: PointProps): HTMLElement {
   const el = document.createElement("div");
