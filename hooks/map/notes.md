@@ -69,3 +69,20 @@ registers synchronously at construction, with zero gap for the event to beat it.
 takes `styleLoaded` as a dependency rather than reading `map.isStyleLoaded()`, so its effect
 re-runs exactly when the flag flips, regardless of whether that happens before or after the
 render on which `map` itself first appears.
+
+## Why the legs source promotes toSlug
+
+`buildLegs` (`lib/map/legs.ts`) gives each leg feature `properties: { mode, fromSlug, toSlug }`
+and no `id` — GeoJSON features are anonymous unless a source says otherwise. `setFeatureState`
+addresses features by id, so `LEGS_SOURCE` sets `promoteId: "toSlug"`, lifting that property into
+the id MapLibre already tracks. A leg is identified by the entry it arrives at, matching the
+"mode belongs to the arriving leg" rule the same file's comment already states.
+
+## A highlight can land on nothing
+
+`setFeatureState({ source, id }, ...)` on an id absent from the source's data does not throw and
+does not warn — it is silently discarded. A slug that is stale, misspelled, or belongs to an
+unplaced entry produces a page that behaves exactly as if the highlight had worked, with no
+signal that it did not. `useMapHighlight` cannot detect this case; it is recorded here rather
+than guarded against, since guarding it would mean re-deriving the same slug set `buildLegs`
+already computed just to check membership.

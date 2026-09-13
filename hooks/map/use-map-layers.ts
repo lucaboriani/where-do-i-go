@@ -48,7 +48,13 @@ function addAll(
   legs: ReturnType<typeof buildLegs>,
   cluster: boolean,
 ): void {
-  map.addSource(LEGS_SOURCE, { type: "geojson", data: legs } satisfies GeoJSONSourceSpecification);
+  // promoteId, or setFeatureState has no id to key on: the leg features carry
+  // only properties. ./notes.md#why-the-legs-source-promotes-toslug
+  map.addSource(LEGS_SOURCE, {
+    type: "geojson",
+    data: legs,
+    promoteId: "toSlug",
+  } satisfies GeoJSONSourceSpecification);
   map.addSource(POINTS_SOURCE, {
     type: "geojson",
     data: points,
@@ -66,7 +72,16 @@ function addAll(
     id: LAYERS.line,
     type: "line",
     source: LEGS_SOURCE,
-    paint: { "line-color": MAP_COLORS.accent, "line-width": ROUTE_WIDTH, "line-dasharray": DASH_BY_MODE },
+    paint: {
+      "line-color": [
+        "case",
+        ["boolean", ["feature-state", "active"], false],
+        MAP_COLORS.accentBright,
+        MAP_COLORS.accent,
+      ],
+      "line-width": ROUTE_WIDTH,
+      "line-dasharray": DASH_BY_MODE,
+    },
   } satisfies LayerSpecification);
   map.addLayer({
     id: LAYERS.clusters,
