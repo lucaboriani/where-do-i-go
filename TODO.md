@@ -1690,20 +1690,33 @@ statically importing the first three.
 - [ ] Route with per-leg travel mode and `accent-deep` casing
 - [x] Bidirectional map/timeline highlighting — landed 2026-09-13 on branch `phase-4-stage-4a`,
       plan at `docs/superpowers/plans/2026-09-13-map-and-timeline-stage-4a.md`, six tasks from
-      `f5305f5`. Suite 1720 passed / 2 todo / 0 skipped / 84 files; dead-port control 36 passed /
-      36 skipped, both `test/integration/` files; `size:public` 185.4 kB of 190 with every
-      studio-only dependency absent; `test:e2e` 11 passed (10 pre-existing + 1 new).
+      `f5305f5`, whole-branch review fixes on top. Suite 1728 passed / 2 todo / 0 skipped / 85
+      files; dead-port control 36 skipped, both `test/integration/` files; `size:public` 181.3 kB
+      of 190 with every studio-only dependency absent; `test:e2e` 13 passed.
       - `TripHighlightContext`/`useHighlightState` (`hooks/trip/`) hold one `activeSlug`: a pointer
-        raised by hovering or focusing a `TimelineRow` outranks the route's own slug
-        (`useSelectedLayoutSegment()`), and clearing falls back to the route rather than to nothing.
+        raised by hovering or focusing a `TimelineRow`, or by hovering a marker, outranks the
+        route's own slug (`useSelectedLayoutSegment()`), and clearing falls back to the route
+        rather than to nothing. A route change drops the pointer — adjusted during render, not in
+        an effect, and `hooks/trip/notes.md#a-navigation-drops-the-pointer` has why both.
       - The active marker gets `ring-2 ring-accent-bright` via `classList`, keyed by
         `el.dataset.slug`, reconciled without rebuilding markers; the active leg is painted by
         `setFeatureState({ source: "trip-legs", id: slug }, { active: true })`, keyed by the
         promoted `toSlug` id.
-      - `e2e/trip-timeline.spec.ts` covers both mechanisms in one case — hover, then the route —
-        watched failing with `TripMap`'s `activeSlug` argument removed from both hooks
-        (`e2e/notes.md#one-entry-no-leg-and-the-mutation-control`). The seed's one valid entry has
-        no arriving leg, so the case does not assert on `trip-legs` feature state.
+      - **Both directions.** `useMapMarkers` puts `mouseenter`/`mouseleave` on each marker element
+        and calls `raise(slug, "map")`/`clear()` through a ref, so a caller's inline arrow cannot
+        re-run the reconcile effect that `[map]`-only deps exist to protect.
+      - `e2e/trip-timeline.spec.ts` is three tests: hover a row (marker class **and** the rendered
+        leg's feature state), hover a marker (the row's `data-active`), and the entry route with
+        no pointer at all. Each has its own mutation control, measured in
+        `e2e/notes.md#the-three-mutation-controls`.
+      - **The timeline is server-rendered down to the link.** `TripTimeline` builds the `<Link>`
+        and the `<time>` and passes them to `TimelineRow` as children; the row keeps the handlers
+        on the `<li>`. That took a duplicate `next/link` and all of `lib/time/offsets.ts` out of
+        the trip page's client chunk — 185.5 kB → 181.3 kB gzip, one chunk fewer, measured
+        (`components/public/trip-timeline/notes.md#why-the-row-takes-children`).
+      - **Three of the six fields spec §3 lists are not shipped**: `thumbnail`, `travelModeFrom`
+        and `precisionMeters`. Only `title`, `occurredAt` and `slug` render. Stage 4b work,
+        alongside the sheet, and named here rather than left as an unrecorded gap.
       - **The e2e gate widened.** `components/public/**`, `lib/map/**` and `hooks/map/**` joined
         the path-scoped `test:e2e` list, closing the question stage 2 and stage 3 both deferred
         (`docs/decisions.md` §32). It does not cover a `maplibre-gl` version bump, which touches
@@ -1713,6 +1726,8 @@ statically importing the first three.
         unreachable, because the timeline links entries WITHIN one trip and no in-app link joins
         two trips yet. Whoever builds that link inherits the measurement.
 - [ ] Mobile drawer with three snap points, map staying mounted throughout
+      - Inherits stage 4a's unshipped timeline fields: `thumbnail`, `travelModeFrom` and
+        `precisionMeters`. The 4a spec §3 lists six; three ship.
 - [ ] Globe view for the all-trips map
 
 ## Phase 5 — publishing and sharing
