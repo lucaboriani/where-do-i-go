@@ -24,11 +24,19 @@ describe("useHighlightState", () => {
     expect(result.current).toMatchObject({ activeSlug: "kyoto", source: "route" });
   });
 
-  it("follows the route when the segment changes under a cleared highlight", () => {
+  it("drops a raised pointer when the route moves out from under it", () => {
+    // The real sequence: tab to a row's link, press Enter. onFocus raised the
+    // pointer, the <li> is then removed by the navigation, and Chrome fires no
+    // focusout for a removed focused element — so nothing ever calls clear().
     const { result, rerender } = renderHook(({ slug }) => useHighlightState(slug), {
-      initialProps: { slug: "kyoto" as string | null },
+      initialProps: { slug: null as string | null },
     });
+    act(() => result.current.raise("osaka", "timeline"));
     rerender({ slug: "osaka" });
     expect(result.current).toMatchObject({ activeSlug: "osaka", source: "route" });
+    // Back to the trip: with the pointer still held this shows a highlight that
+    // no pointer and no route can account for.
+    rerender({ slug: null });
+    expect(result.current).toMatchObject({ activeSlug: null, source: null });
   });
 });

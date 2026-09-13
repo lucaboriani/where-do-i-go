@@ -8,7 +8,7 @@ from the layout. When `raise`/`clear` change local state, `TripHighlightProvider
 does not itself call `useTripHighlight`. Only a component that actually consumes the context
 re-renders, because context propagation ignores that same-element bailout for its consumers.
 
-`trip-highlight-provider.test.tsx`'s third case is the proof: a sibling that renders nothing and
+`trip-highlight.test.tsx`'s third case is the proof: a sibling that renders nothing and
 consumes nothing stays at one render across a `raise`, while a sibling that consumes the context
 re-renders every time. Mutation-tested by making the non-consuming sibling call
 `useTripHighlight()` too — the case goes red, because a consumer can never rely on element
