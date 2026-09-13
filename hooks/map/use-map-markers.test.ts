@@ -182,9 +182,14 @@ describe("useMapMarkers", () => {
     });
     await waitFor(() => expect(markers).toHaveLength(1));
     rerender({ onEnter: second });
+    // Flushes the reconcile effect's dynamic import: a wrongly-rebuilt marker
+    // tears down and re-creates asynchronously, so a bare read after rerender
+    // would still see the pre-rebuild count. See the sibling case above.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     markers[0].element?.dispatchEvent(new MouseEvent("mouseenter"));
     expect(second).toHaveBeenCalledWith("kyoto");
     expect(first).not.toHaveBeenCalled();
     expect(markers).toHaveLength(1);
+    expect(markers[0].removed).toBe(0);
   });
 });

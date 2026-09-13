@@ -90,9 +90,10 @@ signal that it did not.
 nowhere — so the first entry's slug is never a `toSlug` and never an id in `LEGS_SOURCE`.
 Highlighting it therefore paints a marker and no leg, which is correct and is not a defect. It
 does mean a browser test that only ever highlights the first entry would assert nothing about
-feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reason. `useMapHighlight` cannot detect this case; it is recorded here rather
-than guarded against, since guarding it would mean re-deriving the same slug set `buildLegs`
-already computed just to check membership.
+feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reason.
+`useMapHighlight` cannot detect this case; it is recorded here rather than guarded against,
+since guarding it would mean re-deriving the same slug set `buildLegs` already computed just
+to check membership.
 
 ## Why activeSlug is a ref in the reconcile effect
 
