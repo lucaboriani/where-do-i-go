@@ -12,6 +12,8 @@ import { useMapMarkers } from "@/hooks/map/use-map-markers";
 import { useMapHighlight } from "@/hooks/map/use-map-highlight";
 import { useTripHighlight } from "@/hooks/trip/highlight-context";
 
+type MapLibreMap = import("maplibre-gl").Map;
+
 // Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
 
@@ -51,6 +53,13 @@ export default function TripMap({
   useMapLayers(map, entries, styleLoaded);
   useMapMarkers(map, activeSlug);
   useMapHighlight(map, activeSlug, styleLoaded);
+
+  // e2e-only handle: the canvas cannot be queried, so this is how a real
+  // feature-state read happens. ./notes.md#the-map-handle-attached-for-e2e
+  useEffect(() => {
+    const node = container.current;
+    if (node !== null && map !== null) (node as HTMLDivElement & { __map?: MapLibreMap }).__map = map;
+  }, [map]);
 
   return <div ref={container} role="region" aria-label="Trip map" className={MAP_FRAME_CLASS} />;
 }

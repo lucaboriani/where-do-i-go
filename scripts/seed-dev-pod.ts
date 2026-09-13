@@ -88,7 +88,22 @@ await put(
   ),
 );
 await put("travel/trips/2026-japan/trip.ttl", TRIP);
-await put("travel/trips/2026-japan/entries.ttl", INDEX);
+// §7.4 names <#e-2026-03-31-nara> in dy:entry but never describes it, so
+// lib/pod/read.ts drops it and the seed has no arriving leg to test against.
+// Give it the fields to become a real placed entry, sorted after arrival.
+await put(
+  "travel/trips/2026-japan/entries.ttl",
+  `${INDEX.trimEnd()}\n\n<#e-2026-03-31-nara>\n` +
+    `    a dy:IndexEntry ;\n` +
+    `    dy:entryResource   <entries/2026-03-31-nara.ttl#it> ;\n` +
+    `    dcterms:title      "Deer and temples in Nara"@en ;\n` +
+    `    dy:slug            "2026-03-31-nara" ;\n` +
+    `    dy:occurredAt      "2026-03-31T10:15:00+09:00"^^xsd:dateTime ;\n` +
+    `    dy:lat             34.6851 ;\n` +
+    `    dy:long            135.8048 ;\n` +
+    `    dy:travelModeFrom  dy:Train ;\n` +
+    `    dy:sortOrder       2 .\n`,
+);
 await put("travel/trips/2026-japan/entries/2026-03-29-arrival.ttl", ENTRY);
 
 // A draft trip, so the publication boundary can actually be exercised in dev.

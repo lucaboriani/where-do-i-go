@@ -72,3 +72,25 @@ whichever trip supplied it first. A same-slug collision, entry-count swing acros
 or camera left fitted to trip A's bbox on trip B's map are all consequences of one instance
 surviving a transition that has never been exercised — stage 4 inherits closing this alongside
 the trip-to-trip measurement above.
+
+## The map handle attached for e2e
+
+`e2e/trip-timeline.spec.ts` needs to know whether `setFeatureState` actually landed on the
+arriving leg's promoted id, and a GL line painted into the canvas is not queryable from the DOM
+— `e2e/trip-map.spec.ts` says so about the route line for the same reason. Reading real pixels
+back out was considered and rejected: dash pattern, anti-aliasing and exact screen position would
+all have to be reverse-engineered.
+
+So `TripMap` stamps the live `Map` instance onto its own container node as `__map`, once it
+exists. Not `window`: the container is already the one DOM handle every trip-map spec locates
+through (`page.getByRole("region", { name: "Trip map" })`), so this reuses that handle rather than
+adding a second, wider one. Playwright's `locator.evaluate()` receives the real element and calls
+real MapLibre methods on it — the same object the production hooks call `setFeatureState` on.
+
+**Not `__map.getFeatureState(...)` though — that call proved nothing, measured 2026-09-13.**
+`getFeatureState`/`setFeatureState` are a plain key-value store keyed by whatever id the caller
+passes; reading it back only proves the hook called the API, not that the id it used matches any
+feature MapLibre actually rendered. `e2e/notes.md`'s "the two mutation controls" has the false
+pass this produced. The fix reads `__map.queryRenderedFeatures(undefined, { layers: [...] })` and
+checks the returned feature's own `.state` — computed by the renderer from whichever id it really
+assigned, which is what `promoteId: "toSlug"` is actually for.
