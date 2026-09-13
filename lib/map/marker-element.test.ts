@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { buildMarkerElement } from "@/lib/map/marker-element";
+import { buildMarkerElement, MARKER_ACTIVE } from "@/lib/map/marker-element";
 
 const base = { slug: "arrival", title: "Arrival", sortOrder: 1 };
 
@@ -34,5 +34,13 @@ describe("buildMarkerElement", () => {
 
   it("uses no arbitrary Tailwind values, which the guardrail bans outside components/ui", () => {
     expect(buildMarkerElement({ ...base, precisionMeters: 5000 }).className).not.toMatch(/\[[^\]]+\]/);
+  });
+
+  it("never applies MARKER_ACTIVE itself; the hook toggles it after building", () => {
+    expect(buildMarkerElement(base).className).not.toContain("ring-2");
+  });
+
+  it("exports the active-marker class as ring utilities, not folded into BASE", () => {
+    expect(MARKER_ACTIVE).toBe("ring-2 ring-accent-bright");
   });
 });

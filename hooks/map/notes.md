@@ -86,3 +86,23 @@ unplaced entry produces a page that behaves exactly as if the highlight had work
 signal that it did not. `useMapHighlight` cannot detect this case; it is recorded here rather
 than guarded against, since guarding it would mean re-deriving the same slug set `buildLegs`
 already computed just to check membership.
+
+## Why activeSlug is a ref in the reconcile effect
+
+`useMapMarkers`'s first effect builds every marker from `map.querySourceFeatures`, keyed only on
+`[map]` — the same "one MapLibre instance, mounted once" invariant `use-map-instance.ts` protects.
+Listing `activeSlug` there too would re-run it on every hover, which tears down and rebuilds every
+marker rather than restyling one: expensive, and visible as a flash on the whole layer.
+
+So a second effect, keyed on `[activeSlug]` alone, owns the class: it writes `active.current` for
+the next marker the first effect creates, and toggles `MARKER_ACTIVE` on every live marker's
+element. Task 5's mutation control is what checks this holds — adding `activeSlug` to the first
+effect's deps and confirming the no-rebuild test goes red on marker count, then reverting.
+
+## Why MARKER_ACTIVE is split before classList
+
+`MARKER_ACTIVE` is `"ring-2 ring-accent-bright"`, two Tailwind classes as one string, matching how
+`marker-element.ts`'s `BASE` is already composed. But `classList.add`/`classList.toggle` take one
+token each and throw `InvalidCharacterError` on a token containing a space — confirmed against
+jsdom 2026-09-13, not just spec text. `ACTIVE_CLASSES = MARKER_ACTIVE.split(" ")` is computed once
+at module scope; both call sites spread or iterate it rather than passing the joined string.

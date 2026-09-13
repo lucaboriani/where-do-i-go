@@ -9,6 +9,8 @@ import type { IndexEntry } from "@/lib/pod/schema";
 import { useMapInstance } from "@/hooks/map/use-map-instance";
 import { useMapLayers } from "@/hooks/map/use-map-layers";
 import { useMapMarkers } from "@/hooks/map/use-map-markers";
+import { useMapHighlight } from "@/hooks/map/use-map-highlight";
+import { useTripHighlight } from "@/hooks/trip/highlight-context";
 
 // Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
 export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
@@ -44,9 +46,11 @@ export default function TripMap({
     return () => observer.disconnect();
   }, [active]);
 
+  const { activeSlug } = useTripHighlight();
   const { map, styleLoaded } = useMapInstance({ container, active, bbox, styleUrl });
   useMapLayers(map, entries, styleLoaded);
-  useMapMarkers(map);
+  useMapMarkers(map, activeSlug);
+  useMapHighlight(map, activeSlug, styleLoaded);
 
   return <div ref={container} role="region" aria-label="Trip map" className={MAP_FRAME_CLASS} />;
 }

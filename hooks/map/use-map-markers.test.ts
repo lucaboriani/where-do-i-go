@@ -23,6 +23,9 @@ class FakeMarker {
   remove() {
     this.removed += 1;
   }
+  getElement() {
+    return this.element as HTMLElement;
+  }
 }
 
 vi.mock("maplibre-gl", () => ({ Marker: FakeMarker }));
@@ -115,5 +118,36 @@ describe("useMapMarkers", () => {
     await waitFor(() => expect(markers).toHaveLength(1));
     unmount();
     expect(map.handlers.get("moveend") ?? []).toHaveLength(0);
+  });
+
+  it("marks the active marker's element without rebuilding any marker", async () => {
+    map.features = [leaf("kyoto"), leaf("osaka")];
+    const { rerender } = renderHook(({ slug }) => useMapMarkers(map as never, slug), {
+      initialProps: { slug: null as string | null },
+    });
+    await waitFor(() => expect(markers).toHaveLength(2));
+    const created = markers.length;
+    rerender({ slug: "kyoto" });
+    // waitFor rather than a bare read: it lets a wrongly-rebuilt marker's async
+    // creation finish before the count below can be compared.
+    await waitFor(() => {
+      const kyoto = markers.findLast((m) => m.element?.dataset.slug === "kyoto")?.element;
+      expect(kyoto?.className).toContain("ring-2");
+      expect(kyoto?.className).toContain("ring-accent-bright");
+    });
+    const osaka = markers.findLast((m) => m.element?.dataset.slug === "osaka")?.element;
+    expect(osaka?.className).not.toContain("ring-2");
+    // The reconcile effect must NOT re-run: rebuilding every marker on every
+    // hover is the failure this case exists to catch.
+    expect(markers.length).toBe(created);
+  });
+
+  it("marks a marker created while a slug is already active", async () => {
+    renderHook(() => useMapMarkers(map as never, "kyoto"));
+    await waitFor(() => expect(map.handlers.get("sourcedata") ?? []).not.toHaveLength(0));
+    map.features = [leaf("kyoto")];
+    map.emit("sourcedata");
+    await waitFor(() => expect(markers).toHaveLength(1));
+    expect(markers[0].element?.className).toContain("ring-2");
   });
 });
