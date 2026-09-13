@@ -29,11 +29,26 @@ vi.mock("@/hooks/map/use-map-layers", () => ({
   },
 }));
 
-const markerCalls: unknown[] = [];
+const markerCalls: { map: unknown; activeSlug: unknown }[] = [];
 vi.mock("@/hooks/map/use-map-markers", () => ({
-  useMapMarkers: (map: unknown) => {
-    markerCalls.push(map);
+  useMapMarkers: (map: unknown, activeSlug: unknown) => {
+    markerCalls.push({ map, activeSlug });
   },
+}));
+
+const highlightCalls: { map: unknown; activeSlug: unknown; styleLoaded: unknown }[] = [];
+vi.mock("@/hooks/map/use-map-highlight", () => ({
+  useMapHighlight: (map: unknown, activeSlug: unknown, styleLoaded: unknown) => {
+    highlightCalls.push({ map, activeSlug, styleLoaded });
+  },
+}));
+
+// A mutable module-level value: each test sets it before render rather than
+// standing up a real TripHighlightProvider, which needs next/navigation's
+// router context for no benefit here — only the value threaded through matters.
+let tripHighlight: { activeSlug: string | null } = { activeSlug: null };
+vi.mock("@/hooks/trip/highlight-context", () => ({
+  useTripHighlight: () => tripHighlight,
 }));
 
 function entry(over: Partial<IndexEntry> = {}): IndexEntry {
@@ -73,6 +88,8 @@ beforeEach(() => {
   observers.length = 0;
   layerCalls.length = 0;
   markerCalls.length = 0;
+  highlightCalls.length = 0;
+  tripHighlight = { activeSlug: null };
 });
 
 afterEach(() => {
@@ -129,7 +146,17 @@ describe("TripMap", () => {
     expect(layerCalls.at(-1)?.entries).toBe(entries);
     expect(layerCalls.at(-1)?.styleLoaded).toBe(false);
     expect(layerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
-    expect(markerCalls.at(-1)).toBe(SENTINEL_MAP);
+    expect(markerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
+  });
+
+  it("threads the trip highlight's activeSlug into the markers hook and the legs-highlight hook", () => {
+    installObserver();
+    tripHighlight = { activeSlug: "kyoto" };
+    render(<TripMap />);
+    expect(markerCalls.at(-1)?.activeSlug).toBe("kyoto");
+    expect(highlightCalls.at(-1)?.map).toBe(SENTINEL_MAP);
+    expect(highlightCalls.at(-1)?.activeSlug).toBe("kyoto");
+    expect(highlightCalls.at(-1)?.styleLoaded).toBe(false);
   });
 
   it("renders the same markup with and without entries, because the server has neither", () => {
