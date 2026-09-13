@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import TripHighlightProvider from "@/components/public/trip-highlight";
 import TripMap, { MAP_FRAME_CLASS } from "@/components/public/trip-map";
 import { config } from "@/lib/config";
 import { getTripIndex } from "@/lib/pod/cached";
@@ -13,12 +14,12 @@ export default function TripLayout({
   params: Promise<{ slug: string }>;
 }) {
   return (
-    <>
+    <TripHighlightProvider>
       <Suspense fallback={<div aria-hidden className={MAP_FRAME_CLASS} />}>
         <MapForTrip params={params} />
       </Suspense>
       {children}
-    </>
+    </TripHighlightProvider>
   );
 }
 
