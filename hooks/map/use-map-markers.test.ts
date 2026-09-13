@@ -150,4 +150,41 @@ describe("useMapMarkers", () => {
     await waitFor(() => expect(markers).toHaveLength(1));
     expect(markers[0].element?.className).toContain("ring-2");
   });
+
+  it("raises its own slug when the pointer enters the marker element", async () => {
+    map.features = [leaf("kyoto"), leaf("osaka")];
+    const onEnter = vi.fn();
+    renderHook(() => useMapMarkers(map as never, null, onEnter, vi.fn()));
+    await waitFor(() => expect(markers).toHaveLength(2));
+    const osaka = markers.find((m) => m.element?.dataset.slug === "osaka")?.element;
+    osaka?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(onEnter).toHaveBeenCalledWith("osaka");
+  });
+
+  it("clears when the pointer leaves the marker element", async () => {
+    map.features = [leaf("kyoto")];
+    const onLeave = vi.fn();
+    renderHook(() => useMapMarkers(map as never, null, vi.fn(), onLeave));
+    await waitFor(() => expect(markers).toHaveLength(1));
+    markers[0].element?.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the latest callbacks without rebuilding a single marker", async () => {
+    map.features = [leaf("kyoto")];
+    const first = vi.fn();
+    const second = vi.fn();
+    // An inline arrow from the caller is the normal case, so a new identity on
+    // every render must reach the listener through a ref, not through the
+    // reconcile effect's deps — rebuilding markers on hover is the failure.
+    const { rerender } = renderHook(({ onEnter }) => useMapMarkers(map as never, null, onEnter), {
+      initialProps: { onEnter: first },
+    });
+    await waitFor(() => expect(markers).toHaveLength(1));
+    rerender({ onEnter: second });
+    markers[0].element?.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(second).toHaveBeenCalledWith("kyoto");
+    expect(first).not.toHaveBeenCalled();
+    expect(markers).toHaveLength(1);
+  });
 });

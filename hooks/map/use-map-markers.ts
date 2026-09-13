@@ -13,9 +13,20 @@ type LeafProps = PointProps & { point_count?: number };
 // classes as one string. ./notes.md#why-marker_active-is-split-before-classlist
 const ACTIVE_CLASSES = MARKER_ACTIVE.split(" ");
 
-export function useMapMarkers(map: MapLibreMap | null, activeSlug: string | null = null): void {
+export function useMapMarkers(
+  map: MapLibreMap | null,
+  activeSlug: string | null = null,
+  onEnter?: (slug: string) => void,
+  onLeave?: () => void,
+): void {
   const markers = useRef(new Map<string, MapLibreMarker>());
   const active = useRef(activeSlug);
+  // A ref, not a dependency, for the same reason activeSlug is one: a caller's
+  // inline arrow would otherwise rebuild every marker on every render.
+  const hover = useRef({ onEnter, onLeave });
+  useEffect(() => {
+    hover.current = { onEnter, onLeave };
+  });
 
   // Deps are [map] ONLY: adding activeSlug tears down and recreates every
   // marker on every hover. ./notes.md#why-activeslug-is-a-ref-in-the-reconcile-effect
@@ -40,6 +51,10 @@ export function useMapMarkers(map: MapLibreMap | null, activeSlug: string | null
           // GeoJSON's Position is number[], not the tuple setLngLat wants.
           const [lng, lat] = feature.geometry.coordinates;
           const element = buildMarkerElement(props);
+          // mouseenter/mouseleave, not pointer*: hover only, and neither
+          // bubbles, so the marker's own <img> cannot raise a second time.
+          element.addEventListener("mouseenter", () => hover.current.onEnter?.(props.slug));
+          element.addEventListener("mouseleave", () => hover.current.onLeave?.());
           if (active.current === props.slug) element.classList.add(...ACTIVE_CLASSES);
           live.set(props.slug, new Marker({ element }).setLngLat([lng, lat]).addTo(map));
         }

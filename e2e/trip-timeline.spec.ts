@@ -1,8 +1,8 @@
 /**
- * The timeline and the map share one highlight: hovering a row lights its
- * marker and its arriving leg's real feature state; the entry route lights
- * the marker with no pointer ever touching the page. Both are mutation-
- * controlled — measurements in ./notes.md#the-two-mutation-controls
+ * The timeline and the map share one highlight, both ways: hovering a row
+ * lights its marker and its arriving leg's real feature state, hovering a
+ * marker lights the row, and the entry route lights the marker with no pointer
+ * ever touching the page. Mutation controls in ./notes.md#the-three-mutation-controls
  */
 
 import { expect, test } from "@playwright/test";
@@ -33,14 +33,32 @@ test.describe("the timeline and the map highlight each other", () => {
       .poll(() =>
         frame.evaluate((el) => {
           const map = (el as HTMLDivElement & { __map?: MapLibreMap }).__map;
-          const [feature] = map?.queryRenderedFeatures(undefined, { layers: ["trip-route-line"] }) ?? [];
+          const layers = { layers: ["trip-route-line"] };
+          const [feature] = map?.queryRenderedFeatures(undefined, layers) ?? [];
           return feature?.state;
         }),
       )
       .toEqual({ active: true });
   });
 
-  test("the entry route marks its marker with no pointer ever touching the page", async ({ page }) => {
+  test("hovering a marker marks its timeline row, which is the other direction", async ({
+    page,
+  }) => {
+    await page.goto(TRIP);
+    // The row, located through the link it contains: the <li> carries no text
+    // of its own and data-active is what the highlight actually sets.
+    const naraRow = page.locator(`li:has(a[href="${TRIP}/2026-03-31-nara"])`);
+    await expect(naraRow).not.toHaveAttribute("data-active", "true");
+
+    const naraMarker = page.locator('[data-slug="2026-03-31-nara"]');
+    await expect(naraMarker).toBeVisible();
+    await naraMarker.hover();
+    await expect(naraRow).toHaveAttribute("data-active", "true");
+  });
+
+  test("the entry route marks its marker with no pointer ever touching the page", async ({
+    page,
+  }) => {
     // A fresh navigation straight onto the route: useSelectedLayoutSegment
     // supplies the highlight before any hover or focus event could fire.
     await page.goto(`${TRIP}/2026-03-29-arrival`);

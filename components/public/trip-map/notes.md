@@ -94,3 +94,12 @@ feature MapLibre actually rendered. `e2e/notes.md`'s "the two mutation controls"
 pass this produced. The fix reads `__map.queryRenderedFeatures(undefined, { layers: [...] })` and
 checks the returned feature's own `.state` — computed by the renderer from whichever id it really
 assigned, which is what `promoteId: "toSlug"` is actually for.
+
+**Development builds only, from 2026-09-13.** The stamp is behind
+`process.env.NODE_ENV === "production"`, which costs the specs nothing:
+`playwright.config.ts` starts the app with `npx next dev`, deliberately
+(`e2e/notes.md`, and the StrictMode reason recorded in `playwright.config.ts`
+itself), so the handle is present for every e2e run and absent from every
+deploy. A live `Map` reachable from a public page's DOM is not a security
+boundary anyone relies on, but it is an export nothing in production has a use
+for.

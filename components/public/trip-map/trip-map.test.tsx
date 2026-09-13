@@ -29,10 +29,16 @@ vi.mock("@/hooks/map/use-map-layers", () => ({
   },
 }));
 
-const markerCalls: { map: unknown; activeSlug: unknown }[] = [];
+type MarkerCall = {
+  map: unknown;
+  activeSlug: unknown;
+  onEnter?: (slug: string) => void;
+  onLeave?: () => void;
+};
+const markerCalls: MarkerCall[] = [];
 vi.mock("@/hooks/map/use-map-markers", () => ({
-  useMapMarkers: (map: unknown, activeSlug: unknown) => {
-    markerCalls.push({ map, activeSlug });
+  useMapMarkers: (map: unknown, activeSlug: unknown, onEnter?: never, onLeave?: never) => {
+    markerCalls.push({ map, activeSlug, onEnter, onLeave });
   },
 }));
 
@@ -46,7 +52,12 @@ vi.mock("@/hooks/map/use-map-highlight", () => ({
 // A mutable module-level value: each test sets it before render rather than
 // standing up a real TripHighlightProvider, which needs next/navigation's
 // router context for no benefit here — only the value threaded through matters.
-let tripHighlight: { activeSlug: string | null } = { activeSlug: null };
+type Highlight = {
+  activeSlug: string | null;
+  raise: ReturnType<typeof vi.fn>;
+  clear: ReturnType<typeof vi.fn>;
+};
+let tripHighlight: Highlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
 vi.mock("@/hooks/trip/highlight-context", () => ({
   useTripHighlight: () => tripHighlight,
 }));
@@ -89,7 +100,7 @@ beforeEach(() => {
   layerCalls.length = 0;
   markerCalls.length = 0;
   highlightCalls.length = 0;
-  tripHighlight = { activeSlug: null };
+  tripHighlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
 });
 
 afterEach(() => {
@@ -149,9 +160,18 @@ describe("TripMap", () => {
     expect(markerCalls.at(-1)?.map).toBe(SENTINEL_MAP);
   });
 
+  it('gives the markers hook a hover pair that raises with source "map" and clears', () => {
+    installObserver();
+    render(<TripMap />);
+    markerCalls.at(-1)?.onEnter?.("osaka");
+    expect(tripHighlight.raise).toHaveBeenCalledWith("osaka", "map");
+    markerCalls.at(-1)?.onLeave?.();
+    expect(tripHighlight.clear).toHaveBeenCalledTimes(1);
+  });
+
   it("threads the trip highlight's activeSlug into the markers hook and the legs-highlight hook", () => {
     installObserver();
-    tripHighlight = { activeSlug: "kyoto" };
+    tripHighlight = { ...tripHighlight, activeSlug: "kyoto" };
     render(<TripMap />);
     expect(markerCalls.at(-1)?.activeSlug).toBe("kyoto");
     expect(highlightCalls.at(-1)?.map).toBe(SENTINEL_MAP);

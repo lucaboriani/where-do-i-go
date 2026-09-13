@@ -48,17 +48,21 @@ export default function TripMap({
     return () => observer.disconnect();
   }, [active]);
 
-  const { activeSlug } = useTripHighlight();
+  const { activeSlug, raise, clear } = useTripHighlight();
   const { map, styleLoaded } = useMapInstance({ container, active, bbox, styleUrl });
   useMapLayers(map, entries, styleLoaded);
-  useMapMarkers(map, activeSlug);
+  // Inline arrows are safe here: useMapMarkers holds the pair in a ref, so a
+  // fresh identity per render cannot re-run its reconcile effect.
+  useMapMarkers(map, activeSlug, (slug) => raise(slug, "map"), clear);
   useMapHighlight(map, activeSlug, styleLoaded);
 
-  // e2e-only handle: the canvas cannot be queried, so this is how a real
-  // feature-state read happens. ./notes.md#the-map-handle-attached-for-e2e
+  // e2e-only handle, and free: playwright.config.ts runs `next dev`, so this is
+  // true for every e2e run and false for every deploy.
+  // ./notes.md#the-map-handle-attached-for-e2e
   useEffect(() => {
     const node = container.current;
-    if (node !== null && map !== null) (node as HTMLDivElement & { __map?: MapLibreMap }).__map = map;
+    if (process.env.NODE_ENV === "production" || node === null || map === null) return;
+    (node as HTMLDivElement & { __map?: MapLibreMap }).__map = map;
   }, [map]);
 
   return <div ref={container} role="region" aria-label="Trip map" className={MAP_FRAME_CLASS} />;

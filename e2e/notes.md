@@ -1,20 +1,24 @@
 # e2e — notes
 
-## The two mutation controls
+## The three mutation controls
 
 `docs/superpowers/specs/2026-09-13-map-timeline-stage-4a-design.md:119-123` requires the browser
 case to prove both the marker's class **and** the leg's feature state, and to prove the route half
-without a pointer. `e2e/trip-timeline.spec.ts` is two tests rather than one for that reason.
+without a pointer; §1 requires the other direction too, hovering a marker to light the row.
+`e2e/trip-timeline.spec.ts` is three tests for those three reasons.
 
-**The seed now carries a real second entry.** The §7.4 fixture's `entries.ttl` names
-`<#e-2026-03-31-nara>` in `dy:entry` but never describes it — `lib/pod/read.ts` correctly drops an
-undescribed link (`lib/pod/read.test.ts`'s "skips a dy:entry link the document does not
-describe"), so the seeded trip used to have exactly one placed entry and zero legs
-(`lib/map/legs.ts`'s `buildLegs` starts at `placed.slice(1)`). `scripts/seed-dev-pod.ts` now gives
-that second entry the fields it needs — `dy:slug`, `dy:lat`/`dy:long`, `dy:sortOrder 2` — **in the
-seed, not in `docs/data-model.md`**, which stays the normative, unmodified fixture
-`validate:fixtures` parses. This is the same shape as the `2026-secret` trip below it: real edits
-to the extracted fixture text before the `PUT`.
+**The seed now carries a real second entry, and its entry resource.** The §7.4 fixture's
+`entries.ttl` names `<#e-2026-03-31-nara>` in `dy:entry` but never describes it —
+`lib/pod/read.ts` correctly drops an undescribed link (`lib/pod/read.test.ts`'s "skips a dy:entry
+link the document does not describe"), so the seeded trip used to have exactly one placed entry
+and zero legs (`lib/map/legs.ts`'s `buildLegs` starts at `placed.slice(1)`).
+`scripts/seed-dev-pod.ts` now gives that second entry the fields it needs — `dy:slug`,
+`dy:lat`/`dy:long`, `dy:precisionMeters`, `dy:sortOrder 2` — **in the seed, not in
+`docs/data-model.md`**, which stays the normative, unmodified fixture `validate:fixtures` parses.
+It also PUTs `entries/2026-03-31-nara.ttl`, the resource that index entry points at: without it
+the build prerendered a "Not found" page for a slug the timeline links to. The file name is the
+slug because `assertEntrySlug` rejects a mismatch. This is the same shape as the `2026-secret`
+trip below it: real edits to the extracted fixture text before the `PUT`.
 
 **Mutation control 1, measured 2026-09-13 — `promoteId`, and a false pass caught along the way.**
 The first version of this assertion called `map.getFeatureState({ source: "trip-legs", id })`
@@ -33,6 +37,13 @@ the marker never gained `ring-2` because nothing during a bare `page.goto` with 
 raises a highlight. Restoring the route fallback returned it to green. This is what makes the test
 a genuine isolation of the route path rather than a hover-then-navigate sequence that could pass
 on stale pointer state alone.
+
+**Mutation control 3, measured 2026-09-13 — the map → timeline direction.** Deleting the two
+`element.addEventListener` lines in `hooks/map/use-map-markers.ts` turned the third test red at
+`expect(naraRow).toHaveAttribute("data-active", "true")` (5 s timeout, the row never gained the
+attribute); restoring them returned it to green in 1.6 s. This is the control that matters most
+of the three, because the listener is the whole feature: the row's own styling is driven by
+`activeSlug` alone and would keep passing the timeline → map test with no map listener anywhere.
 
 ## The map handle attached for e2e
 

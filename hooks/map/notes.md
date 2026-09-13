@@ -83,7 +83,14 @@ the id MapLibre already tracks. A leg is identified by the entry it arrives at, 
 `setFeatureState({ source, id }, ...)` on an id absent from the source's data does not throw and
 does not warn — it is silently discarded. A slug that is stale, misspelled, or belongs to an
 unplaced entry produces a page that behaves exactly as if the highlight had worked, with no
-signal that it did not. `useMapHighlight` cannot detect this case; it is recorded here rather
+signal that it did not.
+
+**One case fires on every trip, by design.** `buildLegs` (`lib/map/legs.ts`) builds its legs from
+`placed.slice(1)` — a leg is the arrival at an entry, and the first entry is arrived at from
+nowhere — so the first entry's slug is never a `toSlug` and never an id in `LEGS_SOURCE`.
+Highlighting it therefore paints a marker and no leg, which is correct and is not a defect. It
+does mean a browser test that only ever highlights the first entry would assert nothing about
+feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reason. `useMapHighlight` cannot detect this case; it is recorded here rather
 than guarded against, since guarding it would mean re-deriving the same slug set `buildLegs`
 already computed just to check membership.
 

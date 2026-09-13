@@ -5,11 +5,7 @@ import { useMapHighlight } from "./use-map-highlight";
 import { LEGS_SOURCE } from "./use-map-layers";
 
 function fakeMap() {
-  return {
-    setFeatureState: vi.fn(),
-    removeFeatureState: vi.fn(),
-    getSource: vi.fn(() => ({})),
-  };
+  return { setFeatureState: vi.fn(), removeFeatureState: vi.fn() };
 }
 
 describe("useMapHighlight", () => {
