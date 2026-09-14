@@ -235,4 +235,9 @@ describe("MapSheet", () => {
     // The row the reader TAPPED, not the one the emulated pointer is over.
     expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "smooth" });
   });
+
+  it("takes the handle's label, because 'entry list' is wrong on the diary page", () => {
+    render(<MapSheet label="Resize the trip list">x</MapSheet>);
+    expect(screen.getByRole("button", { name: "Resize the trip list" })).toBeTruthy();
+  });
 });
