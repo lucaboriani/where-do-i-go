@@ -118,8 +118,8 @@ affordance invented for one state.
 
 The handle is a real `<button>`, not a decorative bar: it cycles peek → half → full → peek,
 which is the whole keyboard and screen-reader story for the sheet. **The drag is native.** The
-handle sits inside the scroller, so a touch drag on it is an ordinary scroll and the CSS snapping does the
-rest; the parent design's "pointer handlers" sentence anticipated hand-written drag maths that the
+handle sits inside the scroller, so a touch drag on it is an ordinary scroll and the CSS snapping
+does the rest; the parent design's "pointer handlers" sentence anticipated hand-written drag maths that the
 measurement in §2 makes unnecessary. Writing it anyway would be cleverness beating simplicity.
 
 At and above `48rem` the spacers and the handle are `display: none` and the sheet is a static
@@ -150,6 +150,12 @@ from the DOM** — `spacerB.offsetTop` and `body.offsetTop` — never recomputed
 the stylesheet stays the single source and no drift check is needed. The arithmetic is a pure
 function in `components/public/map-sheet/snap.ts` with its own unit test; the component measures
 and calls it. `behavior: "smooth"` only when `prefers-reduced-motion: reduce` does not match.
+
+**One exception to "only a pin moves the sheet": the position it starts in.** A fresh load
+straight onto an entry route — the shared-link path — opens the sheet at full, or the prose sits
+below the fold on arrival. That runs once, on mount, without animation; every later route
+change leaves the sheet exactly where the reader put it, because the component stays mounted and
+the scroller keeps its position across navigation.
 
 With one scroller, revealing a row far down the list necessarily raises the sheet past half. That
 is accepted and is the honest consequence of §2's choice: tapping a marker opens the sheet to the
@@ -209,7 +215,7 @@ diff is reviewable. Then `format` and `format:check` join `package.json`, the `C
 list (which `check:commands` verifies in both directions) and the definition of done.
 
 **The definition-of-done list gains a tenth unconditional command, which makes `test:e2e` the
-eleventh.** The sentence in `CLAUDE.md` that reads "A tenth command, path-scoped" must be
+eleventh one.** The sentence in `CLAUDE.md` that reads "A tenth command, path-scoped" must be
 renumbered in the same edit, or the file contradicts its own list.
 
 **What this does not do**: it does not format the tests, so a long line in a test file is still
