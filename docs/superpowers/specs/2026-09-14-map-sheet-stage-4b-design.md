@@ -117,8 +117,8 @@ tap target for the background tap that clears a pin — without it, clearing a p
 affordance invented for one state.
 
 The handle is a real `<button>`, not a decorative bar: it cycles peek → half → full → peek,
-which is the whole keyboard and screen-reader story for the sheet. **The drag is native.** The handle
-sits inside the scroller, so a touch drag on it is an ordinary scroll and the CSS snapping does the
+which is the whole keyboard and screen-reader story for the sheet. **The drag is native.** The
+handle sits inside the scroller, so a touch drag on it is an ordinary scroll and the CSS snapping does the
 rest; the parent design's "pointer handlers" sentence anticipated hand-written drag maths that the
 measurement in §2 makes unnecessary. Writing it anyway would be cleverness beating simplicity.
 
@@ -180,21 +180,40 @@ reading pages, so it contradicts itself today. Landing §26 beside an unamended 
 decisions disagreeing, which is worse than the state before either. `TODO.md`'s phase 0.5 line
 echoes the same clause and is corrected with it.
 
-## 9. Prettier, wired
+## 9. Prettier, wired to production code only
 
-Measured on 2026-09-14: `prettier --check "**/*.{ts,tsx}"` fails **100 files / 3,325 changed
-lines**, and some of that change is a loss — `lib/time/offsets.ts`'s offset table goes from 6
-hand-aligned lines to 40, which also feeds the line counts ESLint and `check:structure` measure.
+Measured on 2026-09-14, in this order, because the first number would have produced a broken
+branch:
 
-So the order matters: **the reformat is its own commit, first**, before any 4b code, with
-`// prettier-ignore` on the deliberate tables; then `format:check` joins `package.json`, the
-`CLAUDE.md` command list (which `check:commands` verifies in both directions) and the definition
-of done. Markdown is excluded by a `.prettierignore`: the docs are hand-wrapped prose and
-reflowing them would bury every future documentation diff.
+- `prettier --check "**/*.{ts,tsx}"` fails **100 files / 3,325 changed lines**.
+- **That reformat cannot be run.** `check:structure` reports `test/guardrails.test.ts` at **999
+  code lines against a 1000-line HARD bound**, and Prettier adds **257** to it. Four more test
+  files sit between 869 and 967. A whole-repo `--write` would fail `npm run lint` on a bound that
+  has nothing to do with formatting, and the fix would be splitting four test files — not the job
+  of this stage.
+- Scoped to production code — `{app,components,hooks,lib,scripts}/**/*.{ts,tsx}` with
+  `components/ui/` and `**/*.test.*` in `.prettierignore` — it is **46 files, ~600 lines**, and
+  nothing near a bound.
+
+So the scope is production code, and the two exclusions are principled rather than convenient:
+`components/ui/**` is vendored shadcn source, already exempt from the arbitrary-value rule, and
+reformatting it would noise up every future upstream diff; test files are where the bound problem
+is and where hand-aligned tables do the most work. Markdown and CSS are out of the glob entirely —
+`app/globals.css`'s token table is aligned by hand and Prettier moves it.
+
+`lib/time/offsets.ts`'s offset table gets `// prettier-ignore`: 6 hand-aligned lines become 40
+without it, and those 40 lines then count against the file's own bounds.
+
+**Order matters. The reformat is its own commit, first**, before any 4b code, so that the feature
+diff is reviewable. Then `format` and `format:check` join `package.json`, the `CLAUDE.md` command
+list (which `check:commands` verifies in both directions) and the definition of done.
 
 **The definition-of-done list gains a tenth unconditional command, which makes `test:e2e` the
 eleventh.** The sentence in `CLAUDE.md` that reads "A tenth command, path-scoped" must be
 renumbered in the same edit, or the file contradicts its own list.
+
+**What this does not do**: it does not format the tests, so a long line in a test file is still
+caught by hand or not at all. Recorded rather than papered over.
 
 ## 10. The gate
 
