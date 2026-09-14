@@ -18,7 +18,15 @@ function setup(activeSlug: string | null, slug = "arrival") {
   const clear = vi.fn();
   const pin = vi.fn();
   const unpin = vi.fn();
-  vi.mocked(useTripHighlight).mockReturnValue({ activeSlug, source: null, raise, clear, pin, unpin });
+  vi.mocked(useTripHighlight).mockReturnValue({
+    activeSlug,
+    source: null,
+    pinnedSlug: null,
+    raise,
+    clear,
+    pin,
+    unpin,
+  });
   // The link and the time arrive as children now, rendered by the server
   // component — so the row is given one here rather than rendering its own.
   render(

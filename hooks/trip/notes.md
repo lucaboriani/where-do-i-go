@@ -62,3 +62,9 @@ the pin, the pointer, or both? Keeping them separate preserves the semantic:
 precedence logic `pointer ?? pinned ?? route` means `activeSlug` is still a
 single value. The map and the timeline stay unaware there are two slots
 underneath.
+
+`pinnedSlug` is exposed alongside `activeSlug` for the same reason: it is the raw slot, unranked.
+`MapSheet` must react when the pin changes and stay still when a hover outranks it, and that
+question cannot be answered from `activeSlug` and `source` — a hover that comes and goes returns
+the pair to its earlier value, and Chrome's emulated `mouseenter` beats `click`, so the render
+that pins already reads `source === "map"`. See `../../components/public/map-sheet/notes.md`.

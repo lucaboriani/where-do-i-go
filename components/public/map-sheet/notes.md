@@ -43,10 +43,24 @@ dragging the handle is scrolling the container, which CSS already snaps. No `poi
 
 A pin is deliberate — the reader tapped a marker and asked where that entry is — so the sheet
 scrolls to `targetForRow(rowTop, handleHeight, offsets)` (spec §6). A hover or a route change is
-not, and must never yank a sheet the reader has already placed: `source` is checked, not just
-`activeSlug`. With one scroller, revealing a row far down the list necessarily raises the sheet
-past half; that is §2's accepted consequence, and `targetForRow` keeps half as the floor so a
-reveal can never CLOSE the sheet.
+not, and must never yank a sheet the reader has already placed. With one scroller, revealing a row
+far down the list necessarily raises the sheet past half; that is §2's accepted consequence, and
+`targetForRow` keeps half as the floor so a reveal can never CLOSE the sheet.
+
+**The effect keys on `pinnedSlug`, the raw pin slot, and never on the derived
+`(activeSlug, source)` pair.** Deriving it looks equivalent and is not, in two ways that both
+break the primary touch interaction. A hover that starts and ends while a pin is live sends
+`("A","pin") → ("B","timeline") → ("A","pin")`, so a `source === "pin"` guard fires twice for one
+pin and the sheet re-scrolls — and on touch, a drag that begins on an `<li>` raises and clears the
+pointer, so the sheet snaps back mid-gesture. Worse, Chrome emits an emulated `mouseenter` BEFORE
+`click`, so on the tap that pins, the pointer slot is already set and `pointer ?? pinned` makes
+`source` `"map"`: a `source`-keyed effect would not open the sheet at all until some later
+`mouseleave`. `pinnedSlug` has neither face, because it changes exactly when the pin changes.
+
+**Accepted, and deliberate: re-tapping the same marker after scrolling away does not re-reveal the
+row.** `pinnedSlug` is unchanged, so React bails out of the effect. Re-revealing would mean
+tracking scroll position to know the reader had moved, which is state this component does not
+keep.
 
 **One exception, and it is the position the sheet starts in.** Opening `/trips/japan/nara` from a
 shared link arrives with `source === "route"` already set, and the entry's prose would sit below
@@ -62,6 +76,10 @@ every change, which `map-sheet.test.tsx`'s "arriving after mount" case catches.
 No JavaScript branch on viewport width, anywhere. Above 48rem `.trip-sheet` is not a scroll
 container at all, so `scrollTo` on it is inert and the desktop behaviour falls out of the CSS —
 see `#why-one-scroller`.
+
+`row.offsetTop` resolves against `.trip-sheet`, the nearest positioned ancestor, which is what
+puts it in the same coordinate space as `scrollTop`: adding `relative` to the body, or a sticky
+date header above the rows, would silently rebase it and no test here would see it.
 
 The row lookup walks `[data-slug]` under the sheet body and compares `el.dataset.slug`, rather
 than building a `[data-slug="…"]` selector: a slug is validated for length, not for CSS-safe

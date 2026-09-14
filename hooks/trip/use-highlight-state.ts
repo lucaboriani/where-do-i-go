@@ -28,7 +28,7 @@ export function useHighlightState(routeSlug: string | null): HighlightValue {
 
   return useMemo(() => {
     const base: Highlight = pointer ?? pinnedOrRoute(pinned, routeSlug);
-    return { ...base, raise, clear, pin, unpin };
+    return { ...base, pinnedSlug: pinned, raise, clear, pin, unpin };
   }, [pointer, pinned, routeSlug, raise, clear, pin, unpin]);
 }
 

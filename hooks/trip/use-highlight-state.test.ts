@@ -68,4 +68,23 @@ describe("useHighlightState", () => {
 
     expect(result.current).toMatchObject({ activeSlug: "osaka", source: "route" });
   });
+
+  it("keeps pinnedSlug exposed underneath a hover that outranks it", () => {
+    // The sheet asks WHICH ENTRY IS PINNED, not which is active: deriving the
+    // first from the second is what made a passing hover re-scroll the sheet.
+    const { result } = renderHook(() => useHighlightState("arrival"));
+
+    act(() => result.current.pin("nara"));
+    expect(result.current).toMatchObject({ activeSlug: "nara", pinnedSlug: "nara" });
+
+    act(() => result.current.raise("osaka", "map"));
+    expect(result.current).toMatchObject({
+      activeSlug: "osaka",
+      source: "map",
+      pinnedSlug: "nara",
+    });
+
+    act(() => result.current.unpin());
+    expect(result.current.pinnedSlug).toBeNull();
+  });
 });

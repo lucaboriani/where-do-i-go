@@ -12,7 +12,7 @@ export default function MapSheet({ children }: { children: React.ReactNode }) {
   const halfSpacer = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const handle = useRef<HTMLButtonElement>(null);
-  const { activeSlug, source } = useTripHighlight();
+  const { pinnedSlug, source } = useTripHighlight();
 
   const scrollToTop = useCallback((top: number) => {
     const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -25,15 +25,15 @@ export default function MapSheet({ children }: { children: React.ReactNode }) {
     scrollToTop(nextSnap(scroller.current?.scrollTop ?? 0, offsets));
   }
 
-  // A pin is the only highlight that moves the sheet: a route or a hover must
-  // not yank the reader's scroll. ./notes.md#only-a-pin-moves-the-sheet
+  // Keyed on the PIN, never on the active highlight a hover outranks:
+  // ./notes.md#only-a-pin-moves-the-sheet
   useEffect(() => {
-    if (source !== "pin" || activeSlug === null) return;
+    if (pinnedSlug === null) return;
     const offsets = measure(halfSpacer.current, body.current);
-    const row = rowFor(body.current, activeSlug);
+    const row = rowFor(body.current, pinnedSlug);
     if (offsets === null || row === null) return;
     scrollToTop(targetForRow(row.offsetTop, handle.current?.offsetHeight ?? 0, offsets));
-  }, [activeSlug, source, scrollToTop]);
+  }, [pinnedSlug, scrollToTop]);
 
   // The initial position, and ONLY the initial one: a fresh load on an entry
   // route opens the sheet so the prose is not below the fold.

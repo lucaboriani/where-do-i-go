@@ -10,6 +10,9 @@ export type Highlight = {
 };
 
 export type HighlightValue = Highlight & {
+  /** The raw pin slot, unranked: a consumer that must not react to a hover
+   *  reads this rather than deriving it. ./notes.md#why-a-pin-is-a-second-slot-not-a-third-source */
+  pinnedSlug: string | null;
   raise: (slug: string, source: "map" | "timeline") => void;
   clear: () => void;
   pin: (slug: string) => void;
@@ -23,6 +26,7 @@ export const TripHighlightContext = createContext<HighlightValue | null>(null);
 const INERT: HighlightValue = {
   activeSlug: null,
   source: null,
+  pinnedSlug: null,
   raise: () => {},
   clear: () => {},
   pin: () => {},
