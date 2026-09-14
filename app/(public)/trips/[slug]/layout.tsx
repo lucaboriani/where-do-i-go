@@ -1,11 +1,13 @@
 import { Suspense } from "react";
+import MapSheet from "@/components/public/map-sheet";
 import TripHighlightProvider from "@/components/public/trip-highlight";
 import TripMap, { MAP_FRAME_CLASS } from "@/components/public/trip-map";
 import { config } from "@/lib/config";
 import { getTripIndex } from "@/lib/pod/cached";
 
-/** The layout, not the page, is what keeps ONE map alive across trip → entry →
- *  entry: Next preserves layout state on navigation. ./notes.md#why-the-map-lives-in-the-layout */
+/** The layout, not the page, keeps ONE map alive across trip → entry → entry,
+ *  and the shell keeps it a SIBLING of the sheet at every width.
+ *  ./notes.md#why-the-map-lives-in-the-layout */
 export default function TripLayout({
   children,
   params,
@@ -15,10 +17,14 @@ export default function TripLayout({
 }) {
   return (
     <TripHighlightProvider>
-      <Suspense fallback={<div aria-hidden className={MAP_FRAME_CLASS} />}>
-        <MapForTrip params={params} />
-      </Suspense>
-      {children}
+      <div className="trip-shell">
+        <div className="trip-map-pane">
+          <Suspense fallback={<div aria-hidden className={MAP_FRAME_CLASS} />}>
+            <MapForTrip params={params} />
+          </Suspense>
+        </div>
+        <MapSheet>{children}</MapSheet>
+      </div>
     </TripHighlightProvider>
   );
 }

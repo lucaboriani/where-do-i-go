@@ -14,8 +14,9 @@ import { useTripHighlight } from "@/hooks/trip/highlight-context";
 
 type MapLibreMap = import("maplibre-gl").Map;
 
-// Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
-export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
+// The PANE owns the position now; the frame just fills it.
+// ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
+export const MAP_FRAME_CLASS = "size-full bg-surface";
 
 // A stable identity, not an inline `= []` default: the latter allocates a
 // fresh array every render, which would re-run useMapLayers's effect on
