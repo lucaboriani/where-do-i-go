@@ -24,7 +24,11 @@ export async function fetchTurtle(url: string, opts: ReadOptions = {}): Promise<
       headers: { accept: "text/turtle", ...(opts.init?.headers ?? {}) },
     });
   } catch (cause) {
-    return err({ kind: "network", url, message: cause instanceof Error ? cause.message : String(cause) });
+    return err({
+      kind: "network",
+      url,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
   }
   if (!res.ok) return err({ kind: "http", url, status: res.status });
 
@@ -35,7 +39,11 @@ export async function fetchTurtle(url: string, opts: ReadOptions = {}): Promise<
     const quads = new Parser({ baseIRI: url }).parse(body);
     return ok({ url, quads, etag: res.headers.get("etag") });
   } catch (cause) {
-    return err({ kind: "parse", url, message: cause instanceof Error ? cause.message : String(cause) });
+    return err({
+      kind: "parse",
+      url,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 }
 
@@ -54,8 +62,7 @@ export function viewOf(quads: Quad[], subject: string) {
     subject,
     /** Present at all? Distinguishes "absent" from "malformed". */
     exists: mine.length > 0,
-    types: () =>
-      objects(RDF.type).map((q) => q.object.value),
+    types: () => objects(RDF.type).map((q) => q.object.value),
     one: (predicate: string) => objects(predicate)[0]?.object.value,
     all: (predicate: string) => objects(predicate).map((q) => q.object.value),
     /** Literal plus its datatype, so callers can enforce §6's explicit-datatype
@@ -113,7 +120,11 @@ export function date(view: View, predicate: string, url: string): Result<string 
  *  was evening, which for a travel diary is most of the meaning (§7.3). */
 const OFFSET = /([+-]\d{2}:\d{2}|Z)$/;
 
-export function offsetDateTime(view: View, predicate: string, url: string): Result<string | undefined> {
+export function offsetDateTime(
+  view: View,
+  predicate: string,
+  url: string,
+): Result<string | undefined> {
   const lit = view.typed(predicate);
   if (!lit) return ok(undefined);
   if (lit.datatype !== XSD.dateTime) {

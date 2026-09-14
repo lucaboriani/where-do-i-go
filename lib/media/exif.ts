@@ -86,7 +86,14 @@ export function readMetadata(bytes: ArrayBuffer): PhotoMetadata {
   if (matched) {
     const [, year, month, day, hour, minute, second] = matched;
     if (
-      isValidCalendarDate(Number(year), Number(month), Number(day), Number(hour), Number(minute), Number(second))
+      isValidCalendarDate(
+        Number(year),
+        Number(month),
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second),
+      )
     ) {
       candidate.dateTimeOriginal = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
     }
@@ -98,7 +105,12 @@ export function readMetadata(bytes: ArrayBuffer): PhotoMetadata {
   }
 
   const orientation = tags.exif?.Orientation?.value;
-  if (finite(orientation) && Number.isInteger(orientation) && orientation >= 1 && orientation <= 8) {
+  if (
+    finite(orientation) &&
+    Number.isInteger(orientation) &&
+    orientation >= 1 &&
+    orientation <= 8
+  ) {
     candidate.orientation = orientation;
   }
 

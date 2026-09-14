@@ -114,7 +114,11 @@ export type LazyProof = { present: string[]; leaked: string[] };
 
 /** The positive half of §1's pair: a chunk carrying the map must exist, and no
  *  public page's HTML may reference it. ./notes.md#the-positive-control */
-export function findLazyChunks(chunks: Chunk[], referenced: Set<string>, markers: string[]): LazyProof {
+export function findLazyChunks(
+  chunks: Chunk[],
+  referenced: Set<string>,
+  markers: string[],
+): LazyProof {
   if (chunks.length === 0) throw new Error("findLazyChunks: no chunks to scan");
   const present = chunks
     .filter((chunk) => markers.some((marker) => chunk.source.includes(marker)))
@@ -299,7 +303,10 @@ function jsChunksOnDisk(root: string): Chunk[] {
   const dir = resolve(root, ".next/static/chunks");
   return readdirSync(dir)
     .filter((file) => file.endsWith(".js"))
-    .map((file) => ({ name: `static/chunks/${file}`, source: readFileSync(resolve(dir, file), "utf8") }));
+    .map((file) => ({
+      name: `static/chunks/${file}`,
+      source: readFileSync(resolve(dir, file), "utf8"),
+    }));
 }
 
 /** The composition scan, with one ledger line per banned dep — including the
@@ -384,10 +391,14 @@ function main(): void {
   const mapMarkers = BANNED_DEPS.find((dep) => dep.name === "maplibre-gl")?.markers ?? [];
   const proof = findLazyChunks(jsChunksOnDisk(ROOT), new Set(measured.chunks.keys()), mapMarkers);
   if (proof.present.length === 0) {
-    console.log("\n  map   NO chunk contains maplibre — the map is lazy, or absent, and this cannot tell which");
+    console.log(
+      "\n  map   NO chunk contains maplibre — the map is lazy, or absent, and this cannot tell which",
+    );
   }
   if (proof.leaked.length > 0) {
-    console.log(`\n  map   a public page references the maplibre chunk: ${proof.leaked.join(", ")}`);
+    console.log(
+      `\n  map   a public page references the maplibre chunk: ${proof.leaked.join(", ")}`,
+    );
   }
   const mapFailed = proof.present.length === 0 || proof.leaked.length > 0;
 

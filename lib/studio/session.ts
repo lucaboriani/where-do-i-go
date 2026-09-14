@@ -38,9 +38,7 @@ export interface StudioSessionLike extends SolidSessionLike {
 
 /** Where the session restore has got to. `restoring` is a state, never a result. */
 export type SessionState =
-  | { status: "restoring" }
-  | { status: "signed-out" }
-  | { status: "signed-in"; webId: string };
+  { status: "restoring" } | { status: "signed-out" } | { status: "signed-in"; webId: string };
 
 /** The session state plus the owner verdict, which is what the studio renders. */
 export type StudioState =

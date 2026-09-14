@@ -4,9 +4,7 @@
  * things at once (§10). ./notes.md#the-serialisers-are-pure-and-they-do-not-fuzz
  */
 import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
-import {
-  DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE,
-} from "@/lib/vocab";
+import { DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE } from "@/lib/vocab";
 import { dec, dt, int, text } from "./literals";
 import type { Entry, IndexEntry } from "./schema";
 
@@ -109,7 +107,8 @@ export function computeIndexFromRows(inputs: readonly IndexRowInput[]): Computed
     .map((row, i) => ({ ...row, fragment: `e-${row.slug}`, sortOrder: i + 1 }));
 
   const points = rows.filter(
-    (r): r is IndexRow & { lat: number; long: number } => r.lat !== undefined && r.long !== undefined,
+    (r): r is IndexRow & { lat: number; long: number } =>
+      r.lat !== undefined && r.long !== undefined,
   );
 
   const bbox = points.length
@@ -191,7 +190,9 @@ export function rowQuads(it: NamedNode, indexUrl: string, row: IndexRow): Quad[]
   }
   if (row.thumbnail) quads.push(quad(node, namedNode(DY.thumbnail), namedNode(row.thumbnail)));
   if (row.travelModeFrom) {
-    quads.push(quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])));
+    quads.push(
+      quad(node, namedNode(DY.travelModeFrom), namedNode(TRAVEL_MODE[row.travelModeFrom])),
+    );
   }
   return quads;
 }

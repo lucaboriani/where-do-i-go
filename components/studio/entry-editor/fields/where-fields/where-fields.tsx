@@ -243,9 +243,7 @@ export default function WhereFields({
       )}
       {/* The failure as `describe()` renders it, OUTSIDE the association:
           ./notes.md#why-the-three-above-are-dead-on-screen-and-associated */}
-      {settingsDetail !== null && (
-        <p className="text-sm text-muted-foreground">{settingsDetail}</p>
-      )}
+      {settingsDetail !== null && <p className="text-sm text-muted-foreground">{settingsDetail}</p>}
     </>
   );
 }

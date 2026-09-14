@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import type { GeoJSONSourceSpecification, LayerSpecification } from "@maplibre/maplibre-gl-style-spec";
+import type {
+  GeoJSONSourceSpecification,
+  LayerSpecification,
+} from "@maplibre/maplibre-gl-style-spec";
 import { DASH_BY_MODE } from "@/lib/map/dashes";
 import { buildLegs } from "@/lib/map/legs";
 import { buildPoints } from "@/lib/map/points";
@@ -22,7 +25,11 @@ export const LAYERS = {
   clusterCount: "trip-cluster-count",
 } as const;
 
-export function useMapLayers(map: MapLibreMap | null, entries: IndexEntry[], styleLoaded: boolean): void {
+export function useMapLayers(
+  map: MapLibreMap | null,
+  entries: IndexEntry[],
+  styleLoaded: boolean,
+): void {
   useEffect(() => {
     // NOT map.isStyleLoaded(): styleLoaded is useMapInstance's own tracking of
     // the style.load event, which can fire while isStyleLoaded() still waits

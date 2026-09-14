@@ -46,7 +46,11 @@ export async function putGuarded(
   try {
     res = await fetch(url, { method: "PUT", headers, body });
   } catch (cause) {
-    return err({ kind: "network", url, message: cause instanceof Error ? cause.message : String(cause) });
+    return err({
+      kind: "network",
+      url,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
   }
   // 412 is the precondition doing its job: something changed underneath us.
   // Refetch and retry rather than forcing (§10).
@@ -57,19 +61,30 @@ export async function putGuarded(
 /** Enumerate a container via ldp:contains. Authenticated, because the studio
  *  must see drafts — and because phase 0 showed a container listing can be
  *  closed to anonymous readers to stop draft slugs leaking. */
-export async function listContainer(fetch: PodFetch, containerUrl: string): Promise<Result<string[]>> {
+export async function listContainer(
+  fetch: PodFetch,
+  containerUrl: string,
+): Promise<Result<string[]>> {
   let res: Response;
   try {
     res = await fetch(containerUrl, { headers: { accept: "text/turtle" } });
   } catch (cause) {
-    return err({ kind: "network", url: containerUrl, message: cause instanceof Error ? cause.message : String(cause) });
+    return err({
+      kind: "network",
+      url: containerUrl,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
   }
   if (!res.ok) return err({ kind: "http", url: containerUrl, status: res.status });
   try {
     const quads = new Parser({ baseIRI: containerUrl }).parse(await res.text());
     return ok(quads.filter((q) => q.predicate.value === LDP.contains).map((q) => q.object.value));
   } catch (cause) {
-    return err({ kind: "parse", url: containerUrl, message: cause instanceof Error ? cause.message : String(cause) });
+    return err({
+      kind: "parse",
+      url: containerUrl,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 }
 
@@ -108,7 +123,9 @@ export async function rebuildIndex(opts: {
   const urls = listed.value.filter((u) => u.endsWith(".ttl"));
   for (let i = 0; i < urls.length; i += CONCURRENCY) {
     const batch = await Promise.all(
-      urls.slice(i, i + CONCURRENCY).map(async (url) => [url, await readEntry(url, { fetch: opts.fetch })] as const),
+      urls
+        .slice(i, i + CONCURRENCY)
+        .map(async (url) => [url, await readEntry(url, { fetch: opts.fetch })] as const),
     );
     for (const [url, r] of batch) {
       if (r.ok) entries.push(r.value);

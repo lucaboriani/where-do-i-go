@@ -138,7 +138,11 @@ export function setEntryAccess(opts: SaveEntryOptions, entry: Entry, entryUrl: s
  * DRAFT STILL GOES THROUGH HERE with its row removed rather than skipped.
  * ./notes.md#step-3-recomputes-and-a-draft-still-goes-through-it
  */
-async function writeIndex(opts: SaveEntryOptions, entry: Entry, stamp: string): Promise<Result<null>> {
+async function writeIndex(
+  opts: SaveEntryOptions,
+  entry: Entry,
+  stamp: string,
+): Promise<Result<null>> {
   const read = await readTripIndexWithEtag(opts.indexUrl, { fetch: opts.fetch });
 
   let rows: IndexRowInput[] = [];
@@ -211,7 +215,10 @@ export async function saveEntry(opts: SaveEntryOptions): Promise<SaveEntryReport
    *  `etag` is passed rather than captured: a step-1 failure has none, because
    *  nothing was written to have one. */
   const stoppedAt = (
-    step: SaveStep, error: PodError, recovery: SaveRecovery, etag?: string | null,
+    step: SaveStep,
+    error: PodError,
+    recovery: SaveRecovery,
+    etag?: string | null,
   ): SaveEntryReport => ({ entryUrl, completed, failed: { step, error }, recovery, etag });
 
   /* -- step 1: the entry ---------------------------------------------------- */

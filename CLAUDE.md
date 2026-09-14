@@ -149,6 +149,7 @@ npm run check:commands    # this file's commands vs package.json
 npm run check:structure   # layout, comment length, notes.md pointers; reports drift
 npm run build             # reads the Pod; needs one running
 npm run size:public       # what a public page actually ships
+npm run format:check      # prettier, production code only
 ```
 
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
@@ -165,7 +166,7 @@ of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — th
 every time either file gains a case, and it was never the point. If a third integration file
 appears, name it here; do not reintroduce a total.
 
-**A tenth command, path-scoped rather than unconditional.** If the diff touches any of
+**An eleventh command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
@@ -402,6 +403,8 @@ validate:fixtures    # tsx scripts/validate-fixtures.ts
 check:vocab          # lib/vocab.ts vs docs/data-model.md, both directions
 check:commands       # the commands above vs package.json
 check:structure      # layout, comment length, notes.md pointers; reports length drift
+format               # prettier --write, production code only (see .prettierignore)
+format:check         # prettier --check, the same scope; in the definition of done
 size:public          # gzip budget on what a public page ships; the only bundle budget, CI runs it
 pod:dev              # local Community Solid Server
 pod:seed             # seed it with the docs/data-model.md fixtures

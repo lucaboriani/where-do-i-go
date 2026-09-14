@@ -23,9 +23,7 @@ export async function generateMetadata({
 
 /** Same shape as the trip route: params are passed down, not awaited here, so
  *  the shell is instant and the entry streams in. */
-export default function EntryPage(props: {
-  params: Promise<{ slug: string; entry: string }>;
-}) {
+export default function EntryPage(props: { params: Promise<{ slug: string; entry: string }> }) {
   return (
     <main className="mx-auto max-w-2xl p-8">
       <Suspense fallback={<EntrySkeleton />}>
@@ -49,11 +47,7 @@ function EntrySkeleton() {
   );
 }
 
-async function EntryContent({
-  params,
-}: {
-  params: Promise<{ slug: string; entry: string }>;
-}) {
+async function EntryContent({ params }: { params: Promise<{ slug: string; entry: string }> }) {
   const { slug, entry } = await params;
 
   // Second line of defence, like the trip route: this renders the right body,

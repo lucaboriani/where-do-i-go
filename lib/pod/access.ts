@@ -165,7 +165,10 @@ function serverPublicAccess(
  * Private on purpose, so callers go through `createContainer`.
  * ./notes.md#ensurecontainer-is-idempotent-and-still-carries-a-precondition
  */
-async function ensureContainer(fetch: PodFetch, url: string): Promise<Result<"created" | "existed">> {
+async function ensureContainer(
+  fetch: PodFetch,
+  url: string,
+): Promise<Result<"created" | "existed">> {
   let head: Response;
   try {
     head = await fetch(url, { method: "HEAD" });
@@ -178,7 +181,10 @@ async function ensureContainer(fetch: PodFetch, url: string): Promise<Result<"cr
     link: `<${LDP.BasicContainer}>; rel="type"`,
   });
   if (created.ok) return ok("created");
-  if (created.error.kind === "http" && (created.error.status === 412 || created.error.status === 409)) {
+  if (
+    created.error.kind === "http" &&
+    (created.error.status === 412 || created.error.status === 409)
+  ) {
     return ok("existed");
   }
   return err(created.error);
@@ -427,11 +433,22 @@ export function storedRulesContradiction(
   }
   // "Public read, owner-only write" is the defining constraint (§5). Read
   // granted one mode too wide is not a smaller bug.
-  if (inherited.write || inherited.append || inherited.control || direct.write || direct.append || direct.control) {
+  if (
+    inherited.write ||
+    inherited.append ||
+    inherited.control ||
+    direct.write ||
+    direct.append ||
+    direct.control
+  ) {
     return unverified(url, "no public write anywhere on this container", "a public write grant");
   }
   if (direct.read) {
-    return unverified(url, "a closed listing (no public acl:accessTo)", "public read on the container itself");
+    return unverified(
+      url,
+      "a closed listing (no public acl:accessTo)",
+      "public read on the container itself",
+    );
   }
   return undefined;
 }
@@ -528,7 +545,13 @@ export async function applyDocumentPublicRead(
   // Control included, as on the container path: a public Control grant is how
   // "public read" becomes "anyone may rewrite the access", and it is exactly
   // the mode a caller forgets to look at.
-  if (applied.read !== read || applied.write || applied.append || applied.controlRead || applied.controlWrite) {
+  if (
+    applied.read !== read ||
+    applied.write ||
+    applied.append ||
+    applied.controlRead ||
+    applied.controlWrite
+  ) {
     return err(
       unverified(
         url,
@@ -616,7 +639,13 @@ export async function getAccess(url: string, opts: AccessOptions): Promise<Resul
     return err(toPodError(url, cause));
   }
   if (server) {
-    return ok({ url, read: server.read, append: server.append, write: server.write, verifiedBy: "server" });
+    return ok({
+      url,
+      read: server.read,
+      append: server.append,
+      write: server.write,
+      verifiedBy: "server",
+    });
   }
 
   // No WAC-Allow. Fall back to the stored rules — weaker evidence, and said so
@@ -636,7 +665,13 @@ export async function getAccess(url: string, opts: AccessOptions): Promise<Resul
       ),
     );
   }
-  return ok({ url, read: rules.read, append: rules.append, write: rules.write, verifiedBy: "rules" });
+  return ok({
+    url,
+    read: rules.read,
+    append: rules.append,
+    write: rules.write,
+    verifiedBy: "rules",
+  });
 }
 
 /**

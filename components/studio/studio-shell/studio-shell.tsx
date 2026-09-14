@@ -284,9 +284,7 @@ function Writables({
   switch (listing.status) {
     /** Not a blank, and above all not the empty-state note. */
     case "pending":
-      return (
-        <p className="mt-8 text-muted-foreground">{"Looking for the trips on your Pod…"}</p>
-      );
+      return <p className="mt-8 text-muted-foreground">{"Looking for the trips on your Pod…"}</p>;
 
     /**
      * A FAILED ENUMERATION IS NOT AN EMPTY POD. `describe()` is what keeps 403
@@ -345,12 +343,7 @@ function Writable({
           </p>
         )
       ) : (
-        <EntryEditor
-          session={session}
-          trips={trips}
-          settingsUrl={settingsUrl}
-          podRoot={podRoot}
-        />
+        <EntryEditor session={session} trips={trips} settingsUrl={settingsUrl} podRoot={podRoot} />
       )}
     </>
   );
@@ -408,10 +401,7 @@ function settingsUrlFor(podRoot: string): string {
 /** The enumeration itself, as a value rather than a throw. The catch IS
  *  reachable — `new URL("travel/trips/", podRoot)` throws on a malformed root:
  *  ./notes.md#the-enumeration-is-a-value-rather-than-a-throw */
-async function enumerateTrips(
-  session: StudioSessionLike,
-  podRoot: string,
-): Promise<ListingState> {
+async function enumerateTrips(session: StudioSessionLike, podRoot: string): Promise<ListingState> {
   try {
     const result = await listStudioTrips({
       // The session's own authenticated fetch, and never the ambient one. On a

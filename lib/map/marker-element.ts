@@ -9,7 +9,12 @@ const FUZZED = "rounded-full opacity-80";
 // Kept out of BASE: applied by a classList.toggle, not composed at build time.
 export const MARKER_ACTIVE = "ring-2 ring-accent-bright";
 
-export function buildMarkerElement({ slug, title, thumbnail, precisionMeters }: PointProps): HTMLElement {
+export function buildMarkerElement({
+  slug,
+  title,
+  thumbnail,
+  precisionMeters,
+}: PointProps): HTMLElement {
   const el = document.createElement("div");
   el.className = `${BASE} ${precisionMeters === undefined ? EXACT : FUZZED}`;
   el.dataset.slug = slug;

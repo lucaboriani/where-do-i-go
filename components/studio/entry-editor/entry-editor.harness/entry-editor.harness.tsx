@@ -177,7 +177,10 @@ vi.mock("@/lib/pod/access", () => {
     makePrivate: record("makePrivate", false),
     getAccess: async (url: string) => state(url, true),
     createContainer: async (url: string) => state(url, true),
-    initialiseContainers: async () => ({ ok: true as const, value: { podRoot: "", containers: [] } }),
+    initialiseContainers: async () => ({
+      ok: true as const,
+      value: { podRoot: "", containers: [] },
+    }),
   };
 });
 
@@ -308,7 +311,10 @@ export const HALF_HOME_TTL = mutateSettings(/\s*dy:homeRadiusMeters[^;]*;/, "");
 /** Same document, a different default precision. Exists so that "the preset
  *  comes from the settings" can be shown to be a READ rather than a constant
  *  that happens to equal the fixture's 500. */
-export const PRECISION_2000_TTL = mutateSettings("dy:defaultPrecisionMeters 500", "dy:defaultPrecisionMeters 2000");
+export const PRECISION_2000_TTL = mutateSettings(
+  "dy:defaultPrecisionMeters 500",
+  "dy:defaultPrecisionMeters 2000",
+);
 
 /* ═════════════════════════════════════════════════════ the coordinates ══ */
 
@@ -349,10 +355,13 @@ export const SNAP_OUTSIDE_500 = { lat: 45.51486, long: 9.20856 };
 
 /* ═════════════════════════════════════════════════════════════ Turtle help ══ */
 
-export const quadsOf = (ttl: string, base: string): Quad[] => new Parser({ baseIRI: base }).parse(ttl);
+export const quadsOf = (ttl: string, base: string): Quad[] =>
+  new Parser({ baseIRI: base }).parse(ttl);
 
 export const objectsOf = (qs: Quad[], subject: string, predicate: string): Term[] =>
-  qs.filter((q) => q.subject.value === subject && q.predicate.value === predicate).map((q) => q.object);
+  qs
+    .filter((q) => q.subject.value === subject && q.predicate.value === predicate)
+    .map((q) => q.object);
 
 export const oneObject = (qs: Quad[], subject: string, predicate: string): Term | undefined =>
   objectsOf(qs, subject, predicate)[0];
@@ -373,7 +382,12 @@ export async function specEntry(): Promise<Entry> {
 
 /* ══════════════════════════════════════════════════════════ the fake Pod ══ */
 
-export type Recorded = { method: string; url: string; headers: Record<string, string>; body: string };
+export type Recorded = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+};
 
 export type PodScript = {
   /** Per index URL: Turtle to serve, or a status code to answer with. */
@@ -430,7 +444,12 @@ export function podFake(script: PodScript = {}) {
   const record = async (request: Request) => {
     const headers: Record<string, string> = {};
     request.headers.forEach((v, k) => (headers[k.toLowerCase()] = v));
-    requests.push({ method: request.method, url: request.url, headers, body: await request.text() });
+    requests.push({
+      method: request.method,
+      url: request.url,
+      headers,
+      body: await request.text(),
+    });
   };
 
   const indexHandlers = Object.entries(indexBodies).flatMap(([url, body]) => [
@@ -471,7 +490,9 @@ export function podFake(script: PodScript = {}) {
       // must be able to see it while the response is still outstanding.
       if (script.hold !== undefined) await script.hold;
       if (script.entryPut) {
-        return new HttpResponse(`entry write refused (${script.entryPut})`, { status: script.entryPut });
+        return new HttpResponse(`entry write refused (${script.entryPut})`, {
+          status: script.entryPut,
+        });
       }
       return new HttpResponse(null, {
         status: 205,
@@ -493,8 +514,7 @@ export function podFake(script: PodScript = {}) {
     of,
     puts: () => requests.filter((r) => r.method === "PUT"),
     /** The entry PUT — the one PUT that is not to an index resource. */
-    entryPut: () =>
-      requests.find((r) => r.method === "PUT" && !r.url.endsWith("entries.ttl")),
+    entryPut: () => requests.find((r) => r.method === "PUT" && !r.url.endsWith("entries.ttl")),
     indexPut: () => requests.find((r) => r.method === "PUT" && r.url.endsWith("entries.ttl")),
     revalidatePost: () => requests.find((r) => r.method === "POST" && r.url === REVALIDATE_URL),
     settingsGet: () => requests.find((r) => r.method === "GET" && r.url === SETTINGS_URL),
@@ -518,8 +538,7 @@ export function podFake(script: PodScript = {}) {
      * so a save that re-read the settings n more times fails on that count
      * rather than passing through this filter.
      */
-    saveTraffic: () =>
-      requests.filter((r) => !(r.method === "GET" && r.url === SETTINGS_URL)),
+    saveTraffic: () => requests.filter((r) => !(r.method === "GET" && r.url === SETTINGS_URL)),
     /**
      * EVERY BYTE THAT LEFT THE BROWSER, method and URL included. The privacy
      * assertion is "the typed coordinate is in no request at all" — not "not in
@@ -620,7 +639,8 @@ export interface StorageLike {
  */
 export type EditorModule = typeof import("@/components/studio/entry-editor");
 
-export const importModule = (specifier: string): Promise<unknown> => import(/* @vite-ignore */ specifier);
+export const importModule = (specifier: string): Promise<unknown> =>
+  import(/* @vite-ignore */ specifier);
 
 export async function loadEditor() {
   const mod = (await importModule("@/components/studio/entry-editor").catch((cause: unknown) => {
@@ -858,7 +878,9 @@ export const outcomeText = () =>
     .trim();
 
 /** Fill a create form with a complete, valid entry. */
-export function fillNewEntry(overrides: { slug?: string; headline?: string; trip?: EditorTrip } = {}) {
+export function fillNewEntry(
+  overrides: { slug?: string; headline?: string; trip?: EditorTrip } = {},
+) {
   const trip = overrides.trip ?? JAPAN;
   setChoice(LABEL.trip, new RegExp(trip.name.split(",")[0], "i"));
   setText(LABEL.slug, overrides.slug ?? "2026-04-02-kyoto");
@@ -878,7 +900,8 @@ export async function clickSaveAndWait() {
 }
 
 /** The family of names a coordinate input could plausibly carry. */
-export const COORDINATE_FIELD = /lat(itude)?|long(itude)?|\blng\b|coordinate|gps|geo\b|precision|position/i;
+export const COORDINATE_FIELD =
+  /lat(itude)?|long(itude)?|\blng\b|coordinate|gps|geo\b|precision|position/i;
 
 /** The `#geo` node, reached the way a reader reaches it: `<#it>` →
  *  `schema:contentLocation` → `#place` → `schema:geo`. Resolving it by fragment
@@ -929,10 +952,7 @@ export function requireCoordinateControls() {
     ["longitude", LABEL.longitude],
     ["precision", LABEL.precision],
   ] as const) {
-    expect(
-      screen.queryAllByLabelText(label),
-      `the editor has no ${what} control`,
-    ).toHaveLength(1);
+    expect(screen.queryAllByLabelText(label), `the editor has no ${what} control`).toHaveLength(1);
   }
 }
 
@@ -1013,10 +1033,7 @@ export function requirePlaceControls() {
     ["locality", LABEL.locality],
     ["country", LABEL.country],
   ] as const) {
-    expect(
-      screen.queryAllByLabelText(label),
-      `the editor has no ${what} control`,
-    ).toHaveLength(1);
+    expect(screen.queryAllByLabelText(label), `the editor has no ${what} control`).toHaveLength(1);
   }
 }
 
@@ -1285,7 +1302,13 @@ export const DEBOUNCE = 800;
  * `queueMicrotask` and `MessageChannel` are NOT faked, so React 19's scheduling
  * and every `await` in this file are untouched.
  */
-export const TIMERS = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] as const;
+export const TIMERS = [
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "Date",
+] as const;
 
 /** The module is imported while timers are still real, so nothing in vitest's
  *  loader can be waiting on a clock that has stopped. */
@@ -1375,7 +1398,10 @@ export const jpegFile = (name: string) => {
   // `Uint8Array<ArrayBufferLike>`, and `BlobPart` demands `ArrayBuffer` — a
   // SharedArrayBuffer could not back a Blob, so tsc refuses the wider type.
   const bytes = exifJpeg({ orientation: 1, dateTimeOriginal: "2026:03:29 21:38:02" });
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
   return new File([buffer], name, { type: "image/jpeg" });
 };
 
@@ -1387,10 +1413,10 @@ export const THUMB_BYTES = [0x54, 0x48, 0x21];
 
 /** Inside BLUR_BUDGET_BYTES. It rides in the entry's Turtle and in the draft's
  *  JSON, which is the whole reason a placeholder is a string and not bytes. */
-export const BLUR =
-  "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+export const BLUR = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
 
-export const blobOf = (bytes: number[], type: string) => new Blob([new Uint8Array(bytes)], { type });
+export const blobOf = (bytes: number[], type: string) =>
+  new Blob([new Uint8Array(bytes)], { type });
 
 /**
  * A pipeline that succeeds, with output nobody has to guess at.
@@ -1498,9 +1524,17 @@ export function gpsOf(gps: Gps): { lat: number; long: number } {
  *  below. */
 export const GPS_TOKYO: Gps = {
   latRef: "N",
-  lat: [[35, 1], [41, 1], [3768, 100]],
+  lat: [
+    [35, 1],
+    [41, 1],
+    [3768, 100],
+  ],
   longRef: "E",
-  long: [[139, 1], [42, 1], [1224, 100]],
+  long: [
+    [139, 1],
+    [42, 1],
+    [1224, 100],
+  ],
 };
 
 export const TOKYO = gpsOf(GPS_TOKYO);
@@ -1508,7 +1542,8 @@ export const TOKYO = gpsOf(GPS_TOKYO);
 /** How a picked file shows up on screen, with the dot escaped: `beach.jpg`
  *  unescaped would also match `beachXjpg`, which is harmless, and would not
  *  match at all if the name ever contained a `+`. */
-export const alt = (file: File) => new RegExp(file.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+export const alt = (file: File) =>
+  new RegExp(file.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 
 /**
  * THE SETTINGS HAVE LANDED — not "a render happened".

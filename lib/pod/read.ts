@@ -6,15 +6,36 @@
  */
 import * as z from "zod";
 import {
-  DCTERMS, DY, DY_CLASS, PROFILE, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
+  DCTERMS,
+  DY,
+  DY_CLASS,
+  PROFILE,
+  SCHEMA,
+  SCHEMA_VERSION,
+  STATUS,
+  TRAVEL_MODE,
 } from "@/lib/vocab";
 import {
-  date, decimal, fetchTurtle, integer, itOf, offsetDateTime, viewOf,
-  type ReadOptions, type View,
+  date,
+  decimal,
+  fetchTurtle,
+  integer,
+  itOf,
+  offsetDateTime,
+  viewOf,
+  type ReadOptions,
+  type View,
 } from "./rdf";
 import { describe, err, ok, type PodError, type Result } from "./result";
 import {
-  Diary, Entry, IndexEntry, OwnerProfile, Place, PrivacySettings, Trip, TripIndex,
+  Diary,
+  Entry,
+  IndexEntry,
+  OwnerProfile,
+  Place,
+  PrivacySettings,
+  Trip,
+  TripIndex,
   type LangText,
 } from "./schema";
 import type { Quad } from "n3";
@@ -154,7 +175,9 @@ export function photosOf(quads: Quad[], imageIris: string[], url: string) {
 export function assertSlug(url: string, slug: string): Result<string> {
   const segments = new URL(url).pathname.split("/").filter(Boolean);
   const segment = segments[segments.length - 2];
-  return segment === slug ? ok(slug) : err({ kind: "slugMismatch", url, slug, segment: segment ?? "" });
+  return segment === slug
+    ? ok(slug)
+    : err({ kind: "slugMismatch", url, slug, segment: segment ?? "" });
 }
 
 /**
@@ -186,7 +209,10 @@ export const diaryUrl = (podRoot: string) => new URL("travel/diary.ttl", podRoot
  * ./notes.md#privacyttl-is-not-the-type-index-and-its-url-is-normalised
  */
 export const privacySettingsUrl = (podRoot: string) =>
-  new URL("travel/settings/privacy.ttl", podRoot.endsWith("/") ? podRoot : `${podRoot}/`).toString();
+  new URL(
+    "travel/settings/privacy.ttl",
+    podRoot.endsWith("/") ? podRoot : `${podRoot}/`,
+  ).toString();
 
 /* --------------------------------------------------------------------- read */
 
@@ -279,11 +305,7 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
  * Flat, and reading `dy:` geo terms rather than `schema:` ones, deliberately:
  * §7.4 is a private read model with no interop obligations.
  */
-export function indexRowsOf(
-  quads: Quad[],
-  entryIris: string[],
-  url: string,
-): Result<IndexEntry[]> {
+export function indexRowsOf(quads: Quad[], entryIris: string[], url: string): Result<IndexEntry[]> {
   return guard(() =>
     entryIris
       .map((iri) => viewOf(quads, iri))
@@ -333,9 +355,10 @@ export function boundsOf(view: View, url: string) {
 
     return {
       bbox: Object.values(bboxParts).every((n) => n !== undefined) ? bboxParts : undefined,
-      center: centerLat !== undefined && centerLong !== undefined
-        ? { lat: centerLat, long: centerLong }
-        : undefined,
+      center:
+        centerLat !== undefined && centerLong !== undefined
+          ? { lat: centerLat, long: centerLong }
+          : undefined,
     };
   });
 }
@@ -431,7 +454,6 @@ export async function readDiary(url: string, opts?: ReadOptions): Promise<Result
     );
   });
 }
-
 
 /**
  * The owner's privacy settings (§7.6), read before any coordinate is written

@@ -66,8 +66,7 @@ export const placeTextOf = (
   form: { placeName: string; locality: string; country: string },
   language: string,
 ): PlaceText => ({
-  name:
-    form.placeName.trim() === "" ? undefined : { value: form.placeName.trim(), language },
+  name: form.placeName.trim() === "" ? undefined : { value: form.placeName.trim(), language },
   locality: form.locality.trim() === "" ? undefined : form.locality.trim(),
   country: form.country.trim() === "" ? undefined : form.country.trim(),
 });

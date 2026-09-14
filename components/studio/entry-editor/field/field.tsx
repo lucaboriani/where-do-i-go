@@ -11,7 +11,8 @@ import type { ReactNode } from "react";
  *  colours a browser greys a control with, so without them seventeen controls
  *  look editable and swallow every keystroke — measured.
  *  ./notes.md#why-the-disabled-variants-are-spelled-out */
-export const CONTROL = "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";
+export const CONTROL =
+  "w-full border border-hairline bg-surface px-3 py-2 disabled:cursor-not-allowed disabled:opacity-60";
 
 /** The same plain button for Save, Restore and Discard, and the `disabled:`
  *  variants are HERE rather than on Save alone:

@@ -45,7 +45,8 @@ export function offsetOf(value: string | undefined): string | undefined {
 /** `2026-03-29T21:40:00+09:00` → `2026-03-29T21:40`, which is what the control
  *  accepts. The wall clock is shown as stored, never shifted into this
  *  machine's zone — see toOffsetDateTime. */
-export const wallClockOf = (value: string | undefined) => (value === undefined ? "" : value.slice(0, 16));
+export const wallClockOf = (value: string | undefined) =>
+  value === undefined ? "" : value.slice(0, 16);
 
 /**
  * This machine's clock, right now, as a wall clock with no offset on it. Split
@@ -77,6 +78,9 @@ export function nowWithOffset(): string {
  * year, `+00:00` and never `Z`, in order rather than sorted at use, and NO
  * COUNT: ./notes.md#the-offsets-actually-in-use-and-the-odd-ones-are-the-point
  */
+
+// prettier-ignore
+// six hand-aligned lines become forty, which then count against this file's bounds.
 export const OFFSETS = [
   "-12:00", "-11:00", "-10:00", "-09:30", "-09:00", "-08:00", "-07:00",
   "-06:00", "-05:00", "-04:00", "-03:30", "-03:00", "-02:30", "-02:00",

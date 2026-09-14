@@ -6,7 +6,16 @@
  */
 import { DataFactory, Writer, type NamedNode, type Quad } from "n3";
 import {
-  DCTERMS, DY, DY_CLASS, GEO, NS, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE,
+  DCTERMS,
+  DY,
+  DY_CLASS,
+  GEO,
+  NS,
+  RDF,
+  SCHEMA,
+  SCHEMA_VERSION,
+  STATUS,
+  TRAVEL_MODE,
 } from "@/lib/vocab";
 import { dec, dt, int, text } from "./literals";
 import { assertEntrySlug } from "./read";
@@ -77,7 +86,12 @@ export function itQuads(it: NamedNode, e: Entry): Quad[] {
 
 /** §7.3 `<#place>`. The two sub-subjects below it are conditional on there
  *  being something to say, so an emptied place is a typed node and no more. */
-export function placeQuads(frag: Frag, it: NamedNode, place: EntryPlace, language?: string): Quad[] {
+export function placeQuads(
+  frag: Frag,
+  it: NamedNode,
+  place: EntryPlace,
+  language?: string,
+): Quad[] {
   const node = frag("place");
   const quads: Quad[] = [
     quad(it, namedNode(SCHEMA.contentLocation), node),
@@ -111,11 +125,7 @@ export function addressQuads(
     // an entry with no language still falls back rather than publishing an
     // untagged literal. ./notes.md#the-locality-carries-the-entrys-own-language
     quads.push(
-      quad(
-        address,
-        namedNode(SCHEMA.addressLocality),
-        text({ value: fields.locality, language }),
-      ),
+      quad(address, namedNode(SCHEMA.addressLocality), text({ value: fields.locality, language })),
     );
   }
   // A country CODE, not a country name — untagged for the same reason the
@@ -164,7 +174,8 @@ export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): 
       quads.push(quad(node, namedNode(SCHEMA.thumbnailUrl), namedNode(photo.thumbnailUrl)));
     }
     if (photo.caption) quads.push(quad(node, namedNode(SCHEMA.caption), text(photo.caption)));
-    if (photo.width !== undefined) quads.push(quad(node, namedNode(SCHEMA.width), int(photo.width)));
+    if (photo.width !== undefined)
+      quads.push(quad(node, namedNode(SCHEMA.width), int(photo.width)));
     if (photo.height !== undefined) {
       quads.push(quad(node, namedNode(SCHEMA.height), int(photo.height)));
     }

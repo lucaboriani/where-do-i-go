@@ -64,8 +64,6 @@ export async function revalidatePublicSite(tags: string[]): Promise<void> {
    * ./notes.md#it-reads-the-body-not-the-status */
   const asked = new Set(tags).size;
   if (report.data.revalidated < asked) {
-    throw new Error(
-      `${REVALIDATE_PATH} revalidated ${report.data.revalidated} of ${asked} tags`,
-    );
+    throw new Error(`${REVALIDATE_PATH} revalidated ${report.data.revalidated} of ${asked} tags`);
   }
 }
