@@ -732,9 +732,10 @@ not a problem this project has.
 
 So the trips source is one GeoJSON source with `promoteId: "slug"` and a `circle` layer, and the
 active trip is painted with `setFeatureState`: GL is the shape §30 already chose for clusters, and
-`setFeatureState` is what **4a proved on legs**. §30's clusters do neither half — static paint, a
-`has point_count` filter, and no `promoteId` on their source — so feature state on a cluster id is
-a silent no-op, which is the bug 4a shipped on legs before the id was promoted. Hover is
+`setFeatureState` is the mechanism **4a proved on legs**. The two halves come from two places on
+purpose. §30's clusters are GL but painted statically — a `has point_count` filter, flat paint, and
+no `promoteId` on their source — so **feature state on a cluster id is a silent no-op**: no error,
+no warning, nothing painted. `hooks/map/notes.md` records that failure on legs. Hover is
 layer-scoped, `map.on("mouseenter", TRIPS_LAYER, …)`, rather than a listener per element, because
 there are no elements to hang one on.
 

@@ -1814,7 +1814,8 @@ statically importing the first three.
         min/max over longitudes has no antimeridian handling, so the two centres give a box over
         200° wide running the long way round via Africa — 207.9° on the centres the seed writes,
         212.6° on the plan's own fixtures — centred on neither trip but on inland East Africa,
-        around 33°E. It was dropped before it was written, `centresBbox` exists nowhere, and the
+        around 31°E and −8°. It was dropped before it was written, `centresBbox` exists nowhere,
+        and the
         globe opens on maplibre's default camera until a marker click flies it.
       - **`MAP_FRAME_CLASS` moved to `lib/map/frame.ts`.** Importing one string from
         `components/public/trip-map` — `"use client"`, and that folder's only module — put `TripMap`

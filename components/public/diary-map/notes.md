@@ -26,9 +26,10 @@ and only a marker click moves it, through `useMapTrips`'s `fitBounds` on that tr
 The design spec's §7 originally opened on `centresBbox`, the box enclosing every placed trip's
 centre. That was ruled out before this task: naive min/max over longitudes has no antimeridian
 handling, so the two centres give a box over 200° wide running the long way round via Africa —
-207.9° on the seed's centres, 212.6° on the plan's fixtures — centred on neither trip. Passing a `bbox` here as well would also mean two camera calls
-racing on `style.load`. So the component makes no camera call at all, and adding one to it is the
-wrong place — the camera is `useMapTrips`'s, whole.
+207.9° on the seed's centres, 212.6° on the plan's fixtures — centred on neither trip. Passing a
+`bbox` here as well would also mean two camera calls racing on `style.load`. So the component
+makes no camera call at all, and adding one to it is the wrong place — the camera is
+`useMapTrips`'s, whole.
 
 **Spec §6 and §7 were corrected on 2026-09-14** and now say exactly this. `centresBbox` was never
 written and exists nowhere in the tree; the stage-5 plan still specifies it, as the record of a

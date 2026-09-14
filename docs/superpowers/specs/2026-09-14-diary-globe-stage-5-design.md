@@ -146,8 +146,8 @@ placed trip's centre. A reviewer computed it before it was written: naive `Math.
 over longitudes has no antimeridian handling, so the seed's two centres (`134.8414` and
 `-73.0119`) give a box **207.9° wide running the long way round via Africa** — 212.6° on the
 plan's own fixture pair, which used the entry coordinates rather than the centres. The camera
-would have centred on neither trip but on inland East Africa, around 33°E and −7°, which reads as
-a broken map rather than an overview. A correct
+would have centred on neither trip but on inland East Africa — 30.9°E, −8.1° on the seed's centres,
+33.4°E, −6.8° on the fixtures — which reads as a broken map rather than an overview. A correct
 version would have to choose the short way round and then wrap — real work, for a view no one had
 asked for. It was dropped, `centresBbox` was never written, and passing a `bbox` to `useMapInstance`
 as well would in any case have raced the click handler's own `fitBounds` on `style.load`.
