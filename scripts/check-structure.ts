@@ -152,6 +152,7 @@ const REPO_TESTS = [
   "test/public-bundle-cli.test.ts",
   "test/vitest-collection.test.ts",
   "test/network-guard.test.ts",
+  "test/seed-dev-pod.test.ts",
   "test/support/walk.test.ts",
 ];
 

@@ -554,6 +554,30 @@ namespace is fine here and would not be on a live Pod.
 
 Usage: `npm run pod:dev` in another terminal, then `npm run pod:seed`.
 
+## deriving a second trip from the fixtures
+
+The seed carries two published trips because one marker on the globe exercises nothing: no camera
+fit over several centres, no fly-to worth watching, no second feature state. `docs/data-model.md`
+§7.1 has named both since it was written — the seeder used to delete the second from the diary on
+its way to the Pod, which is why the data model and the dev Pod disagreed with nobody noticing.
+`test/seed-dev-pod.test.ts` derives the fixture's trip list and the seeder's own PUT paths and
+compares them, so the next trip §7.1 names fails here rather than going missing.
+
+Patagonia rather than a second Japanese city, and it is not decoration: a globe whose two markers
+sit a few degrees apart looks exactly like a map, so the fixture puts them a hemisphere apart —
+`dy:centerLong -73.0119` against Japan's `134.8414`. The centre and the four bbox terms are the
+midpoint and the extent of the trip's own two entries, because §7.4's derived values are functions
+of the entry set and a fixture that contradicts that teaches the wrong shape.
+
+**`derive()` refuses a needle it cannot find, and that is the whole point of it.** Every one of
+these resources is the §7 fixture with substitutions applied, and `String.replace` on a string that
+moved is a SILENT no-op: the resource is still written, still valid Turtle, still carrying the
+Tokyo value under a Patagonian name. It caught one immediately — the draft trip used to be appended
+after `<trips/2026-japan/trip.ttl#it> .`, a spelling that only existed because the strip above it
+had just removed the line that carries the full stop. With the strip gone that needle matches
+nothing, and `2026-secret` would have quietly left the diary, taking the publication-boundary case
+with it.
+
 ## the two datatype lists, and what each was missing
 
 **Coordinates must be `xsd:decimal`** (§6: "never xsd:float for coordinates"). `homeLat` and

@@ -150,3 +150,28 @@ it: a `>= 240` poll is satisfied mid-flight by a smooth scroll, so `cycle()` the
 maximum can only be satisfied once the scroll has stopped, which is what makes the handle click
 deterministic. Case 2 keeps `>= 240` on purpose — there the assertion IS "it moved", and nothing
 after it depends on where it came to rest.
+
+## the seeded pod does not follow the seeder
+
+`requireSeededPod` is a RESOURCE check, not a version check: it GETs `travel/diary.ttl` and returns
+early on 200. So a pod seeded by an older `scripts/seed-dev-pod.ts` keeps its old contents forever,
+and every spec then runs against data the seeder no longer produces. Stage 5's second published trip
+is the first change where that matters — a browser case looking for two markers would fail against a
+one-trip pod that the setup reported as ready.
+
+**Changing the seeder therefore means retiring the pod**, and `rm -rf .pod-data/e2e` ON ITS OWN DOES
+NOT DO IT. Measured on 2026-09-14: with the directory gone, re-running the seeder as
+`SEED_NAME=e2e` answered `POST /.account/account/<id>/pod/ -> 400`. Community Solid Server keeps the
+pod registration, the owner link and the `e2e@localhost.test` password account in
+`.pod-data/.internal/accounts/`, which a directory delete does not touch, so the name stays taken.
+Either of these does work:
+
+- `E2E_SEED_NAME=e2e-<something> npm run test:e2e` — the one that needs no server restart. Pod name
+  and account email both derive from `SEED_NAME` in `e2e/environment.ts`, so they stay in step.
+- Stop the server, `rm -rf .pod-data`, start it again, re-seed. Clears every local pod, including
+  whichever one `.env.local` points at; all of it is disposable by design.
+
+`globalSetup` already fails loudly with both suggestions when the seed 400s, so this is a cost, not
+a trap that hides. What would remove the cost is a seed fingerprint in the pod compared against the
+seeder — not written, and it would be the third thing the harness asserts about a pod it did not
+build.
