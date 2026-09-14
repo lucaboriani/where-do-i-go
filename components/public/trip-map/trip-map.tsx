@@ -48,12 +48,17 @@ export default function TripMap({
     return () => observer.disconnect();
   }, [active]);
 
-  const { activeSlug, raise, clear } = useTripHighlight();
+  const { activeSlug, raise, clear, pin, unpin } = useTripHighlight();
   const { map, styleLoaded } = useMapInstance({ container, active, bbox, styleUrl });
   useMapLayers(map, entries, styleLoaded);
-  // Inline arrows are safe here: useMapMarkers holds the pair in a ref, so a
-  // fresh identity per render cannot re-run its reconcile effect.
-  useMapMarkers(map, activeSlug, (slug) => raise(slug, "map"), clear);
+  // A fresh handlers object is safe here: useMapMarkers holds it in a ref, so
+  // a new identity per render cannot re-run its reconcile effect.
+  useMapMarkers(map, activeSlug, {
+    onEnter: (slug) => raise(slug, "map"),
+    onLeave: clear,
+    onSelect: pin,
+    onDeselect: unpin,
+  });
   useMapHighlight(map, activeSlug, styleLoaded);
 
   // e2e-only handle, and free: playwright.config.ts runs `next dev`, so this is

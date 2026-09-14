@@ -34,11 +34,13 @@ type MarkerCall = {
   activeSlug: unknown;
   onEnter?: (slug: string) => void;
   onLeave?: () => void;
+  onSelect?: (slug: string) => void;
+  onDeselect?: () => void;
 };
 const markerCalls: MarkerCall[] = [];
 vi.mock("@/hooks/map/use-map-markers", () => ({
-  useMapMarkers: (map: unknown, activeSlug: unknown, onEnter?: never, onLeave?: never) => {
-    markerCalls.push({ map, activeSlug, onEnter, onLeave });
+  useMapMarkers: (map: unknown, activeSlug: unknown, handlers?: Omit<MarkerCall, "map" | "activeSlug">) => {
+    markerCalls.push({ map, activeSlug, ...handlers });
   },
 }));
 
@@ -56,8 +58,16 @@ type Highlight = {
   activeSlug: string | null;
   raise: ReturnType<typeof vi.fn>;
   clear: ReturnType<typeof vi.fn>;
+  pin: ReturnType<typeof vi.fn>;
+  unpin: ReturnType<typeof vi.fn>;
 };
-let tripHighlight: Highlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
+let tripHighlight: Highlight = {
+  activeSlug: null,
+  raise: vi.fn(),
+  clear: vi.fn(),
+  pin: vi.fn(),
+  unpin: vi.fn(),
+};
 vi.mock("@/hooks/trip/highlight-context", () => ({
   useTripHighlight: () => tripHighlight,
 }));
@@ -100,7 +110,7 @@ beforeEach(() => {
   layerCalls.length = 0;
   markerCalls.length = 0;
   highlightCalls.length = 0;
-  tripHighlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn() };
+  tripHighlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn(), pin: vi.fn(), unpin: vi.fn() };
 });
 
 afterEach(() => {
@@ -167,6 +177,15 @@ describe("TripMap", () => {
     expect(tripHighlight.raise).toHaveBeenCalledWith("osaka", "map");
     markerCalls.at(-1)?.onLeave?.();
     expect(tripHighlight.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the markers hook a select pair that pins and unpins", () => {
+    installObserver();
+    render(<TripMap />);
+    markerCalls.at(-1)?.onSelect?.("osaka");
+    expect(tripHighlight.pin).toHaveBeenCalledWith("osaka");
+    markerCalls.at(-1)?.onDeselect?.();
+    expect(tripHighlight.unpin).toHaveBeenCalledTimes(1);
   });
 
   it("threads the trip highlight's activeSlug into the markers hook and the legs-highlight hook", () => {

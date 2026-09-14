@@ -114,3 +114,13 @@ effect's deps and confirming the no-rebuild test goes red on marker count, then 
 token each and throw `InvalidCharacterError` on a token containing a space — confirmed against
 jsdom 2026-09-13, not just spec text. `ACTIVE_CLASSES = MARKER_ACTIVE.split(" ")` is computed once
 at module scope; both call sites spread or iterate it rather than passing the joined string.
+
+## Why a marker click stops propagating
+
+A `Marker`'s element is appended into the same canvas container maplibre attaches its own
+`click` listener to, so a click on a marker bubbles to the map unless stopped. Without
+`event.stopPropagation()` on the marker's listener, a tap would pin the entry and the map's own
+`click` handler would unpin it in the same turn — select and clear, back to back, with nothing
+in between to observe. The test that catches a missing `stopPropagation()` attaches its deselect
+listener to an ancestor of the marker element in the document, exactly as maplibre does, rather
+than to the map mock directly — a mock-only listener would never see the bubble at all.
