@@ -86,7 +86,10 @@ its `>= 240` assertion has already **passed**. So the tap's `pin` and the map ha
 not collapse into a single commit: React renders the pin, the reveal effect runs on it and scrolls
 the sheet, and only then does the unpin land. Worth knowing before reasoning about this pair from
 the code — the failure a reader expects here is a sheet that never moved, and that is not what the
-browser does.
+browser does. **The mechanism is the per-listener microtask checkpoint**: the marker's own
+handler and the map's click handler are two separate listener invocations of ONE DOM dispatch,
+and the HTML spec runs a microtask checkpoint after each, which is where React commits the pin —
+so the reveal effect has already run and scrolled by the time the unpin lands.
 
 **Control 6 then left it green too, for the opposite reason.** That `mouse.move` supplies the very
 `mouseleave` the stage's defect needed to open the sheet late: keyed on the derived `source`, the
