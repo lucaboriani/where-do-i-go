@@ -38,3 +38,33 @@ a drag. That satisfies the parent design's requirement for a pointer handler on 
 this component adding one: clicking cycles snap points for a mouse or a tap that doesn't drag, and
 dragging the handle is scrolling the container, which CSS already snaps. No `pointerdown`,
 `pointermove` or `pointerup` listener is added here.
+
+## only a pin moves the sheet
+
+A pin is deliberate — the reader tapped a marker and asked where that entry is — so the sheet
+scrolls to `targetForRow(rowTop, handleHeight, offsets)` (spec §6). A hover or a route change is
+not, and must never yank a sheet the reader has already placed: `source` is checked, not just
+`activeSlug`. With one scroller, revealing a row far down the list necessarily raises the sheet
+past half; that is §2's accepted consequence, and `targetForRow` keeps half as the floor so a
+reveal can never CLOSE the sheet.
+
+**One exception, and it is the position the sheet starts in.** Opening `/trips/japan/nara` from a
+shared link arrives with `source === "route"` already set, and the entry's prose would sit below
+the fold. So the first effect pass — and only the first, which the `opened` ref enforces — scrolls
+to `full` with `behavior: "auto"`. Every later route change leaves the sheet alone, because the
+component stays mounted and the scroller keeps its position across navigation.
+
+The mount effect depends on `[source]` rather than `[]`: `react-hooks/exhaustive-deps` runs at
+`--max-warnings 0` here and rejects an empty array around a `source` read. The `opened` guard is
+then the mechanism rather than decoration — delete it and a route highlight moves the sheet on
+every change, which `map-sheet.test.tsx`'s "arriving after mount" case catches.
+
+No JavaScript branch on viewport width, anywhere. Above 48rem `.trip-sheet` is not a scroll
+container at all, so `scrollTo` on it is inert and the desktop behaviour falls out of the CSS —
+see `#why-one-scroller`.
+
+The row lookup walks `[data-slug]` under the sheet body and compares `el.dataset.slug`, rather
+than building a `[data-slug="…"]` selector: a slug is validated for length, not for CSS-safe
+characters. Scoping to the body is also what keeps the map's markers out of the match — they
+carry the same attribute, and `../trip-timeline/notes.md` records why that separation is
+structural rather than conventional.
