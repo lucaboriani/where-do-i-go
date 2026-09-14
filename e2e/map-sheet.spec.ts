@@ -2,7 +2,7 @@
  * The sheet in a real browser: the snap positions spec §2 measured, the
  * pointer-events pass-through that no unit test can see, the pin that has to
  * MOVE the sheet, and one canvas across all of it. Mutation controls in
- * ./notes.md#the-ten-map-sheet-controls
+ * ./notes.md#the-eleven-map-sheet-controls
  */
 
 import { expect, test, type Page } from "@playwright/test";
@@ -107,13 +107,20 @@ test.describe("the mobile sheet", () => {
     await page.mouse.move(5, 5);
     await expect(row).toHaveAttribute("data-active", "true");
 
-    // Revealing a row near the end of a SHORT timeline lands the sheet at the
-    // end of its scroll, where no strip of map is left to tap — so wait for
-    // that scroll to settle and let the handle take it back to peek first.
-    // ./notes.md#the-strip-of-map-is-a-detent-not-a-pin
-    await expect.poll(() => scrollTop(page)).toBeGreaterThanOrEqual(240);
+    // 640 is this scroller's MAXIMUM, and the pin lands on it: revealing a row
+    // near the end of a short timeline leaves no strip of map to tap. Polled as
+    // the exact end rather than `>= 240`, which a mid-flight smooth scroll
+    // satisfies — the handle click then reads a moving scrollTop and cycles to
+    // full instead of peek. ./notes.md#the-strip-of-map-is-a-detent-not-a-pin
+    await expect.poll(() => scrollTop(page)).toBe(640);
     await page.getByRole("button", { name: HANDLE }).click();
     await expect.poll(() => scrollTop(page)).toBe(0);
+
+    // STILL PINNED at the moment of the tap, re-asserted after the cycle: with
+    // one positive before the handle click and one negative after the map tap,
+    // a cycle that cleared the pin would turn this case green with the map tap
+    // broken. The assertion belongs here, not only above the click.
+    await expect(row).toHaveAttribute("data-active", "true");
 
     // A corner the seeded markers are nowhere near — nara's 40px box measures
     // at (207,340). Asserted before the click so a tap that lands on the sheet

@@ -1,12 +1,12 @@
-# The e2e gate, and why the definition of done is nine commands plus one
+# The e2e gate, and why the definition of done is ten commands plus one
 
-`CLAUDE.md` `## How work is done here` carries the rule: nine unconditional commands, plus
+`CLAUDE.md` `## How work is done here` carries the rule: ten unconditional commands, plus
 `npm run test:e2e` when the diff touches one of the paths below. **This file is why those
 paths**, and why the gate is scoped to the diff rather than added to the list. No count here on
 purpose: the list gained `hooks/studio/**` on 2026-09-12 while three sentences elsewhere still
 said "six", and a reader reconciling a numeral against a list deletes the newest entry.
 
-**A tenth command, path-scoped rather than unconditional.** If the diff touches any of
+**An eleventh command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
@@ -52,7 +52,7 @@ encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"und
 measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
 order, and none of them can check one pixel or one EXIF tag.
 
-It is deliberately NOT in the list above. The nine run anywhere with a checkout and Node 22;
+It is deliberately NOT in the list above. The ten run anywhere with a checkout and Node 22;
 this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
 infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
 reading the diff.
