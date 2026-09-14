@@ -95,6 +95,10 @@ feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reas
 since guarding it would mean re-deriving the same slug set `buildLegs` already computed just
 to check membership.
 
+The same trap, same mechanism, on the other surface: `useMapTrips` keys its feature state on the
+`slug` that `TRIPS_SOURCE` promotes, so a slug the trips source never carried — an unplaced trip,
+or one `buildTripPoints` dropped — paints nothing and says nothing.
+
 ## Why activeSlug is a ref in the reconcile effect
 
 `useMapMarkers`'s first effect builds every marker from `map.querySourceFeatures`, keyed only on
@@ -124,3 +128,32 @@ A `Marker`'s element is appended into the same canvas container maplibre attache
 in between to observe. The test that catches a missing `stopPropagation()` attaches its deselect
 listener to an ancestor of the marker element in the document, exactly as maplibre does, rather
 than to the map mock directly — a mock-only listener would never see the bubble at all.
+
+## Why the trips source promotes slug
+
+`buildTripPoints` (`lib/map/trips.ts`) gives each trip feature `properties: { slug, name }` and no
+`id`, and `setFeatureState` addresses features by id — so `TRIPS_SOURCE` sets `promoteId: "slug"`,
+exactly as `LEGS_SOURCE` sets `promoteId: "toSlug"` above and for the same reason. Stage 4a shipped
+a highlight without it once: no error, no warning, nothing painted.
+
+## Why the trip handlers are a ref
+
+Same reason `useMapMarkers`'s are — see "Why activeSlug is a ref in the reconcile effect" — with a
+different victim: a caller's fresh `{ onEnter, onLeave, onSelect }` literal in the effect's
+dependencies would tear down and re-register the three layer listeners on every render.
+
+`trips` is a dependency rather than a ref, deliberately: the bbox a click flies to is read from it,
+and stale trips would fly to the wrong place. A caller should therefore pass a stable array — a
+fresh literal per render costs three `off`/`on` pairs, which is cheap and invisible, but it is not
+free and the hook cannot make it so.
+
+## The fly is a jump under reduced motion
+
+maplibre-gl 6.6.0 already zeroes the duration of a camera movement when `prefers-reduced-motion:
+reduce` matches and the movement is not flagged `essential`, so the explicit `animate` flag is
+belt-and-braces rather than the mechanism. It is kept because it is the part a jsdom test can
+assert: the decision is visible in the options object, where the library's own behaviour is not.
+
+The call is `window.matchMedia?.(…)` for the same reason. jsdom implements no `matchMedia`, so the
+optional call is what keeps the hook working un-stubbed; `use-map-trips.test.ts` stubs it for one
+case and restores it in `beforeEach`, or the stub leaks into every case after.

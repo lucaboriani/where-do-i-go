@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTripPoints, centresBbox, flyOptions, type TripPoint } from "./trips";
+import { buildTripPoints, flyOptions, type TripPoint } from "./trips";
 
 const japan: TripPoint = {
   slug: "2026-japan",
@@ -32,33 +32,6 @@ describe("buildTripPoints", () => {
 
     expect(collection.features).toHaveLength(1);
     expect(collection.features[0].properties.slug).toBe("2026-japan");
-  });
-});
-
-describe("centresBbox", () => {
-  it("encloses every placed centre", () => {
-    expect(centresBbox([japan, patagonia])).toEqual({
-      west: -72.886,
-      south: -49.3315,
-      east: 139.7034,
-      north: 35.6938,
-    });
-  });
-
-  it("pads a single centre, which would otherwise be a zero-width box", () => {
-    const box = centresBbox([japan]);
-
-    expect(box).toBeDefined();
-    if (box === undefined) return;
-    expect(box.east - box.west).toBeGreaterThan(0);
-    expect(box.north - box.south).toBeGreaterThan(0);
-    // Still centred on the trip it came from.
-    expect((box.east + box.west) / 2).toBeCloseTo(139.7034, 5);
-  });
-
-  it("is undefined when nothing is placed, so a caller can skip the fit", () => {
-    expect(centresBbox([unplaced])).toBeUndefined();
-    expect(centresBbox([])).toBeUndefined();
   });
 });
 
