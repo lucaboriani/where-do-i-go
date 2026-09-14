@@ -1846,6 +1846,11 @@ statically importing the first three.
         near either asserted coordinate, or near the limb of the pinned `[0, 0]` camera, breaks the
         occlusion case without changing a line of assertion text. `scripts/seed-dev-pod.ts` carries
         a pointer at the index block the assertion's coordinates actually come from.
+      - **Open: one unidentified test failure, seen once.** A single `npm test` run during this
+        stage reported `1 failed | 1808 passed` with the name uncaptured; every run before and
+        after was green. The unconfirmed suspect is a `waitFor` timeout under parallel load in
+        `components/studio/entry-editor/entry-editor.autodate-edges.test.tsx`. If it recurs,
+        capture the failing name before rerunning — that is the step that was missed.
       - **Open, inherited and untouched**: iOS Safari is still unverified, no e2e case asserts the
         desktop layout on a first paint, the camera fit is still not adjusted for the sheet, and
         4b's three named follow-ups stand.

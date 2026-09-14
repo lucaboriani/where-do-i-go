@@ -24,11 +24,17 @@ renders **no element at all** rather than an empty `<span>`. `trip-list.test.tsx
 counts the `<li>`'s children for exactly that, since an empty span is invisible
 to a text query.
 
-## `data-slug` is on the row AND on the map marker
+## `data-slug` is on the row, and on `/` on nothing else
 
-`MapSheet` finds a pinned trip's row by `[data-slug]` under the sheet body, and
-the diary globe's markers carry the same attribute for the same trip. The two
-live in sibling subtrees of `.trip-shell`, so a query rooted in either finds only
-its own — but a page-level locator matches both, and must scope first. The
-timeline hit this when its rows gained the attribute:
-`../trip-timeline/notes.md#data-slug-is-on-the-row-and-on-the-map-marker`.
+`MapSheet` finds a pinned trip's row by `[data-slug]` under the sheet body. **The
+diary globe puts no marker in the DOM at all**: a trip on `/` is a GL circle in a
+`circle` layer with `promoteId: "slug"` (`docs/decisions.md` §33), and `data-slug`
+reaches a map only through `lib/map/marker-element.ts`, which only `useMapMarkers`
+calls — and `DiaryMap` never calls it. So on this page there is no second holder
+of the attribute to scope a query away from, and no marker to query by any
+selector: `e2e/diary-globe.spec.ts` asserts trip points with
+`queryRenderedFeatures` at a coordinate instead.
+
+A trip page is the other mechanism, and there the collision is real — an entry pin
+IS a DOM element and does carry the attribute, in a subtree that is a sibling of
+the sheet's: `../trip-timeline/notes.md#data-slug-is-on-the-row-and-on-the-map-marker`.

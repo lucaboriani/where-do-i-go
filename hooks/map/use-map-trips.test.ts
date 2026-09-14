@@ -131,6 +131,13 @@ describe("useMapTrips", () => {
 
     expect(map.sources.get(TRIPS_SOURCE)?.promoteId).toBe("slug");
     expect(map.layers.map((layer) => layer.id)).toContain(TRIPS_LAYER);
+    // The ADDED collection, not a later setData: a source added empty would
+    // pass every other case in this file.
+    const added = map.sources.get(TRIPS_SOURCE)?.data as FakeSource["data"];
+    expect(added?.features.map((one) => one.properties.slug)).toEqual([
+      "2026-japan",
+      "2025-patagonia",
+    ]);
   });
 
   it("updates data in place on a changed trips array instead of re-adding", () => {
@@ -208,6 +215,7 @@ describe("useMapTrips", () => {
     rerender();
     expect(map.layers).toHaveLength(1);
     expect(map.registrations.filter((event) => event === "click")).toHaveLength(1);
+    expect(map.registrations.filter((event) => event === "click:map")).toHaveLength(1);
   });
 
   it("leaves no listener behind on unmount, the background one included", () => {

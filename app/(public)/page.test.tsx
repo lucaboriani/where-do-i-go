@@ -120,6 +120,9 @@ describe("the diary page", () => {
   });
 
   it("drops a trip that will not read and keeps one whose index will not", async () => {
+    // `ghost` is defensive rather than reachable: publishedTripSlugs filters on
+    // `trip.ok && published` through this same cached getTrip, so production
+    // cannot hand the page a slug whose trip fails to read. The branch still stands.
     vi.mocked(publishedTripSlugs).mockResolvedValue(ok(["japan", "peru", "ghost"]));
     vi.mocked(getTrip).mockImplementation(async (slug) =>
       slug === "ghost" ? gone(`${POD}trips/ghost/trip.ttl`) : ok(aTrip(slug)),

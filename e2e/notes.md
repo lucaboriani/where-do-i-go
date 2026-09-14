@@ -216,9 +216,13 @@ first still holds and the second fails; under a map that never drew, the first f
 absence assertion would have passed in both worlds and in a third where the page 404ed.
 
 **The camera is pinned, not inherited** — `jumpTo({ center: [0, 0], zoom: 0.65 })` before either
-assertion. Japan sits ~135° from that centre, 45° past the limb, and patagonia ~79°, some 11°
-inside it. Both margins were previously whatever maplibre's default camera happened to give, which
-is margin nobody chose; the four cases that came before this one now pin it too.
+assertion. **Both margins are great-circle degrees from that centre, not longitude deltas**, and
+the limb they are measured against is the ~84.5° perspective cap, not 90°: japan is 125.9° away
+(`cos d = cos lat · cos Δlon`, so its 134.8° of longitude is not the distance), some 41° behind the
+limb, and patagonia 79.2°, about **5°** inside it. Five degrees is all the headroom the allow-half
+has — a trip moved toward the limb spends it. Both margins were previously whatever maplibre's
+default camera happened to give, which is margin nobody chose; the four cases that came before this
+one now pin it too.
 
 **What it depends on, precisely, because this is the sentence a future owner will use to delete
 it**: maplibre's spherical transform hiding the far hemisphere, and the 1280×800 viewport this file

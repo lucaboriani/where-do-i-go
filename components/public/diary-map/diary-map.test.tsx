@@ -13,8 +13,11 @@ import type { HighlightValue } from "@/hooks/trip/highlight-context";
 import type { TripPoint } from "@/lib/map/trips";
 import DiaryMap from "./diary-map";
 
+// A sentinel, not null, exactly as ../trip-map/trip-map.test.tsx does it:
+// proves the trips hook receives THIS map, not merely some nullish value.
+const SENTINEL_MAP = { sentinel: true };
 const useMapInstance = vi.fn((options: MapInstanceOptions) => ({
-  map: null,
+  map: SENTINEL_MAP,
   styleLoaded: false,
   status: options.active ? "loading" : "idle",
 }));
@@ -110,7 +113,13 @@ describe("DiaryMap", () => {
 
   it("hands the trips straight to the trips hook", () => {
     render(<DiaryMap trips={trips} />);
-    expect(useMapTrips).toHaveBeenCalledWith(null, trips, false, null, expect.any(Object));
+    expect(useMapTrips).toHaveBeenCalledWith(
+      SENTINEL_MAP,
+      trips,
+      false,
+      null,
+      expect.any(Object),
+    );
   });
 
   it("passes no bbox, because the camera is the trips hook's", () => {

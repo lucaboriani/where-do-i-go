@@ -133,8 +133,10 @@ than to the map mock directly — a mock-only listener would never see the bubbl
 
 `buildTripPoints` (`lib/map/trips.ts`) gives each trip feature `properties: { slug, name }` and no
 `id`, and `setFeatureState` addresses features by id — so `TRIPS_SOURCE` sets `promoteId: "slug"`,
-exactly as `LEGS_SOURCE` sets `promoteId: "toSlug"` above and for the same reason. Stage 4a shipped
-a highlight without it once: no error, no warning, nothing painted.
+exactly as `LEGS_SOURCE` sets `promoteId: "toSlug"` above and for the same reason. Leave it out and
+`setFeatureState` is a silent no-op: no error, no warning, nothing painted. Nothing has ever shipped
+that way — `git show fa57377` added the promotion and the `feature-state` paint in one commit — so
+this is the failure mode, not an incident.
 
 ## Why the trip handlers are a ref
 

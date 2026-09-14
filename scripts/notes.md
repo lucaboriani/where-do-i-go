@@ -561,7 +561,10 @@ fit over several centres, no fly-to worth watching, no second feature state. `do
 §7.1 has named both since it was written — the seeder used to delete the second from the diary on
 its way to the Pod, which is why the data model and the dev Pod disagreed with nobody noticing.
 `test/seed-dev-pod.test.ts` derives the fixture's trip list and the seeder's own PUT paths and
-compares them, so the next trip §7.1 names fails here rather than going missing.
+compares them, so the next trip §7.1 names fails there rather than going missing. **It compares
+slugs against PUT paths, not against the diary the seeder writes** — re-introducing the strip that
+deleted the second trip from `diary.ttl` leaves it green, because `trips/2025-patagonia/trip.ttl` is
+still PUT. What it catches is a trip the fixture names and the seeder never writes at all.
 
 Patagonia rather than a second Japanese city, and it is not decoration: a globe whose two markers
 sit a few degrees apart looks exactly like a map, so the fixture puts them a hemisphere apart —
