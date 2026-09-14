@@ -180,8 +180,8 @@ build.
 
 `queryRenderedFeatures(undefined, { layers })` — the form `e2e/trip-timeline.spec.ts` uses on the
 trip page, and the form this task's brief carried — **does not answer truthfully under the globe
-projection.** Measured 2026-09-14 at `/`'s opening camera, which is the style's own (centre 0,0,
-zoom 0.6438):
+projection.** Measured 2026-09-14 at the whole-world camera these cases now pin (centre 0,0, zoom
+0.65; the numbers were first taken at maplibre's own default, 0.6438, and did not move):
 
 | query | answer |
 |---|---|
@@ -197,56 +197,81 @@ anyway: it says WHERE a circle is painted, not merely that some circle was.
 
 **The point must be a `[x, y]` tuple; `{ x, y }` is not a `PointLike` and fails quietly.** It is a
 type error (`npm run typecheck` names it) and, worse, it runs: under control 2 below, with the
-object form, the corner-of-the-ocean assertion in case 3 read `features: 1` and turned that case
-red for a reason that had nothing to do with the mutation. With `[x, y]` the same corner reads 0
-and case 3 survives control 2, which is the correct outcome. A half-checked spec would have
-recorded control 2 as killing two cases.
+object form, the corner-of-the-ocean poll in the background-click case read `features: 1` and
+turned that case red for a reason that had nothing to do with the mutation. With `[x, y]` the same
+corner reads 0. A half-checked spec would have carried a query that answers about nothing.
 
 **Two trips a hemisphere apart cannot both be on screen**, so "one marker per published trip" is
-two assertions at two cameras, with `map.jumpTo` spinning the globe between them. A drag would be
-the reader's gesture, but MapLibre's `MapEventHandler.click` returns early past a 3px tolerance, so
-a pan is not a click and the spin is not what these cases are about.
+two assertions at two cameras, with `spinTo` — `map.jumpTo` — turning the globe between them. A
+drag would be the reader's gesture, but MapLibre's `MapEventHandler.click` returns early past a 3px
+tolerance, so a pan is not a click and the spin is not what these cases are about.
 
-## the seven diary-globe controls
+## the far side is the projection assertion
 
-`e2e/diary-globe.spec.ts` is five cases. Every one of them passed the first time it ran — tasks 1–7
+The case named "hides the trip on the far side, which mercator does not" is the one that catches a
+silent fall-back to mercator — the failure design spec §11 named and, until 2026-09-14, nothing
+saw. It is two assertions **at one camera**: patagonia's own coordinate paints
+`["2025-patagonia"]`, and japan's paints `[]`. The pairing is the whole design. Under mercator the
+first still holds and the second fails; under a map that never drew, the first fails. A bare
+absence assertion would have passed in both worlds and in a third where the page 404ed.
+
+**The camera is pinned, not inherited** — `jumpTo({ center: [0, 0], zoom: 0.65 })` before either
+assertion. Japan sits ~135° from that centre, 45° past the limb, and patagonia ~79°, some 11°
+inside it. Both margins were previously whatever maplibre's default camera happened to give, which
+is margin nobody chose; the four cases that came before this one now pin it too.
+
+**What it depends on, precisely, because this is the sentence a future owner will use to delete
+it**: maplibre's spherical transform hiding the far hemisphere, and the 1280×800 viewport this file
+already pins. NOT the style URL — an earlier draft of this note said so and was wrong.
+`MAP_STYLE_URL` is unset in `.env.local`, `.env.example` and `e2e/environment.ts`'s `appEnv`, so
+the style is `buildBasemapStyle()` in this repository, and it declares no `center` and no `zoom`.
+The 0.6438 measured before the camera was pinned is maplibre's own default fitted to the pane —
+`log2(800 / 512)` — and maplibre 6 does not `jumpTo` from TileJSON.
+
+**What it still does not prove: that a sphere was painted.** It asserts the TRANSFORM is spherical.
+A globe whose fragment shader drew nothing would pass it, and so would a canvas painted black. §11
+is amended to say narrowed rather than closed.
+
+## the eight diary-globe controls
+
+`e2e/diary-globe.spec.ts` is six cases. Every one of them passed the first time it ran — tasks 1–7
 had already landed — which is what this project says to distrust. Each mutation below was applied
 on 2026-09-14, the spec run, the named case watched go red, and the mutation reverted with
-`git checkout --`. The pod was `e2e-globe`: `.pod-data/e2e` was already gone but its account was
-not, so the name was dead — see the section above this one.
+`git checkout --`; all eight were re-measured against the final six-case file rather than carried
+over from the first round. The pod was `e2e-globe`: `.pod-data/e2e` was already gone but its
+account was not, so that name is dead — see the section two above this one.
 
 | # | Mutation | Cases it kills | The failure |
 |---|---|---|---|
-| 1 | `use-map-trips.ts`: delete `promoteId: "slug"` | 4 | `Expected [{ active: true }] / Received [{}]` |
-| 2 | `use-map-trips.ts`: drop the `flyTo` from `select` | 2 | `Expected { lat: -50, lng: -73 } / Received { lat: 0, lng: 0 }` |
-| 3 | `diary-map.tsx`: `PROJECTION` for `GLOBE_PROJECTION` | **none** | all five green — the hole below |
-| 4 | `page.tsx`: `published.value.slice(0, 1)` | 1, 2, 3, 4, 5 | `Expected ["2025-patagonia"] / Received []`; case 5 on the link, `element(s) not found` |
-| 5 | `seed-dev-pod.ts`: patagonia `dy:status dy:Draft` | 1, 2, 3, 4, 5 | identical to 4, on a pod freshly seeded as `e2e-globe-draft` |
-| 6 | `use-map-trips.ts`: delete `map.on("click", background)` | 3 | `not.toHaveAttribute` → `unexpected value "true"`, 44 polls |
-| 7 | `lib/pod/cached.ts`: drop `status === "published"` | 5 | `a[href="/trips/2026-secret"]` — `Expected 0 / Received 1` |
+| 1 | `use-map-trips.ts`: delete `promoteId: "slug"` | 5 | `Expected [{ active: true }] / Received [{}]` |
+| 2 | `use-map-trips.ts`: drop the `flyTo` from `select` | 3, 4 | `Expected { lat: -50, lng: -73 } / Received { lat: 0, lng: 0 }`, both at the camera poll |
+| 3 | `diary-map.tsx`: `PROJECTION` for `GLOBE_PROJECTION` | 2 | `Expected [] / Received ["2026-japan"]` — japan painted through the planet |
+| 4 | `page.tsx`: `published.value.slice(0, 1)` | 1, 2, 3, 4, 5, 6 | `Expected ["2025-patagonia"] / Received []`; case 6 on the link, `element(s) not found` |
+| 5 | `seed-dev-pod.ts`: patagonia `dy:status dy:Draft` | 1, 2, 3, 4, 5, 6 | identical to 4, on a pod freshly seeded as `e2e-globe-draft2` |
+| 6 | `use-map-trips.ts`: delete `map.on("click", background)` | 4 | `not.toHaveAttribute` → `unexpected value "true"`, 44 polls |
+| 7 | `lib/pod/cached.ts`: drop `status === "published"` | 6 | `a[href="/trips/2026-secret"]` — `Expected 0 / Received 1` |
+| 8 | `diary-map.tsx`: delete `onSelect: pin` | 3, 4 | `Expected "true" / Received ""` on `<li class="rounded-sm p-2" data-slug="2025-patagonia">` |
 
-**Control 3 is the hole this suite cannot close, and it is recorded rather than papered over.**
-Design spec §11 already says so: `size:public` is indifferent to the projection, jsdom has no
-WebGL, and a canvas existing is not a sphere having been drawn. With mercator substituted the whole
-file stays green.
+**Control 8 exists because the pin half of case 3 had no control of its own.** Control 2 kills that
+case at the camera poll two lines earlier and aborts it, so nothing was proving the row assertion
+could fail — and a row lit by a stale hover would have satisfied it. With the click's `pin` gone
+and the camera flight untouched, the case reaches the row assertion and finds `data-active` absent
+with the cursor at (5, 5), which is the state only a pin can produce.
 
-**One assertion WOULD have killed it, and it was measured rather than guessed.** At the opening
-camera, a point query at japan's own centre returns `[]` under the globe (occluded by the sphere)
-and `["2026-japan"]` under mercator — both measured 2026-09-14, same camera, one line apart. It is
-not in the spec: it asserts the far side of the sphere hides its marker, which is a property of the
-TRANSFORM and still not evidence that a sphere was painted, and it leans on an opening camera that
-comes from the style URL rather than from this repository. Whoever owns §11 can take that trade;
-this task recorded it instead of taking it quietly.
+**Control 2 kills case 4 as well, and that is by design.** Case 4 now waits for the flight to land
+before it reads the corner, so that a marker crossing the corner mid-flight cannot fail it for an
+unrelated reason. The suite runs with `retries: 0`; a poll that can be satisfied mid-animation is
+the flake this file has already recorded once, under the map-sheet controls.
 
-**A draft cannot reach the globe at all, which is why case 5 asserts the list.** `2026-secret` has
+**A draft cannot reach the globe at all, which is why case 6 asserts the list.** `2026-secret` has
 a `trip.ttl` and no `entries.ttl`, so `getTripIndex` fails, `center` is `undefined`, and
 `buildTripPoints` drops it — a draft that slipped the publication boundary would arrive as a ROW
-and never as a circle. Control 7 is what proves case 5 has teeth, and it is the only control that
-does: it leaves the four map cases green and puts the draft's link on the page, exactly the shape
-§1's "drafts appearing anywhere" names. Case 5 asserts both published links visible in the same
+and never as a circle. Control 7 is what proves case 6 has teeth, and it is the only control that
+does: it leaves the five map cases green and puts the draft's link on the page, exactly the shape
+§1's "drafts appearing anywhere" names. Case 6 asserts both published links visible in the same
 test, because an absence assertion on a page that rendered nothing passes while proving nothing —
 and control 4 is what proves THAT half.
 
-**Controls 4 and 5 kill the same five cases, and both are kept.** 4 is the page's own filtering; 5
+**Controls 4 and 5 kill the same six cases, and both are kept.** 4 is the page's own filtering; 5
 is the pod the suite runs against. A fixture and a page that disagree is the failure `e2e` has
 already had once — a pod seeded by an older seeder, reported ready, one trip short.

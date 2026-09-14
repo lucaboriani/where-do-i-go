@@ -221,9 +221,14 @@ product decision nobody has taken.
 
 ## 11. What no check here will see
 
-- **The globe itself.** `size:public` is indifferent, jsdom has no WebGL, and the e2e asserts a
-  canvas exists — not that a sphere was drawn. A projection silently falling back to mercator would
-  pass everything. §8's expansion is read from the shipped source rather than observed.
+- **The globe itself — narrowed on 2026-09-14, not closed.** `size:public` is indifferent and jsdom
+  has no WebGL. A projection silently falling back to mercator is now caught:
+  `e2e/diary-globe.spec.ts` pins a whole-world camera and asserts that the far-side trip's own
+  coordinate paints nothing while the near one paints its circle, which mercator fails on the
+  second half and a dead map on the first. That proves the TRANSFORM is spherical and **still not
+  that a sphere was drawn** — a globe whose shader painted nothing would pass it. §8's expansion is
+  read from the shipped source rather than observed.
+  `e2e/notes.md#the-far-side-is-the-projection-assertion` carries the margins and the dependency.
 - **iOS Safari**, still: Chromium only, as §26 records.
 - **A fly-to that lands somewhere wrong.** The e2e can assert the camera moved and roughly where;
   "the reader sees the trip" is a judgment no assertion makes.

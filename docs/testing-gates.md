@@ -96,16 +96,24 @@ stage 5's globe, and **this one had already fired in anger before it was written
 `c6b0969`, "The diary page becomes a globe with its trips beside it", changed three files:
 `app/(public)/page.tsx`, `app/(public)/page.test.tsx` beside it, and `test/guardrails.test.ts`. No
 glob above matches any of them, so the gate did not ask for a run on the commit that turned `/`
-into a map — the one commit in the stage where a browser check was most worth having. Every other commit in the stage also touched
-`components/public/**` and fired the gate anyway, which is precisely how the hole stayed invisible:
-it is a page, it is public, and it is the busiest route in the app, and it was gated by nothing.
+into a map — the one commit in the stage where a browser check was most worth having. Every
+other commit in the stage also touched `components/public/**` and fired the gate anyway, which
+is precisely how the hole stayed invisible: it is a page, it is public, it is the busiest route
+in the app, and it was gated by nothing.
+
+**`app/(public)/page.tsx` is a file entry, not a prefix, so `app/(public)/page.test.tsx` beside it
+does not fire the gate.** That is the one place this list does NOT over-fire, and it is deliberate
+in the opposite direction from `lib/media/**` above: a page's own unit test cannot change what a
+browser sees, and widening the entry to `page*` would gate every jsdom edit on a 40-second browser
+run. It is worth knowing rather than discovering — the commit that opened this hole changed that
+very test file.
 
 The seeder is on the list for a different reason: **it is the fixture the browser cases assert
 against**, so changing it changes the test without touching the test. `e2e/diary-globe.spec.ts`
 names `2026-japan`, `2025-patagonia` and `2026-secret` and asserts markers at their seeded
-coordinates; control 5 in `e2e/notes.md` is that measured, one line in the seeder turning all five
-cases red. A seed-only diff — a third trip, a moved coordinate, a status flipped — is exactly the
-change that needs the run and would have skipped it. Both halves are prose read by a person, the
+coordinates; control 5 in `e2e/notes.md` is that measured — one line in the seeder turns all six
+cases red. A seed-only diff — a third trip, a moved coordinate, a status flipped — is the change
+that needs the run and would have skipped it. Both halves are prose read by a person, the
 same shape as `hooks/studio/**` and `hooks/trip/**` above.
 
 ## Running it

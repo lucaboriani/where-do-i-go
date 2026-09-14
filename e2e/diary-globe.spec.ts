@@ -2,7 +2,7 @@
  * The diary globe in a real browser: a circle painted where each published trip
  * is, a click that flies the camera and pins the row, the background click that
  * lets it go, and the draft on neither surface. Mutation controls in
- * ./notes.md#the-seven-diary-globe-controls
+ * ./notes.md#the-eight-diary-globe-controls
  */
 
 import { expect, test, type Page } from "@playwright/test";
@@ -22,6 +22,11 @@ const PATAGONIA_AT = [-73.0119, -49.9141] as const;
 /** The centre of 2025-patagonia's own bbox, rounded: fitBounds lands on the
  *  box's centre whatever the symmetric padding does. */
 const PATAGONIA_VIEW = { lng: -73, lat: -50 };
+
+/** The whole-world camera, pinned rather than inherited from maplibre's
+ *  default. ./notes.md#the-far-side-is-the-projection-assertion */
+const WORLD = [0, 0] as const;
+const WORLD_ZOOM = 0.65;
 
 /** The map region, not the page. */
 const mapRegion = (page: Page) => page.getByRole("region", { name: "Diary map" });
@@ -93,15 +98,14 @@ const centre = (page: Page) =>
   });
 
 /** A globe shows one hemisphere and these two trips are 208° apart, so no
- *  camera holds both. Spinning it is what a reader does by dragging; a drag
- *  under MapLibre's 3px tolerance is a pan, and this is not testing the pan. */
-const spinTo = (page: Page, lngLat: readonly [number, number]) =>
+ *  camera holds both. ./notes.md#the-far-side-is-the-projection-assertion */
+const spinTo = (page: Page, lngLat: readonly [number, number], zoom: number) =>
   mapRegion(page).evaluate(
-    (el, at) => {
+    (el, { at, to }) => {
       const map = (el as HTMLDivElement & { __map?: MapLibreMap }).__map;
-      map?.jumpTo({ center: at as [number, number], zoom: 2 });
+      map?.jumpTo({ center: at as [number, number], zoom: to });
     },
-    lngLat,
+    { at: lngLat, to: zoom },
   );
 
 /** A circle layer has no DOM node to click, so this is a real mouse click at
@@ -126,19 +130,33 @@ test.describe("the diary globe", () => {
   test("paints one marker at each published trip, a hemisphere apart", async ({ page }) => {
     await page.goto("/");
     await expect(canvasOf(page)).toBeVisible();
+    await spinTo(page, WORLD, WORLD_ZOOM);
 
     // Exactly one feature at each trip's centre, not a count over the globe: a
     // second circle on the same coordinate is the shape a duplicated or
     // re-added source takes, and a bare count would call that two trips.
     await expect.poll(() => slugsAt(page, PATAGONIA_AT)).toEqual([PATAGONIA]);
 
-    await spinTo(page, JAPAN_AT);
+    await spinTo(page, JAPAN_AT, 2);
     await expect.poll(() => slugsAt(page, JAPAN_AT)).toEqual([JAPAN]);
+  });
+
+  test("hides the trip on the far side, which mercator does not", async ({ page }) => {
+    await page.goto("/");
+    await expect(canvasOf(page)).toBeVisible();
+    await spinTo(page, WORLD, WORLD_ZOOM);
+
+    // Both halves at ONE camera, and the pairing is the point: mercator keeps
+    // the first and loses the second, a dead map loses the first.
+    // ./notes.md#the-far-side-is-the-projection-assertion
+    await expect.poll(() => slugsAt(page, PATAGONIA_AT)).toEqual([PATAGONIA]);
+    expect(await slugsAt(page, JAPAN_AT)).toEqual([]);
   });
 
   test("clicking a marker flies the camera to that trip and pins its row", async ({ page }) => {
     await page.goto("/");
     await expect(canvasOf(page)).toBeVisible();
+    await spinTo(page, WORLD, WORLD_ZOOM);
     await expect.poll(() => slugsAt(page, PATAGONIA_AT)).toEqual([PATAGONIA]);
 
     const before = await centre(page);
@@ -157,12 +175,17 @@ test.describe("the diary globe", () => {
   test("clicking the map background clears the pin a marker set", async ({ page }) => {
     await page.goto("/");
     await expect(canvasOf(page)).toBeVisible();
+    await spinTo(page, WORLD, WORLD_ZOOM);
     await expect.poll(() => slugsAt(page, PATAGONIA_AT)).toEqual([PATAGONIA]);
 
     await clickMarker(page, PATAGONIA_AT, PATAGONIA);
     await page.mouse.move(5, 5);
     const row = rowFor(page, PATAGONIA);
     await expect(row).toHaveAttribute("data-active", "true");
+
+    // The flight has to be over before a corner means anything: a marker
+    // crossing it mid-fly would fail this case for an unrelated reason.
+    await expect.poll(() => centre(page)).toEqual(PATAGONIA_VIEW);
 
     // The corner, asserted empty rather than assumed, and asserted to be the
     // canvas: a tap that landed on the sheet would report as a pin that will
@@ -179,6 +202,7 @@ test.describe("the diary globe", () => {
   test("hovering a trip row marks its marker's own rendered feature state", async ({ page }) => {
     await page.goto("/");
     await expect(canvasOf(page)).toBeVisible();
+    await spinTo(page, WORLD, WORLD_ZOOM);
     await expect.poll(() => slugsAt(page, PATAGONIA_AT)).toEqual([PATAGONIA]);
 
     // The PAINTED feature's state, not a bare getFeatureState(id): that store
