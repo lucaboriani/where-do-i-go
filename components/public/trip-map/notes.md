@@ -19,14 +19,17 @@ that, by asserting the canvas is absent before the scroll.
 
 ## The frame is reserved by the server, and the class is shared
 
-`MAP_FRAME_CLASS` is exported and used twice: by the component, and by the
-layout's Suspense fallback. The layout can render the box before the index has
-been read, because the box's size does not depend on the data — so the page
-reserves the map's space before any JavaScript runs and nothing shifts when the
-instance arrives.
+`MAP_FRAME_CLASS` is declared in `lib/map/frame.ts` and has four importers:
+this component, `DiaryMap`, and both server pages' Suspense fallbacks — it is
+neither declared nor re-exported here, and moved out on 2026-09-14 because one
+string imported from this `"use client"` module cost `/` 4 kB of eager chunk
+(`lib/map/notes.md`, "The frame class is not in a client module"). A layout can
+render the box before the index has been read, because the box's size does not
+depend on the data — so the page reserves the map's space before any JavaScript
+runs and nothing shifts when the instance arrives.
 
 Two copies of that class string would drift, and the drift would be a layout
-shift that no test asserts against. One export, two call sites.
+shift that no test asserts against. One declaration, four call sites.
 
 ## Navigating between trips, measured
 
@@ -52,8 +55,8 @@ throughout. Canvas count stayed at 1 and the `dataset.probe` stamp survived
 all three.
 
 trip A → trip B was **not measured**, and the reason is itself measured, not
-assumed. No in-app link joins two trips — the home page links only
-`2026-japan`, and there is no `/trips` index. An injected `<a>` cannot
+assumed. No in-app link joins two trips — on that date the home page linked
+only `2026-japan`, and there is still no `/trips` index. An injected `<a>` cannot
 substitute: `window.__navProbe` set before a click survives the real `<Link>`
 navigation above, but is `null` after the injected `<a>`, because that is a
 document load rather than a soft navigation and destroys everything regardless
@@ -70,8 +73,16 @@ across two; `useMapLayers`'s `addAll` fixes `cluster` from the first trip's entr
 reconsiders it; `useMapInstance`'s `fitBounds` runs once, from the `style.load` handler, on
 whichever trip supplied it first. A same-slug collision, entry-count swing across the threshold,
 or camera left fitted to trip A's bbox on trip B's map are all consequences of one instance
-surviving a transition that has never been exercised — stage 4 inherits closing this alongside
-the trip-to-trip measurement above.
+surviving a transition that has never been exercised.
+
+**Answered 2026-09-14, by argument rather than measurement.** Every route in this app reaches a
+trip through `/`, which is outside the `[slug]` subtree and tears this layout and its map down, so
+the navigation that would reach these three assumptions does not exist and stage 5's globe does not
+add it — its markers fly the camera and its list links go to one trip at a time. The seed's second
+published trip (`2025-patagonia`, 2026-09-14) removes the fixture half of the obstacle above and
+leaves the structural half exactly where it was. The three stay real, stay in the tree, and stay
+unreachable until someone adds a direct trip-to-trip link, which is a product decision nobody has
+taken. `TODO.md`'s phase 4 stage 5 entry carries the full form.
 
 ## The map handle attached for e2e
 

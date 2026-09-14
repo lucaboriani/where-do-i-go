@@ -80,6 +80,23 @@ long docblock in place, with a blank line, is a legitimate fix where the prose b
 `check:structure` reads real comment tokens, so `notes.md#…` inside a string literal is fixture
 text rather than a citation. Both directions measured — `scripts/notes.md#tokens-not-prefixes`.
 
+### New code keeps inline comments minimal — standing, from 2026-09-14
+
+Set by the maintainer while planning the `studio-shell` refactor `TODO.md` records: **in new code
+an inline comment is a last resort. The reasoning goes in the sibling `notes.md` and the code keeps
+a one-line pointer to it.** This does not tighten the bound — a five-line block still passes every
+check — it says aim at two where the bound allows six, for the same reason the tendencies exist
+beside the hard bounds.
+
+The scope is deliberately narrow: code being written or rewritten, and that refactor.
+**`CLAUDE.md`'s comment section is not rewritten and no sweep happens.** Existing blocks under the
+bound stay as they are, because a sweep is a large diff across files nobody is otherwise touching,
+and the production ratchet at zero already stops the count rising.
+
+`CLAUDE.md`'s one exception survives intact: a trap warning at the point of danger stays inline, as
+one shouted line plus a pointer. Moving those words to `notes.md` puts them where the person about
+to make the mistake is not looking.
+
 ## Why `notes.md`, and why the anchor is checked
 
 README promises "how to use this"; notes promises "why it is like this", and the second is what

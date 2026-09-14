@@ -720,3 +720,23 @@ browser and a free port; `docs/testing-gates.md` argues a gate people stop runni
 narrow one. What stands between the repo and a silent repeat is
 `app/(public)/maplibre-gl-worker.mjs/route.test.ts`, which parses the served bytes and pins the
 single relative import — and which runs in `npm test`, not behind this gate.
+
+---
+
+## 33. A marker that carries a photo is DOM; a plain point is GL
+
+Entry markers are DOM elements (§30) because each carries a photo thumbnail and because the
+clustering loop walks `querySourceFeatures` to keep elements in step with the source. Neither is
+true of a trip on the diary globe: there is no thumbnail, and a diary with fifty published trips is
+not a problem this project has.
+
+So the trips source is one GeoJSON source with `promoteId: "slug"` and a `circle` layer, and the
+active trip is painted with `setFeatureState` — the mechanism §30 already uses for clusters and 4a
+uses for legs. Hover is layer-scoped, `map.on("mouseenter", TRIPS_LAYER, …)`, rather than a
+listener per element, because there are no elements to hang one on.
+
+**Consequences.** Two marker mechanisms exist in one codebase and a reader must know which surface
+uses which; the criterion above is the rule, not the file they happened to open first. A trip
+marker cannot show a photo without moving to the DOM shape, which is a real cost if phase 7 wants
+one. §30 is unchanged and not contradicted: its own words are "a cluster never touches a photo, so
+it never needs the DOM".

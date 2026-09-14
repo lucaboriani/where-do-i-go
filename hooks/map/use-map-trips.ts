@@ -109,8 +109,8 @@ function flyTo(map: MapLibreMap, bbox: TripPoint["bbox"]): void {
   map.fitBounds(bounds, { ...camera, animate });
 }
 
-/** The load camera is whatever the style opens with — a globe showing the
- *  world. Only a click moves it. */
+/** The load camera is maplibre's own default fitted to the pane — no style here
+ *  sets `center` or `zoom`. Only a click moves it. */
 function addTrips(map: MapLibreMap, points: ReturnType<typeof buildTripPoints>): void {
   // promoteId, or setFeatureState has no id to key on: the features carry a
   // slug property and no id. ./notes.md#why-the-trips-source-promotes-slug
