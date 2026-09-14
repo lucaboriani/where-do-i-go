@@ -72,4 +72,9 @@ describe("TimelineRow", () => {
     setup(null);
     expect(screen.getByRole("listitem")).toContainElement(screen.getByRole("link"));
   });
+
+  it("carries its slug in the DOM, so the sheet can find the row to reveal", () => {
+    render(<TimelineRow slug="nara">body</TimelineRow>);
+    expect(screen.getByText("body").closest("li")?.dataset.slug).toBe("nara");
+  });
 });

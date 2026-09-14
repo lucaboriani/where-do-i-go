@@ -69,4 +69,34 @@ describe("TripTimeline", () => {
       "/trips/japan/arrival",
     );
   });
+
+  it("renders the thumbnail, the travel mode and the precision when the index carries them", () => {
+    render(
+      <TripTimeline
+        slug="japan"
+        entries={[
+          entry({
+            slug: "nara",
+            thumbnail: "https://pod.example/t/e1/thumb.jpg",
+            travelModeFrom: "Train",
+            precisionMeters: 500,
+          }),
+        ]}
+      />,
+    );
+
+    const thumb = screen.getByRole("presentation");
+    expect(thumb.getAttribute("src")).toBe("https://pod.example/t/e1/thumb.jpg");
+    expect(thumb.getAttribute("loading")).toBe("lazy");
+    expect(screen.getByText(/train/i)).toBeTruthy();
+    // The label lib/place/precision.ts owns, not a number formatted here.
+    expect(screen.getByText("~500 m")).toBeTruthy();
+  });
+
+  it("renders none of the three when the index carries none of them", () => {
+    render(<TripTimeline slug="japan" entries={[entry({ slug: "nara" })]} />);
+
+    expect(screen.queryByRole("presentation")).toBeNull();
+    expect(screen.queryByText(/~/)).toBeNull();
+  });
 });

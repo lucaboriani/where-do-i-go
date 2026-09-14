@@ -17,6 +17,7 @@ export default function TimelineRow({
     // focusin, so focus and hover share one path. ./notes.md#why-the-handlers-sit-on-the-row
     <li
       data-active={isActive || undefined}
+      data-slug={slug}
       onPointerEnter={() => raise(slug, "timeline")}
       onPointerLeave={clear}
       onFocus={() => raise(slug, "timeline")}
