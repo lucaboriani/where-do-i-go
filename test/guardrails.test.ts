@@ -1222,18 +1222,18 @@ describe("the belt's scope, walked from real public entry points", () => {
     ).toEqual([]);
   });
 
-  it("reaches the four map hooks and the two trip-highlight hooks, and belts them there", () => {
+  it("reaches the five map hooks and the two trip-highlight hooks, and belts them there", () => {
     const reachable = [...transitiveClosure(publicEntryPoints(ROOT), ROOT)];
     const hooks = reachable.filter((f) => f.startsWith("hooks/")).sort();
     expect(hooks).toEqual([
       "hooks/map/use-map-highlight.ts", "hooks/map/use-map-instance.ts",
-      "hooks/map/use-map-layers.ts", "hooks/map/use-map-markers.ts",
+      "hooks/map/use-map-layers.ts", "hooks/map/use-map-markers.ts", "hooks/map/use-map-trips.ts",
       "hooks/trip/highlight-context.ts", "hooks/trip/use-highlight-state.ts",
     ]);
     expect(
       hooks.filter((f) => !BELTED_MODULES.includes(f)),
-      "trip-map and trip-highlight/trip-timeline import these from a public page, so they are " +
-        "belt territory at their new home.",
+      "trip-map, diary-map and trip-highlight/trip-timeline import these from a public page, so " +
+        "they are belt territory at their new home.",
     ).toEqual([]);
   });
 });

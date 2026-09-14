@@ -12,6 +12,7 @@ said "six", and a reader reconciling a numeral against a list deletes the newest
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts   hooks/studio/**
 components/public/**   lib/map/**   hooks/map/**   hooks/trip/**
+app/(public)/page.tsx   scripts/seed-dev-pod.ts
 ```
 
 then `npm run test:e2e` must pass too. **Three seams, not one.**
@@ -89,6 +90,31 @@ and `e2e/trip-timeline.spec.ts` with nothing to say so. The belt half has a test
 `test/guardrails.test.ts`; this half is prose read by a person, the same hole `hooks/studio/**`
 above is named for.
 
+
+`app/(public)/page.tsx` and `scripts/seed-dev-pod.ts` joined the same seam on 2026-09-14, with
+stage 5's globe, and **this one had already fired in anger before it was written down.** Commit
+`c6b0969`, "The diary page becomes a globe with its trips beside it", changed three files:
+`app/(public)/page.tsx`, `app/(public)/page.test.tsx` beside it, and `test/guardrails.test.ts`. No
+glob above matches any of them, so the gate did not ask for a run on the commit that turned `/`
+into a map — the one commit in the stage where a browser check was most worth having. Every
+other commit in the stage also touched `components/public/**` and fired the gate anyway, which
+is precisely how the hole stayed invisible: it is a page, it is public, it is the busiest route
+in the app, and it was gated by nothing.
+
+**`app/(public)/page.tsx` is a file entry, not a prefix, so `app/(public)/page.test.tsx` beside it
+does not fire the gate.** That is the one place this list does NOT over-fire, and it is deliberate
+in the opposite direction from `lib/media/**` above: a page's own unit test cannot change what a
+browser sees, and widening the entry to `page*` would gate every jsdom edit on a 40-second browser
+run. It is worth knowing rather than discovering — the commit that opened this hole changed that
+very test file.
+
+The seeder is on the list for a different reason: **it is the fixture the browser cases assert
+against**, so changing it changes the test without touching the test. `e2e/diary-globe.spec.ts`
+names `2026-japan`, `2025-patagonia` and `2026-secret` and asserts markers at their seeded
+coordinates; control 5 in `e2e/notes.md` is that measured — one line in the seeder turns all six
+cases red. A seed-only diff — a third trip, a moved coordinate, a status flipped — is the change
+that needs the run and would have skipped it. Both halves are prose read by a person, the
+same shape as `hooks/studio/**` and `hooks/trip/**` above.
 
 ## Running it
 

@@ -92,3 +92,15 @@ than building a `[data-slug="…"]` selector: a slug is validated for length, no
 characters. Scoping to the body is also what keeps the map's markers out of the match — they
 carry the same attribute, and `../trip-timeline/notes.md` records why that separation is
 structural rather than conventional.
+
+## The handle's label
+
+The handle's screen-reader text is a prop defaulting to `Resize the entry list`,
+the string it was hardcoded to. The diary page's sheet holds trips, not entries,
+so it passes `Resize the trip list`; the trip page passes nothing and is
+byte-identical to before. The default is the guarantee, which is why every
+pre-existing case in `map-sheet.test.tsx` still queries `/entry list/i`
+unchanged — a default that drifted would fail them rather than this one new
+case. Nothing else here is named per-surface: spec §3 records why `.trip-*` and
+`hooks/trip/**` keep their names on both pages, copy being the one thing that
+was actually wrong.

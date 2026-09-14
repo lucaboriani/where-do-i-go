@@ -1546,9 +1546,10 @@ seams' hooks the moment they moved. `hooks/studio/**` is on that list now.
       `npm run size:public`. The repo-file half has a late net — the closure walk turns red once
       something public actually imports it, as an "unbelted module" failure rather than an
       actionable message.
-- [ ] `test/guardrails.test.ts` is at **991 code lines against the 1000 hard bound** — measured
-      with an eslint `max-lines` override, not counted by eye, after 989 was reported. The next
-      case that wants to live there needs the file split first.
+- [ ] `test/guardrails.test.ts` is at **999 code lines against the 1000 hard bound** — 991 when
+      this was written, measured with an eslint `max-lines` override rather than counted by eye;
+      `npm run check:structure` reports the live number and read 999 on 2026-09-14. The next case
+      that wants to live there needs the file split first.
 - [ ] **The derived belt sweep is loud on one axis and silent on two.** `resolveBeltModules`
       reads ONE directory level, so `hooks/map/sub/x.ts` is fenced by the config and missed by
       the sweep; and a belt entry spelled without `/**/` falls through to the literal-path branch
@@ -1791,7 +1792,95 @@ statically importing the first three.
         threshold and the fitted camera remain fixed by whichever trip's data the map hooks saw
         first, per-instance. 4b adds no link that joins two trips, so nothing in the app can reach
         it; stage 5's globe is the first thing that will, and inherits the measurement.
-- [ ] Globe view for the all-trips map
+- [x] Globe view for the all-trips map — landed 2026-09-14 on branch `phase-4-stage-5`, spec at
+      `docs/superpowers/specs/2026-09-14-diary-globe-stage-5-design.md`, plan at
+      `docs/superpowers/plans/2026-09-14-diary-globe-stage-5.md`, nine tasks from `3ddaceb`. Suite
+      **1809 passed / 2 todo / 0 skipped / 94 files**; dead-port control 36 skipped, both
+      `test/integration/` files, and 36 passed with a Pod up; `size:public` worst public route
+      182.4 kB of 190 and `/` itself 180.1 kB, every studio-only dependency absent; `test:e2e` 23
+      passed (17 + 6).
+      - **`/` is the shell, not a layout.** `app/(public)/page.tsx` renders
+        `TripHighlightProvider → .trip-shell → [ .trip-map-pane > DiaryMap | MapSheet > TripList ]`,
+        the same tree 4b put in the `[slug]` layout. The layout was right there because one map had
+        to survive trip → entry; `/` has no child routes, so nothing has to survive and the page
+        owns it. Nothing is renamed: on both surfaces the thing in the sheet is a trip.
+      - **Trip markers are GL circles, not the DOM markers §30 chose** — one GeoJSON source with
+        `promoteId: "slug"`, a `circle` layer, `setFeatureState` for the active trip, and
+        layer-scoped hover. The criterion is `docs/decisions.md` **§33**: a marker that carries a
+        photo is DOM, a plain point is GL. Two mechanisms now live in one codebase and that is the
+        stated cost.
+      - **There is no initial camera fit, and the spec was corrected rather than the code.** §6 and
+        §7 specified `centresBbox` and a load-time `fitBounds` over every trip's centre. Naive
+        min/max over longitudes has no antimeridian handling, so the two centres give a box over
+        200° wide running the long way round via Africa — 207.9° on the centres the seed writes,
+        212.6° on the plan's own fixtures — centred on neither trip but on inland East Africa,
+        around 31°E and −8°. It was dropped before it was written, `centresBbox` exists nowhere,
+        and the
+        globe opens on maplibre's default camera until a marker click flies it.
+      - **`MAP_FRAME_CLASS` moved to `lib/map/frame.ts`.** Importing one string from
+        `components/public/trip-map` — `"use client"`, and that folder's only module — put `TripMap`
+        and three hooks in `/`'s eager chunk: 9.9 kB against the trip route's own 5.9 kB map chunk,
+        about 4 kB of dead code. `trip-map.tsx` deliberately does not re-export it.
+      - **Two gate paths nobody had added**: `app/(public)/page.tsx` and `scripts/seed-dev-pod.ts`
+        joined the path-scoped `test:e2e` list. The hole had already fired — commit `c6b0969`
+        turned `/` into a map and matched no glob. `docs/testing-gates.md` carries why the page is
+        a file entry rather than a prefix, and why the seeder is on the list at all.
+      - **The globe is narrowed, not proven.** `e2e/diary-globe.spec.ts` pins a whole-world camera
+        and asserts the far-side trip paints nothing while the near one paints its circle — which
+        mercator fails on the second half and a dead map on the first. It proves the TRANSFORM is
+        spherical, **not that a sphere was drawn**; spec §11 says so. Six cases, eight mutation
+        controls, all measured (`e2e/notes.md`).
+      - **The stage-3 defect: closed by argument, not deferred a fourth time.** The three stale
+        assumptions are real and still in the tree — `useMapLayers` fixes `cluster` at `addSource`
+        and afterwards only calls `setData`; `useMapInstance` fits once from `style.load` against
+        `latest.current`; `useMapMarkers` skips a slug it already holds rather than updating it.
+        What was **established** is that nothing can reach them: they need a direct trip A → trip B
+        soft navigation, every route in this app goes through `/`, which is outside the `[slug]`
+        subtree and tears that layout and its map down, and stage 5 adds no such link — its markers
+        fly the camera and its list links go to one trip at a time. The `/` → A → back → B
+        measurement the draft spec proposed cannot distinguish its two outcomes, because it reads
+        "remount" in both worlds. **No fix ships**, because a fix with no failing test is the thing
+        `CLAUDE.md` names. What would have to exist first is a trip-to-trip link, which is a
+        product decision nobody has taken — this list stops predicting a stage that will close it.
+      - **Open: the far-side assertion depends on the seed's geometry.** A third published trip
+        near either asserted coordinate, or near the limb of the pinned `[0, 0]` camera, breaks the
+        occlusion case without changing a line of assertion text. `scripts/seed-dev-pod.ts` carries
+        a pointer at the index block the assertion's coordinates actually come from.
+      - **Open: one unidentified test failure, seen once.** A single `npm test` run during this
+        stage reported `1 failed | 1808 passed` with the name uncaptured; every run before and
+        after was green. The unconfirmed suspect is a `waitFor` timeout under parallel load in
+        `components/studio/entry-editor/entry-editor.autodate-edges.test.tsx`. If it recurs,
+        capture the failing name before rerunning — that is the step that was missed.
+      - **Open, inherited and untouched**: iOS Safari is still unverified, no e2e case asserts the
+        desktop layout on a first paint, the camera fit is still not adjusted for the sheet, and
+        4b's three named follow-ups stand.
+
+## `StudioShell`'s write target — a refactor after stage 5
+
+Decided by the maintainer on 2026-09-14, no part of stage 5, and **no behaviour changes**. Its own
+branch once this stage merges.
+
+- [ ] **Bundle `session`, `podRoot` and `settingsUrl` into one `WriteTarget`, built once at the
+      top.** They are one concept — where we write and as whom — repeated at four consecutive
+      signatures in `components/studio/studio-shell/studio-shell.tsx`: `StudioShell` → `Body` →
+      `Writables` → `Writable`. The object takes `Body` from 9 props to 7, and both `Writables` and
+      `Writable` from 5 to 3.
+      - **Deliberately NOT a provider**, recorded so it is not re-litigated. The three intermediates
+        are private to one module, so there is nothing to decouple; and `trips` narrowing from
+        `EditorTrip[] | undefined` to `EditorTrip[]` as it descends is the data flow doing real
+        work, which a context flattens back into a nullable every consumer re-checks.
+      - **Deliberately NOT extracting the sub-components** — the maintainer chose to keep them in
+        one file. IF that ever changes, `check:structure` requires a folder per `.tsx` and the
+        `WriteTarget` object becomes the context value, so bundling first is the prerequisite
+        rather than wasted work.
+      - **Two signatures do not move**: `StudioShell`'s own props are the server component's
+        contract, and `EntryEditor`'s is a module boundary with a harness and many tests behind it.
+- [ ] **The same branch cuts the file's inline prose.** Docblocks shrink to a pointer where
+      `notes.md` already carries the argument; where it does not, the argument moves there first.
+      The shouted trap lines stay — `podRoot`'s trailing slash, "pending IS A STATE, NEVER A
+      RESULT", and the `trips` test seam. The standing rule behind it is in `docs/code-structure.md`
+      § "New code keeps inline comments minimal": new code, not a sweep, and `CLAUDE.md`'s comment
+      section is unchanged.
 
 ## Phase 5 — publishing and sharing
 

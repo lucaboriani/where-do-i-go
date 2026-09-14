@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLUSTER_THRESHOLD, fitOptions, shouldCluster } from "@/lib/map/view";
+import { CLUSTER_THRESHOLD, fitOptions, GLOBE_PROJECTION, PROJECTION, shouldCluster } from "@/lib/map/view";
 
 describe("shouldCluster", () => {
   it("does not cluster at the threshold, only above it", () => {
@@ -22,5 +22,14 @@ describe("fitOptions", () => {
 
   it("never animates, so the first paint is already the trip", () => {
     expect(fitOptions({ west: 1, south: 2, east: 3, north: 4 }).animate).toBe(false);
+  });
+});
+
+describe("projections", () => {
+  it("offers a globe projection distinct from the flat default", () => {
+    expect(PROJECTION).toEqual({ type: "mercator" });
+    // "globe" is MapLibre's shorthand: globe below z11, mercator above z12, so
+    // it flattens as the reader zooms in. "vertical-perspective" never does.
+    expect(GLOBE_PROJECTION).toEqual({ type: "globe" });
   });
 });

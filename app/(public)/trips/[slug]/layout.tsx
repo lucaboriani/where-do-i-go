@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import MapSheet from "@/components/public/map-sheet";
 import TripHighlightProvider from "@/components/public/trip-highlight";
-import TripMap, { MAP_FRAME_CLASS } from "@/components/public/trip-map";
+import TripMap from "@/components/public/trip-map";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
 import { config } from "@/lib/config";
 import { getTripIndex } from "@/lib/pod/cached";
 

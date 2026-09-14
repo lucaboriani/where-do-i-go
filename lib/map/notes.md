@@ -119,3 +119,40 @@ zod in the chain. `Object.keys(TRAVEL_MODE)` replaces `TravelMode.options` as
 the iteration source; `dashes.test.ts` keeps checking coverage against
 `TravelMode.options` from the schema, so the two lists drifting apart is
 still a failing test rather than a silent gap.
+
+## Why the globe is a shorthand not vertical-perspective
+
+`PROJECTION` and `GLOBE_PROJECTION` are the two values `useMapInstance` will
+accept, and `"globe"` is not the always-globe one. Read out of the shipped
+`node_modules/maplibre-gl/dist/maplibre-gl.mjs` on 2026-09-14, `"globe"` is a
+shorthand MapLibre expands to
+
+    ["interpolate", ["linear"], ["zoom"], 11, "vertical-perspective", 12, "mercator"]
+
+so it is a globe below z11, flat above z12, and interpolates across the one
+zoom level between. That is the point: a reader who zooms into a marker gets a
+map rather than a curved surface fighting their pan, and nothing has to watch
+the zoom to make it happen.
+
+`"vertical-perspective"` is the value that stays a sphere at every zoom, and it
+is deliberately not used here. The landing page wants a globe at rest, not a
+globe forever.
+
+## The frame class is not in a client module
+
+`MAP_FRAME_CLASS` used to live in `components/public/trip-map/trip-map.tsx`, and
+both server pages imported it from there to reserve the map frame inside a
+`<Suspense>` fallback. `trip-map.tsx` is `"use client"` and is that folder's only
+module, so importing one string from it pulled `TripMap`, `useMapLayers`,
+`useMapMarkers` and `useMapHighlight` into the importing page's **eager** chunk —
+a component the page never renders.
+
+Measured on the build of 2026-09-14, when `app/(public)/page.tsx` acquired the
+import: the landing route's own chunk was 9.9 kB gz and contained `Trip map` and
+`trip-legs` strings, against 5.9 kB for the trip route's real map chunk. About
+4 kB of dead code, against 7.2 kB of headroom under the public budget.
+
+So the constant lives here, in a module with no React in it, and both
+`trip-map.tsx` and `diary-map.tsx` import it from here too. `trip-map.tsx` does
+NOT re-export it: a re-export is a second route back to the client module, and
+the next page to reach for it would pay the 4 kB again in silence.

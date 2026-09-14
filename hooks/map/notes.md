@@ -95,6 +95,10 @@ feature state; `e2e/trip-timeline.spec.ts` hovers the second entry for that reas
 since guarding it would mean re-deriving the same slug set `buildLegs` already computed just
 to check membership.
 
+The same trap, same mechanism, on the other surface: `useMapTrips` keys its feature state on the
+`slug` that `TRIPS_SOURCE` promotes, so a slug the trips source never carried — an unplaced trip,
+or one `buildTripPoints` dropped — paints nothing and says nothing.
+
 ## Why activeSlug is a ref in the reconcile effect
 
 `useMapMarkers`'s first effect builds every marker from `map.querySourceFeatures`, keyed only on
@@ -124,3 +128,58 @@ A `Marker`'s element is appended into the same canvas container maplibre attache
 in between to observe. The test that catches a missing `stopPropagation()` attaches its deselect
 listener to an ancestor of the marker element in the document, exactly as maplibre does, rather
 than to the map mock directly — a mock-only listener would never see the bubble at all.
+
+## Why the trips source promotes slug
+
+`buildTripPoints` (`lib/map/trips.ts`) gives each trip feature `properties: { slug, name }` and no
+`id`, and `setFeatureState` addresses features by id — so `TRIPS_SOURCE` sets `promoteId: "slug"`,
+exactly as `LEGS_SOURCE` sets `promoteId: "toSlug"` above and for the same reason. Leave it out and
+`setFeatureState` is a silent no-op: no error, no warning, nothing painted. Nothing has ever shipped
+that way — `git show fa57377` added the promotion and the `feature-state` paint in one commit — so
+this is the failure mode, not an incident.
+
+## Why the trip handlers are a ref
+
+Same reason `useMapMarkers`'s are — see "Why activeSlug is a ref in the reconcile effect" — with a
+different victim: a caller's fresh `{ onEnter, onLeave, onSelect }` literal in the effect's
+dependencies would tear down and re-register the three layer listeners on every render.
+
+`trips` is a dependency rather than a ref, deliberately: the bbox a click flies to is read from it,
+and stale trips would fly to the wrong place. **The caller must therefore pass a stable array.**
+`trips` is a dependency of the source effect too, so a fresh literal per render does not merely
+re-register three listeners — it calls `setData` on every render, which re-parses the collection
+and reloads the source's tiles. That is not the invisible cost an earlier draft of this paragraph
+claimed, and the hook cannot make it so.
+
+## The fly is a jump under reduced motion
+
+maplibre-gl 6.6.0 already zeroes the duration of a camera movement when `prefers-reduced-motion:
+reduce` matches and the movement is not flagged `essential`, so the explicit `animate` flag is
+belt-and-braces rather than the mechanism. It is kept because it is the part a jsdom test can
+assert: the decision is visible in the options object, where the library's own behaviour is not.
+
+The call is `window.matchMedia?.(…)` for the same reason. jsdom implements no `matchMedia`, so the
+optional call is what keeps the hook working un-stubbed; `use-map-trips.test.ts` stubs it for one
+case and restores it in `beforeEach`, or the stub leaks into every case after.
+
+## Why the background click asks what it hit
+
+`map.on("click", TRIPS_LAYER, select)` is not a separate channel. maplibre 6.6.0 builds a
+layer-scoped listener as a plain `click` listener on the map that queries the layer itself and
+calls the caller's listener only on a hit — `maplibre-gl-dev.mjs`, `_createDelegatedListener`'s
+final branch, registered through `on()` a few lines below. So a map-level `click` listener added
+for the background fires for a click on a circle too, in the same turn and after it, and there is
+no propagation to stop: the delegate is a sibling listener, not a parent node. Pin, then unpin.
+
+This is the select-then-clear shape `useMapMarkers` hit in its DOM costume — see "Why a marker
+click stops propagating" — but `event.stopPropagation()` is the wrong tool here, because nothing
+is bubbling. The background handler instead asks the map what was under the pointer,
+`queryRenderedFeatures(event.point, { layers: [TRIPS_LAYER] })`, and does nothing when the answer
+is a trip. The fake in `use-map-trips.test.ts` models both halves — one `emit("click", …)` reaches
+the layer list only on a hit and the map-level list always — or the guard would have nothing to
+prove.
+
+A missing layer is not a throw: `queryRenderedFeatures` fires an error event and returns `[]`, so
+a click arriving before the layer exists would clear the pin rather than crash. It cannot arrive
+then in practice — the source effect is declared before the listener effect and both gate on the
+same `styleLoaded`.

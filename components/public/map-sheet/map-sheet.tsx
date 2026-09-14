@@ -7,7 +7,15 @@ import { nextSnap, targetForRow, type SnapOffsets } from "./snap";
 /** One scroll container, two spacers and a body. The drag is the browser's own
  *  scroll and the snapping is CSS; this file adds the handle and the arithmetic
  *  a pointer cannot do. ./notes.md#why-one-scroller */
-export default function MapSheet({ children }: { children: React.ReactNode }) {
+export default function MapSheet({
+  children,
+  label = "Resize the entry list",
+}: {
+  children: React.ReactNode;
+  /** Defaulted to the trip page's string, so only the diary page passes one:
+   *  "entry list" is false on a page listing trips. ./notes.md#the-handles-label */
+  label?: string;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const halfSpacer = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -55,7 +63,7 @@ export default function MapSheet({ children }: { children: React.ReactNode }) {
       <div ref={halfSpacer} className="trip-sheet-spacer-half" aria-hidden />
       <div ref={body} className="trip-sheet-body">
         <button ref={handle} type="button" className="trip-sheet-handle" onClick={cycle}>
-          <span className="sr-only">Resize the entry list</span>
+          <span className="sr-only">{label}</span>
           <span aria-hidden className="block h-1 w-10 rounded-full bg-hairline" />
         </button>
         {children}

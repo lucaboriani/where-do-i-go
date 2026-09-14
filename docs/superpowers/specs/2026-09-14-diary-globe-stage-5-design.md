@@ -114,13 +114,17 @@ the navigation, so an unplaced trip is never unreachable. A trip whose index fai
 same case: the row stands, the marker is absent, and `describe(error)` never reaches the page for a
 single trip's failure — losing one index must not lose the diary.
 
-`lib/map/trips.ts` is the pure half, three functions, none of which touches a DOM or a map:
-`buildTripPoints(trips)` → a `FeatureCollection<Point, { slug, name }>`; `centresBbox(trips)` → the
-`Bbox` enclosing every placed trip's centre, or `undefined` when none is placed; and
-`flyOptions(bbox)` → **the same object shape `fitOptions` returns**, with `animate` true. Both are
-destructured at the call site the way `use-map-instance.ts` already destructures `fitOptions`
+`lib/map/trips.ts` is the pure half, **two functions** — neither touches a DOM or a map:
+`buildTripPoints(trips)` → a `FeatureCollection<Point, { slug, name }>`, and `flyOptions(bbox)` →
+**the same object shape `fitOptions` returns**, with `animate` true. The second is destructured at
+the call site the way `use-map-instance.ts` already destructures `fitOptions`
 (`const { bounds, ...camera } = …; map.fitBounds(bounds, camera)`), because the camera call in both
 cases is `fitBounds`. That is where this stage's coverage actually is.
+
+**Corrected 2026-09-14, after the code shipped.** This section listed a third function,
+`centresBbox(trips)`, for the initial fit §7 described. It was never written and the fit was
+dropped — §7 has the measurement. `grep -r centresBbox` over `lib`, `hooks`, `components`, `app`
+and `test` returns nothing.
 
 **The impure half is one new hook in `hooks/map/`**, not a parameterisation of the existing ones.
 `useMapLayers` takes `IndexEntry[]` and adds the legs source, the cluster layers and the route
@@ -132,13 +136,25 @@ needs touching.
 
 ## 7. The camera
 
-On load, the globe fits `centresBbox` — the box enclosing every trip's centre, not any single
-trip's own bbox, which would be a view of one trip. With one placed trip that box degenerates to a
-point and `fitBounds` would zoom to its maximum, so `centresBbox` pads a degenerate box into a
-sensible one. The pure function owns that and is tested for it.
+**Corrected 2026-09-14: there is no initial fit.** The globe opens on MapLibre's own default
+camera, constrained to the pane, and the first thing that moves it is a marker click. `DiaryMap`
+passes no `bbox` to `useMapInstance` and makes no camera call at all — the camera is
+`useMapTrips`'s, whole.
 
-Clicking a marker fits that trip's own `bbox` with `flyOptions`, animated — the same `fitBounds`
-call the initial fit makes. **`prefers-reduced-motion: reduce` turns the flight into a jump**, and
+What this section used to specify was a load-time fit of `centresBbox`, the box enclosing every
+placed trip's centre. A reviewer computed it before it was written: naive `Math.min`/`Math.max`
+over longitudes has no antimeridian handling, so the seed's two centres (`134.8414` and
+`-73.0119`) give a box **207.9° wide running the long way round via Africa** — 212.6° on the
+plan's own fixture pair, which used the entry coordinates rather than the centres. The camera
+would have centred on neither trip but on inland East Africa — 30.9°E, −8.1° on the seed's centres,
+33.4°E, −6.8° on the fixtures — which reads as a broken map rather than an overview. A correct
+version would have to choose the short way round and then wrap — real work, for a view no one had
+asked for. It was dropped, `centresBbox` was never written, and passing a `bbox` to `useMapInstance`
+as well would in any case have raced the click handler's own `fitBounds` on `style.load`.
+`components/public/diary-map/notes.md` carries the same reasoning at the component.
+
+Clicking a marker fits that trip's own `bbox` with `flyOptions`, animated — the only `fitBounds`
+call on this surface. **`prefers-reduced-motion: reduce` turns the flight into a jump**, and
 that is belt-and-braces rather than the mechanism: maplibre-gl 6.6.0 already zeroes the duration
 when the query matches and the movement is not `essential`. The explicit `animate: false` exists so
 a jsdom test can assert the decision rather than trust the library, and this says so instead of
@@ -221,9 +237,14 @@ product decision nobody has taken.
 
 ## 11. What no check here will see
 
-- **The globe itself.** `size:public` is indifferent, jsdom has no WebGL, and the e2e asserts a
-  canvas exists — not that a sphere was drawn. A projection silently falling back to mercator would
-  pass everything. §8's expansion is read from the shipped source rather than observed.
+- **The globe itself — narrowed on 2026-09-14, not closed.** `size:public` is indifferent and jsdom
+  has no WebGL. A projection silently falling back to mercator is now caught:
+  `e2e/diary-globe.spec.ts` pins a whole-world camera and asserts that the far-side trip's own
+  coordinate paints nothing while the near one paints its circle, which mercator fails on the
+  second half and a dead map on the first. That proves the TRANSFORM is spherical and **still not
+  that a sphere was drawn** — a globe whose shader painted nothing would pass it. §8's expansion is
+  read from the shipped source rather than observed.
+  `e2e/notes.md#the-far-side-is-the-projection-assertion` carries the margins and the dependency.
 - **iOS Safari**, still: Chromium only, as §26 records.
 - **A fly-to that lands somewhere wrong.** The e2e can assert the camera moved and roughly where;
   "the reader sees the trip" is a judgment no assertion makes.
