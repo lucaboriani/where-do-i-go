@@ -1748,8 +1748,11 @@ statically importing the first three.
         same order, one canvas — which is the never-remounted rule expressed as a shape.
       - **The pin.** `useHighlightState` gained `pinned` beside `pointer`: a marker tap pins its
         entry, a tap on the map background clears it, and a pin outranks the route and outlives
-        the hover. The sheet reveals the **pinned row itself** (`source === "pin"`), not whatever
-        is merely active, and `targetForRow` floors the reveal at half so it can never close.
+        the hover. The sheet reveals the **pinned row itself** (`pinnedSlug`, never the derived
+        `source` — a hover outranks the pin in `pinnedOrRoute`, so `source` reads `"map"` on the
+        very tap that pins and the sheet would not move until the pointer left; that is mutation
+        control 6 in `e2e/notes.md`), and `targetForRow` floors the reveal at half so it can
+        never close.
       - **Stage 4a's three unshipped fields shipped**: `thumbnail`, `travelModeFrom` and
         `precisionMeters` render, all server-rendered like the rest of the row, so 4a spec §3's
         six are complete and nothing was added to the trip page's client chunk.

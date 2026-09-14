@@ -509,11 +509,14 @@ CSS and one component, and it was cheaper to write than the alternative was to f
 library last published in 2024-12 whose snap-point API this repository has never verified.
 
 **Measured before it was designed** (2026-09-14, headless Chromium, 390×800). Three snap points
-in ONE scroller rest at 0 / 240 / 640; a body taller than the viewport rests freely past the last
-of them, which is the CSS Scroll Snap large-snap-area rule and is what lets a long timeline scroll
-without the sheet yanking. And `pointer-events` is load-bearing: with the fixed scroller at
-`auto`, `elementFromPoint` over the map returns the scroller and **every marker is untappable,
-silently**.
+in ONE scroller rest at 0 / 240 / 640 — that probe reserved no strip of map, and the shipped third
+detent is 576, `measure()` subtracting the 8dvh strip from the body's `offsetTop`; 640 is the
+scroller's maximum, not a rest position. **Full is a floor rather than a detent**: a body taller
+than the viewport rests freely anywhere past it, which is the CSS Scroll Snap large-snap-area rule
+and is what lets a long timeline scroll without the sheet yanking — and is why spec §5 had to be
+amended, since a pin can then land past the strip the same section promises. And `pointer-events`
+is load-bearing: with the fixed scroller at `auto`, `elementFromPoint` over the map returns the
+scroller and **every marker is untappable, silently**.
 
 **The map is a sibling of the sheet at every width, and nothing branches the tree on viewport
 width.** That is `CLAUDE.md`'s never-remounted rule expressed as a shape rather than a rule, and
