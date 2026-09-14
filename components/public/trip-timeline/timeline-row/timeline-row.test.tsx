@@ -13,7 +13,7 @@ vi.mock("@/hooks/trip/highlight-context", () => ({ useTripHighlight: vi.fn() }))
 
 afterEach(cleanup);
 
-function setup(activeSlug: string | null) {
+function setup(activeSlug: string | null, slug = "arrival") {
   const raise = vi.fn();
   const clear = vi.fn();
   const pin = vi.fn();
@@ -23,8 +23,8 @@ function setup(activeSlug: string | null) {
   // component — so the row is given one here rather than rendering its own.
   render(
     <ul>
-      <TimelineRow slug="arrival">
-        <Link href="/trips/japan/arrival">Arrival</Link>
+      <TimelineRow slug={slug}>
+        <Link href={`/trips/japan/${slug}`}>Arrival</Link>
       </TimelineRow>
     </ul>,
   );
@@ -73,8 +73,11 @@ describe("TimelineRow", () => {
     expect(screen.getByRole("listitem")).toContainElement(screen.getByRole("link"));
   });
 
+  // Through setup(), not a bare render(): the module-wide vi.mock returns
+  // undefined until a case sets it, so a lone render() here would only work on
+  // whatever the previous case happened to leave behind.
   it("carries its slug in the DOM, so the sheet can find the row to reveal", () => {
-    render(<TimelineRow slug="nara">body</TimelineRow>);
-    expect(screen.getByText("body").closest("li")?.dataset.slug).toBe("nara");
+    setup(null, "nara");
+    expect(screen.getByRole("listitem")).toHaveAttribute("data-slug", "nara");
   });
 });

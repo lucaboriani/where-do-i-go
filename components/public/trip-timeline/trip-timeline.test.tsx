@@ -98,5 +98,10 @@ describe("TripTimeline", () => {
 
     expect(screen.queryByRole("presentation")).toBeNull();
     expect(screen.queryByText(/~/)).toBeNull();
+    // Text AND child count: with no occurredAt the row is the link and nothing
+    // else, and an unconditional <span>{entry.travelModeFrom}</span> renders an
+    // EMPTY span that only the count catches. Mutation-checked, see the report.
+    expect(screen.getByRole("listitem").textContent).toBe("Arrival");
+    expect(screen.getByRole("listitem").children).toHaveLength(1);
   });
 });

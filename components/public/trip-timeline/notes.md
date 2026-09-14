@@ -37,3 +37,15 @@ through `precisionLabel` (`lib/place/precision.ts`) rather than formatted here,
 so the `~500 m` / `~10 km` choice has one owner. `TimelineRow`'s `<li>` also
 carries `data-slug` now, alongside `data-active` — the sheet's reveal query
 finds a row by it.
+
+## `data-slug` is on the row AND on the map marker
+
+`lib/map/marker-element.ts` sets the same attribute on every marker, and that
+is correct: the two are the same entry seen twice, and the separation is
+structural rather than conventional. They live in disjoint subtrees — the map
+pane and the sheet body are siblings under `.trip-shell`
+(`app/(public)/trips/[slug]/layout.tsx`), so a query rooted in either one can
+only ever find its own. **A page-level locator cannot**: it matches both.
+Scope it first — to `getByRole("region", { name: "Trip map" })` for a marker,
+to the sheet body for a row. Three locators in `e2e/trip-timeline.spec.ts` had
+to be scoped for exactly this reason when the row gained the attribute.
