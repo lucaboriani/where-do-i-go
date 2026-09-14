@@ -16,7 +16,9 @@ afterEach(cleanup);
 function setup(activeSlug: string | null) {
   const raise = vi.fn();
   const clear = vi.fn();
-  vi.mocked(useTripHighlight).mockReturnValue({ activeSlug, source: null, raise, clear });
+  const pin = vi.fn();
+  const unpin = vi.fn();
+  vi.mocked(useTripHighlight).mockReturnValue({ activeSlug, source: null, raise, clear, pin, unpin });
   // The link and the time arrive as children now, rendered by the server
   // component — so the row is given one here rather than rendering its own.
   render(
@@ -26,7 +28,7 @@ function setup(activeSlug: string | null) {
       </TimelineRow>
     </ul>,
   );
-  return { raise, clear };
+  return { raise, clear, pin, unpin };
 }
 
 describe("TimelineRow", () => {

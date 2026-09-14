@@ -50,3 +50,15 @@ Tagging the pointer with the route it was raised under and ignoring it when
 they differ — no reset at all — was considered and rejected: Back returns
 `routeSlug` to its old value, and a pointer that was only ignored comes back to
 life. The state has to be dropped, not masked.
+
+## Why a pin is a second slot, not a third source
+
+The pointer (set by hover/focus, cleared by leave/blur) and the pin (set and
+cleared explicitly by the reader) have different lifetimes: a pointer ends when
+the cursor leaves, but a pin survives until the reader taps to unpin. Collapsing
+them into a single `Highlight` would make `clear()` ambiguous — does it clear
+the pin, the pointer, or both? Keeping them separate preserves the semantic:
+`clear()` always clears the pointer, `unpin()` always clears the pin, and the
+precedence logic `pointer ?? pinned ?? route` means `activeSlug` is still a
+single value. The map and the timeline stay unaware there are two slots
+underneath.
