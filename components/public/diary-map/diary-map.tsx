@@ -43,7 +43,7 @@ export default function DiaryMap({
     return () => observer.disconnect();
   }, [active]);
 
-  const { activeSlug, raise, clear, pin } = useTripHighlight();
+  const { activeSlug, raise, clear, pin, unpin } = useTripHighlight();
   // No bbox: ./notes.md#the-camera-belongs-to-the-trips-hook-not-the-instance
   const { map, styleLoaded } = useMapInstance({
     container,
@@ -56,6 +56,7 @@ export default function DiaryMap({
     onEnter: (slug) => raise(slug, "map"),
     onLeave: clear,
     onSelect: pin,
+    onDeselect: unpin,
   });
 
   // e2e-only handle, and free outside production.

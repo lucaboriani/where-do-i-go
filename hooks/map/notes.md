@@ -159,3 +159,25 @@ assert: the decision is visible in the options object, where the library's own b
 The call is `window.matchMedia?.(…)` for the same reason. jsdom implements no `matchMedia`, so the
 optional call is what keeps the hook working un-stubbed; `use-map-trips.test.ts` stubs it for one
 case and restores it in `beforeEach`, or the stub leaks into every case after.
+
+## Why the background click asks what it hit
+
+`map.on("click", TRIPS_LAYER, select)` is not a separate channel. maplibre 6.6.0 builds a
+layer-scoped listener as a plain `click` listener on the map that queries the layer itself and
+calls the caller's listener only on a hit — `maplibre-gl-dev.mjs`, `_createDelegatedListener`'s
+final branch, registered through `on()` a few lines below. So a map-level `click` listener added
+for the background fires for a click on a circle too, in the same turn and after it, and there is
+no propagation to stop: the delegate is a sibling listener, not a parent node. Pin, then unpin.
+
+This is the select-then-clear shape `useMapMarkers` hit in its DOM costume — see "Why a marker
+click stops propagating" — but `event.stopPropagation()` is the wrong tool here, because nothing
+is bubbling. The background handler instead asks the map what was under the pointer,
+`queryRenderedFeatures(event.point, { layers: [TRIPS_LAYER] })`, and does nothing when the answer
+is a trip. The fake in `use-map-trips.test.ts` models both halves — one `emit("click", …)` reaches
+the layer list only on a hit and the map-level list always — or the guard would have nothing to
+prove.
+
+A missing layer is not a throw: `queryRenderedFeatures` fires an error event and returns `[]`, so
+a click arriving before the layer exists would clear the pin rather than crash. It cannot arrive
+then in practice — the source effect is declared before the listener effect and both gate on the
+same `styleLoaded`.

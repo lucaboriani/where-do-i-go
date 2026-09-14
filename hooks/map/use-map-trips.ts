@@ -11,6 +11,7 @@ import { buildTripPoints, flyOptions, type TripPoint } from "@/lib/map/trips";
 type MapLibreMap = import("maplibre-gl").Map;
 type GeoJSONSource = import("maplibre-gl").GeoJSONSource;
 type MapLayerMouseEvent = import("maplibre-gl").MapLayerMouseEvent;
+type MapMouseEvent = import("maplibre-gl").MapMouseEvent;
 
 export const TRIPS_SOURCE = "diary-trips";
 export const TRIPS_LAYER = "diary-trip-points";
@@ -19,6 +20,7 @@ export type TripHandlers = {
   onEnter?: (slug: string) => void;
   onLeave?: () => void;
   onSelect?: (slug: string) => void;
+  onDeselect?: () => void;
 };
 
 export function useMapTrips(
@@ -59,13 +61,21 @@ export function useMapTrips(
       hooks.current.onSelect?.(slug);
       flyTo(map, trips.find((trip) => trip.slug === slug)?.bbox);
     };
+    // `select` above fires for this same click, with nothing to stop between
+    // them: ./notes.md#why-the-background-click-asks-what-it-hit
+    const background = (event: MapMouseEvent) => {
+      if (map.queryRenderedFeatures(event.point, { layers: [TRIPS_LAYER] }).length > 0) return;
+      hooks.current.onDeselect?.();
+    };
     map.on("mouseenter", TRIPS_LAYER, enter);
     map.on("mouseleave", TRIPS_LAYER, leave);
     map.on("click", TRIPS_LAYER, select);
+    map.on("click", background);
     return () => {
       map.off("mouseenter", TRIPS_LAYER, enter);
       map.off("mouseleave", TRIPS_LAYER, leave);
       map.off("click", TRIPS_LAYER, select);
+      map.off("click", background);
     };
   }, [map, trips, styleLoaded]);
 

@@ -75,6 +75,7 @@ const handlers = () =>
     onEnter?: (slug: string) => void;
     onLeave?: () => void;
     onSelect?: (slug: string) => void;
+    onDeselect?: () => void;
   };
 
 const trips: TripPoint[] = [
@@ -160,6 +161,12 @@ describe("DiaryMap", () => {
     render(<DiaryMap trips={trips} />);
     handlers().onSelect?.("2026-japan");
     expect(tripHighlight.pin).toHaveBeenCalledWith("2026-japan");
+  });
+
+  it("unpins on a background click, or a pinned trip could never be cleared", () => {
+    render(<DiaryMap trips={trips} />);
+    handlers().onDeselect?.();
+    expect(tripHighlight.unpin).toHaveBeenCalledTimes(1);
   });
 
   it("threads the highlight's activeSlug into the trips hook", () => {

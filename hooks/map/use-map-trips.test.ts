@@ -4,6 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TRIPS_LAYER, TRIPS_SOURCE, useMapTrips } from "./use-map-trips";
 import type { TripPoint } from "@/lib/map/trips";
 
+type Point = { x: number; y: number };
+type ClickEvent = { point?: Point; features?: { properties: { slug: string } }[] };
+type Handler = (event: ClickEvent) => void;
+
+// The one point the circle layer covers, and one it does not.
+const ON_MARKER: Point = { x: 10, y: 10 };
+const ON_BACKGROUND: Point = { x: 300, y: 300 };
+
 // Stateful and returned by identity, as use-map-layers.test.ts's is: a fresh
 // mock per getSource call would let a re-add pass for an in-place update.
 class FakeSource {
@@ -23,7 +31,8 @@ class FakeMap {
   states: { id: string; state: Record<string, unknown> }[] = [];
   removed: string[] = [];
   fitted: [unknown, Record<string, unknown>][] = [];
-  handlers = new Map<string, ((event: unknown) => void)[]>();
+  handlers = new Map<string, Handler[]>();
+  mapHandlers = new Map<string, Handler[]>();
   // Cumulative, unlike `handlers`: a listener removed and re-added leaves the
   // live list at one, so only this can see a rebuild.
   registrations: string[] = [];
@@ -47,21 +56,44 @@ class FakeMap {
   fitBounds(bounds: unknown, camera: Record<string, unknown>) {
     this.fitted.push([bounds, camera]);
   }
-  // Layer-scoped: on(event, layer, handler). The two-argument form is not used
-  // by this hook, so the fake does not pretend to support it.
-  on(event: string, _layer: string, handler: (event: unknown) => void) {
-    this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
-    this.registrations.push(event);
+  // Both spellings: on(event, layer, handler) and on(event, handler). The
+  // hook uses each, and the whole background-click case is about what happens
+  // when one click reaches both. ./notes.md#why-the-background-click-asks-what-it-hit
+  on(event: string, layerOrHandler: string | Handler, handler?: Handler) {
+    if (typeof layerOrHandler === "string" && handler !== undefined) {
+      this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
+      this.registrations.push(event);
+    } else if (typeof layerOrHandler !== "string") {
+      this.mapHandlers.set(event, [...(this.mapHandlers.get(event) ?? []), layerOrHandler]);
+      this.registrations.push(`${event}:map`);
+    }
     return this;
   }
   // Really removes it, so an emit after unmount proves the cleanup rather
   // than only counting calls.
-  off(event: string, _layer: string, handler: (event: unknown) => void) {
-    this.handlers.set(event, (this.handlers.get(event) ?? []).filter((one) => one !== handler));
+  off(event: string, layerOrHandler: string | Handler, handler?: Handler) {
+    const drop = (list: Handler[], one: Handler) => list.filter((each) => each !== one);
+    if (typeof layerOrHandler === "string" && handler !== undefined)
+      this.handlers.set(event, drop(this.handlers.get(event) ?? [], handler));
+    else if (typeof layerOrHandler !== "string")
+      this.mapHandlers.set(event, drop(this.mapHandlers.get(event) ?? [], layerOrHandler));
     return this;
   }
-  emit(event: string, payload: unknown) {
-    for (const handler of this.handlers.get(event) ?? []) handler(payload);
+  // What the pointer landed on. ON_MARKER hits the circle layer and nothing
+  // else does, so a marker click and a background click differ by point alone.
+  queryRenderedFeatures(point: Point | undefined, options: { layers: string[] }) {
+    const onLayer = point?.x === ON_MARKER.x && point?.y === ON_MARKER.y;
+    return onLayer && options.layers.includes(TRIPS_LAYER) ? [{ properties: {} }] : [];
+  }
+  // maplibre delegates a layer-scoped listener through a PLAIN listener on the
+  // same event, calling it only on a hit, and the map-level listener then fires
+  // regardless: both lists, one click, nothing to stop between them.
+  emit(event: string, payload: ClickEvent) {
+    const reaches =
+      event !== "click" ||
+      this.queryRenderedFeatures(payload.point, { layers: [TRIPS_LAYER] }).length > 0;
+    if (reaches) for (const handler of this.handlers.get(event) ?? []) handler(payload);
+    for (const handler of this.mapHandlers.get(event) ?? []) handler(payload);
   }
 }
 
@@ -77,7 +109,7 @@ const patagonia: TripPoint = {
   center: { lat: -49.3315, long: -72.886 },
   bbox: { west: -73.5, south: -50, east: -72, north: -49 },
 };
-const feature = (slug: string) => ({ features: [{ properties: { slug } }] });
+const feature = (slug: string) => ({ point: ON_MARKER, features: [{ properties: { slug } }] });
 
 let map: FakeMap;
 // jsdom ships no matchMedia; the reduced-motion case stubs it, and without
@@ -178,15 +210,41 @@ describe("useMapTrips", () => {
     expect(map.registrations.filter((event) => event === "click")).toHaveLength(1);
   });
 
-  it("leaves no listener behind on unmount", () => {
+  it("leaves no listener behind on unmount, the background one included", () => {
     const onSelect = vi.fn();
+    const onDeselect = vi.fn();
     const { unmount } = renderHook(() =>
-      useMapTrips(map as never, [japan, patagonia], true, null, { onSelect }),
+      useMapTrips(map as never, [japan, patagonia], true, null, { onSelect, onDeselect }),
     );
 
     unmount();
     map.emit("click", feature("2025-patagonia"));
+    map.emit("click", { point: ON_BACKGROUND });
 
     expect(onSelect).not.toHaveBeenCalled();
+    expect(onDeselect).not.toHaveBeenCalled();
+  });
+
+  it("does not clear the pin it just set, though both handlers see the same click", () => {
+    const onSelect = vi.fn();
+    const onDeselect = vi.fn();
+    renderHook(() => useMapTrips(map as never, [japan], true, null, { onSelect, onDeselect }));
+
+    map.emit("click", feature("2026-japan"));
+
+    expect(onSelect).toHaveBeenCalledWith("2026-japan");
+    expect(onDeselect).not.toHaveBeenCalled();
+  });
+
+  it("clears the pin on a click that hit no trip, which is the only way back", () => {
+    const onSelect = vi.fn();
+    const onDeselect = vi.fn();
+    renderHook(() => useMapTrips(map as never, [japan], true, null, { onSelect, onDeselect }));
+
+    map.emit("click", { point: ON_BACKGROUND });
+
+    expect(onDeselect).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(map.registrations.filter((event) => event === "click:map")).toHaveLength(1);
   });
 });
