@@ -8,6 +8,10 @@ export const CLUSTER_THRESHOLD = 50;
  *  setProjection call site stays in use-map-instance.ts. */
 export const PROJECTION = { type: "mercator" } as const;
 
+/** MapLibre expands "globe" to an interpolation: globe below z11, mercator
+ *  above z12. ./notes.md#why-the-globe-is-a-shorthand-not-vertical-perspective */
+export const GLOBE_PROJECTION = { type: "globe" } as const;
+
 export const ROUTE_WIDTH = 2.5;
 /** Casing is drawn at ROUTE_WIDTH + this, i.e. 1.75px each side — inside the
  *  design brief's 1.5–2px requirement. */

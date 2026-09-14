@@ -119,3 +119,21 @@ zod in the chain. `Object.keys(TRAVEL_MODE)` replaces `TravelMode.options` as
 the iteration source; `dashes.test.ts` keeps checking coverage against
 `TravelMode.options` from the schema, so the two lists drifting apart is
 still a failing test rather than a silent gap.
+
+## Why the globe is a shorthand not vertical-perspective
+
+`PROJECTION` and `GLOBE_PROJECTION` are the two values `useMapInstance` will
+accept, and `"globe"` is not the always-globe one. Read out of the shipped
+`node_modules/maplibre-gl/dist/maplibre-gl.mjs` on 2026-09-14, `"globe"` is a
+shorthand MapLibre expands to
+
+    ["interpolate", ["linear"], ["zoom"], 11, "vertical-perspective", 12, "mercator"]
+
+so it is a globe below z11, flat above z12, and interpolates across the one
+zoom level between. That is the point: a reader who zooms into a marker gets a
+map rather than a curved surface fighting their pan, and nothing has to watch
+the zoom to make it happen.
+
+`"vertical-perspective"` is the value that stays a sphere at every zoom, and it
+is deliberately not used here. The landing page wants a globe at rest, not a
+globe forever.

@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { buildBasemapStyle } from "@/lib/map/style";
-import { fitOptions, PROJECTION, type Bbox } from "@/lib/map/view";
+import { fitOptions, GLOBE_PROJECTION, PROJECTION, type Bbox } from "@/lib/map/view";
 
 type MapLibreMap = import("maplibre-gl").Map;
 
@@ -24,9 +24,16 @@ export type MapInstanceOptions = {
   active: boolean;
   bbox?: Bbox;
   styleUrl?: string;
+  projection?: typeof PROJECTION | typeof GLOBE_PROJECTION;
 };
 
-export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanceOptions): {
+export function useMapInstance({
+  container,
+  active,
+  bbox,
+  styleUrl,
+  projection,
+}: MapInstanceOptions): {
   status: MapStatus;
   map: MapLibreMap | null;
   styleLoaded: boolean;
@@ -38,9 +45,9 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
   const map = useRef<MapLibreMap | null>(null);
 
   // Ref, not effect deps: see ./notes.md#why-the-effect-depends-on-activation-alone
-  const latest = useRef({ bbox, styleUrl });
+  const latest = useRef({ bbox, styleUrl, projection });
   useEffect(() => {
-    latest.current = { bbox, styleUrl };
+    latest.current = { bbox, styleUrl, projection };
   });
 
   useEffect(() => {
@@ -63,7 +70,7 @@ export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanc
         // Never conditional: OpenStreetMap requires it and CLAUDE.md forbids removing it.
         instance.addControl(new AttributionControl({ compact: true }));
         instance.on("style.load", () => {
-          instance.setProjection(PROJECTION);
+          instance.setProjection(latest.current.projection ?? PROJECTION);
           if (bounds !== undefined) {
             const { bounds: box, ...camera } = fitOptions(bounds);
             instance.fitBounds(box, camera);

@@ -6,6 +6,7 @@
 
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GLOBE_PROJECTION } from "@/lib/map/view";
 
 const created: FakeMap[] = [];
 
@@ -121,6 +122,22 @@ describe("useMapInstance", () => {
     // a hook with no setProjection at all. Prove the call exists, then prove
     // nothing called it early.
     expect(created[0].projections).toHaveLength(0);
+    created[0].emit("style.load");
+    expect(created[0].projections).toEqual([{ type: "mercator" }]);
+  });
+
+  it("passes the projection it was given to the one setProjection call", async () => {
+    const opts = harness({ projection: GLOBE_PROJECTION });
+    renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
+    created[0].emit("style.load");
+    expect(created[0].projections).toEqual([{ type: "globe" }]);
+  });
+
+  it("defaults to mercator when no projection is given, which is what the trip map passes", async () => {
+    const opts = harness();
+    renderHook(() => useMapInstance(opts));
+    await waitFor(() => expect(created).toHaveLength(1));
     created[0].emit("style.load");
     expect(created[0].projections).toEqual([{ type: "mercator" }]);
   });
