@@ -172,6 +172,7 @@ appears, name it here; do not reintroduce a total.
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts   hooks/studio/**
 components/public/**   lib/map/**   hooks/map/**   hooks/trip/**
+app/(public)/page.tsx   scripts/seed-dev-pod.ts
 ```
 
 then `npm run test:e2e` must pass too, as
