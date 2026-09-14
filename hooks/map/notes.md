@@ -143,9 +143,11 @@ different victim: a caller's fresh `{ onEnter, onLeave, onSelect }` literal in t
 dependencies would tear down and re-register the three layer listeners on every render.
 
 `trips` is a dependency rather than a ref, deliberately: the bbox a click flies to is read from it,
-and stale trips would fly to the wrong place. A caller should therefore pass a stable array — a
-fresh literal per render costs three `off`/`on` pairs, which is cheap and invisible, but it is not
-free and the hook cannot make it so.
+and stale trips would fly to the wrong place. **The caller must therefore pass a stable array.**
+`trips` is a dependency of the source effect too, so a fresh literal per render does not merely
+re-register three listeners — it calls `setData` on every render, which re-parses the collection
+and reloads the source's tiles. That is not the invisible cost an earlier draft of this paragraph
+claimed, and the hook cannot make it so.
 
 ## The fly is a jump under reduced motion
 

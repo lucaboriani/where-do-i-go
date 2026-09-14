@@ -29,7 +29,7 @@ export function useMapTrips(
   handlers: TripHandlers = {},
 ): void {
   // A ref, not a dependency: a caller's fresh object literal would otherwise
-  // tear the layer down and rebuild it. ./notes.md#why-the-trip-handlers-are-a-ref
+  // re-register the three listeners on every render. ./notes.md#why-the-trip-handlers-are-a-ref
   const hooks = useRef(handlers);
   useEffect(() => {
     hooks.current = handlers;

@@ -4,11 +4,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TRIPS_LAYER, TRIPS_SOURCE, useMapTrips } from "./use-map-trips";
 import type { TripPoint } from "@/lib/map/trips";
 
+// Stateful and returned by identity, as use-map-layers.test.ts's is: a fresh
+// mock per getSource call would let a re-add pass for an in-place update.
+class FakeSource {
+  data: { features: { properties: { slug: string } }[] } | null = null;
+  setData(next: { features: { properties: { slug: string } }[] }) {
+    this.data = next;
+  }
+}
+
 // No shared fake exists in this repository — use-map-instance.test.ts and
 // use-map-layers.test.ts each declare their own. This one needs two things
 // neither has: setFeatureState, and the three-argument layer-scoped on().
 class FakeMap {
   sources = new Map<string, Record<string, unknown>>();
+  live = new Map<string, FakeSource>();
   layers: Record<string, unknown>[] = [];
   states: { id: string; state: Record<string, unknown> }[] = [];
   removed: string[] = [];
@@ -20,9 +30,10 @@ class FakeMap {
 
   addSource(id: string, spec: Record<string, unknown>) {
     this.sources.set(id, spec);
+    this.live.set(id, new FakeSource());
   }
   getSource(id: string) {
-    return this.sources.has(id) ? { setData: vi.fn() } : undefined;
+    return this.live.get(id);
   }
   addLayer(spec: Record<string, unknown>) {
     this.layers.push(spec);
@@ -88,6 +99,23 @@ describe("useMapTrips", () => {
 
     expect(map.sources.get(TRIPS_SOURCE)?.promoteId).toBe("slug");
     expect(map.layers.map((layer) => layer.id)).toContain(TRIPS_LAYER);
+  });
+
+  it("updates data in place on a changed trips array instead of re-adding", () => {
+    const { rerender } = renderHook(
+      ({ list }: { list: TripPoint[] }) => useMapTrips(map as never, list, true, null, {}),
+      { initialProps: { list: [japan] } },
+    );
+    const before = map.getSource(TRIPS_SOURCE);
+
+    rerender({ list: [japan, patagonia] });
+
+    expect(map.getSource(TRIPS_SOURCE)).toBe(before);
+    expect(map.layers).toHaveLength(1);
+    expect(before?.data?.features.map((one) => one.properties.slug)).toEqual([
+      "2026-japan",
+      "2025-patagonia",
+    ]);
   });
 
   it("paints the active trip and clears the one before it", () => {
