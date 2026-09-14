@@ -39,4 +39,52 @@ describe("useHighlightState", () => {
     rerender({ slug: null });
     expect(result.current).toMatchObject({ activeSlug: null, source: null });
   });
+
+  it("a pin outranks the route and outlives the hover that ended", () => {
+    const { result } = renderHook(() => useHighlightState("arrival"));
+
+    act(() => result.current.pin("nara"));
+    expect(result.current).toMatchObject({ activeSlug: "nara", source: "pin" });
+
+    act(() => result.current.raise("osaka", "map"));
+    expect(result.current).toMatchObject({ activeSlug: "osaka", source: "map" });
+
+    // The hover ends and the PIN is what is left, not the route: this is the
+    // whole point of the second slot.
+    act(() => result.current.clear());
+    expect(result.current).toMatchObject({ activeSlug: "nara", source: "pin" });
+
+    act(() => result.current.unpin());
+    expect(result.current).toMatchObject({ activeSlug: "arrival", source: "route" });
+  });
+
+  it("a route change drops the pin as well as the pointer", () => {
+    const { result, rerender } = renderHook(({ route }) => useHighlightState(route), {
+      initialProps: { route: "arrival" as string | null },
+    });
+
+    act(() => result.current.pin("nara"));
+    rerender({ route: "osaka" });
+
+    expect(result.current).toMatchObject({ activeSlug: "osaka", source: "route" });
+  });
+
+  it("keeps pinnedSlug exposed underneath a hover that outranks it", () => {
+    // The sheet asks WHICH ENTRY IS PINNED, not which is active: deriving the
+    // first from the second is what made a passing hover re-scroll the sheet.
+    const { result } = renderHook(() => useHighlightState("arrival"));
+
+    act(() => result.current.pin("nara"));
+    expect(result.current).toMatchObject({ activeSlug: "nara", pinnedSlug: "nara" });
+
+    act(() => result.current.raise("osaka", "map"));
+    expect(result.current).toMatchObject({
+      activeSlug: "osaka",
+      source: "map",
+      pinnedSlug: "nara",
+    });
+
+    act(() => result.current.unpin());
+    expect(result.current.pinnedSlug).toBeNull();
+  });
 });

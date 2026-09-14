@@ -14,8 +14,9 @@ import { useTripHighlight } from "@/hooks/trip/highlight-context";
 
 type MapLibreMap = import("maplibre-gl").Map;
 
-// Shared with the layout's Suspense fallback: ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
-export const MAP_FRAME_CLASS = "h-96 w-full bg-surface";
+// The PANE owns the position now; the frame just fills it.
+// ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
+export const MAP_FRAME_CLASS = "size-full bg-surface";
 
 // A stable identity, not an inline `= []` default: the latter allocates a
 // fresh array every render, which would re-run useMapLayers's effect on
@@ -48,12 +49,17 @@ export default function TripMap({
     return () => observer.disconnect();
   }, [active]);
 
-  const { activeSlug, raise, clear } = useTripHighlight();
+  const { activeSlug, raise, clear, pin, unpin } = useTripHighlight();
   const { map, styleLoaded } = useMapInstance({ container, active, bbox, styleUrl });
   useMapLayers(map, entries, styleLoaded);
-  // Inline arrows are safe here: useMapMarkers holds the pair in a ref, so a
-  // fresh identity per render cannot re-run its reconcile effect.
-  useMapMarkers(map, activeSlug, (slug) => raise(slug, "map"), clear);
+  // A fresh handlers object is safe here: useMapMarkers holds it in a ref, so
+  // a new identity per render cannot re-run its reconcile effect.
+  useMapMarkers(map, activeSlug, {
+    onEnter: (slug) => raise(slug, "map"),
+    onLeave: clear,
+    onSelect: pin,
+    onDeselect: unpin,
+  });
   useMapHighlight(map, activeSlug, styleLoaded);
 
   // e2e-only handle, and free: playwright.config.ts runs `next dev`, so this is

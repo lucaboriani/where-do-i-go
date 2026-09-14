@@ -1,0 +1,9 @@
+# Vendored shadcn source. Already exempt from the arbitrary-value lint rule;
+# reformatting it noises up every future upstream diff.
+components/ui/
+
+# Tests are excluded for a measured reason, not a taste one: guardrails.test.ts
+# is at 999 code lines against a 1000-line HARD bound and Prettier adds 257.
+# See docs/superpowers/specs/2026-09-14-map-sheet-stage-4b-design.md §9.
+**/*.test.ts
+**/*.test.tsx

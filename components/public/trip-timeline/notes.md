@@ -25,3 +25,27 @@ runtime chunk that already contains `next/link`, and `wallClockOf` runs before
 the response is written. **The handlers stay on the `<li>`** — that is spec §3
 and `./timeline-row/notes.md#why-the-handlers-sit-on-the-row`; moving them to
 the link is what this change must not be mistaken for.
+
+## The other three fields
+
+`thumbnail`, `travelModeFrom` and `precisionMeters` render the same way — built
+in `TripTimeline`, passed down as more of the row's `children`, never inside
+`TimelineRow` itself. The thumbnail is a plain `<img>`, not `next/image`: an
+arbitrary Pod origin has no entry in `images.remotePatterns`, and `next/image`
+would ship a client component for a 40px square. `precisionMeters` is rendered
+through `precisionLabel` (`lib/place/precision.ts`) rather than formatted here,
+so the `~500 m` / `~10 km` choice has one owner. `TimelineRow`'s `<li>` also
+carries `data-slug` now, alongside `data-active` — the sheet's reveal query
+finds a row by it.
+
+## `data-slug` is on the row AND on the map marker
+
+`lib/map/marker-element.ts` sets the same attribute on every marker, and that
+is correct: the two are the same entry seen twice, and the separation is
+structural rather than conventional. They live in disjoint subtrees — the map
+pane and the sheet body are siblings under `.trip-shell`
+(`app/(public)/trips/[slug]/layout.tsx`), so a query rooted in either one can
+only ever find its own. **A page-level locator cannot**: it matches both.
+Scope it first — to `getByRole("region", { name: "Trip map" })` for a marker,
+to the sheet body for a row. Three locators in `e2e/trip-timeline.spec.ts` had
+to be scoped for exactly this reason when the row gained the attribute.

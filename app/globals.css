@@ -123,3 +123,94 @@
     @apply font-sans;
   }
 }
+
+/* The trip shell and its sheet. GEOMETRY, not tokens: calc() over viewport
+   units, which the arbitrary-value ban keeps out of className, and the
+   breakpoint is spelled ONCE here rather than half here and half in md:.
+   components/public/map-sheet/notes.md carries the measurements. */
+:root {
+  --sheet-peek: 20dvh;
+  --sheet-half: 50dvh;
+  --sheet-strip: 8dvh;
+}
+
+.trip-map-pane {
+  position: fixed;
+  inset: 0;
+}
+
+.trip-sheet {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  /* LOAD-BEARING. At `auto`, elementFromPoint over the map returns THIS
+     element and every marker is untappable, with nothing thrown.
+     components/public/map-sheet/notes.md#pointer-events-is-load-bearing */
+  pointer-events: none;
+}
+
+.trip-sheet-spacer-peek {
+  height: calc(var(--sheet-half) - var(--sheet-peek));
+  scroll-snap-align: start;
+}
+
+.trip-sheet-spacer-half {
+  height: calc(100dvh - var(--sheet-half));
+  scroll-snap-align: start;
+}
+
+.trip-sheet-body {
+  min-height: 100dvh;
+  scroll-snap-align: start;
+  scroll-margin-top: var(--sheet-strip);
+  pointer-events: auto;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.trip-sheet-handle {
+  position: sticky;
+  top: 0;
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  padding: 0.75rem 0;
+  background: var(--color-surface);
+}
+
+@media (min-width: 48rem) {
+  .trip-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+  }
+
+  .trip-map-pane {
+    position: sticky;
+    inset: auto;
+    top: 0;
+    height: 100dvh;
+    /* A grid item stretches by default, and a stretched item cannot stick. */
+    align-self: start;
+  }
+
+  .trip-sheet {
+    position: static;
+    overflow: visible;
+    scroll-snap-type: none;
+    pointer-events: auto;
+  }
+
+  .trip-sheet-spacer-peek,
+  .trip-sheet-spacer-half,
+  .trip-sheet-handle {
+    display: none;
+  }
+
+  .trip-sheet-body {
+    min-height: 0;
+    border-top: 0;
+    background: transparent;
+  }
+}

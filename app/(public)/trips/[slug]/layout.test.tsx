@@ -13,7 +13,7 @@ import { getTripIndex } from "@/lib/pod/cached";
 
 vi.mock("@/components/public/trip-map", () => ({
   default: () => <div data-testid="trip-map" />,
-  MAP_FRAME_CLASS: "h-96 w-full bg-surface",
+  MAP_FRAME_CLASS: "size-full bg-surface",
 }));
 
 vi.mock("@/lib/pod/cached", () => ({
@@ -32,7 +32,20 @@ describe("the trip layout", () => {
 
   it("reserves the map frame on the shell path, before the index has been read", () => {
     const { container } = render(<Layout params={params}>{null}</Layout>);
-    expect(container.querySelector(".h-96")).not.toBeNull();
+    expect(container.querySelector(".trip-map-pane [aria-hidden]")).not.toBeNull();
+  });
+
+  it("puts the map BESIDE the sheet, never inside it — the never-remounted invariant as a shape", () => {
+    const { container } = render(<Layout params={params}>{<p>{"entry body"}</p>}</Layout>);
+    const pane = container.querySelector(".trip-map-pane");
+    const sheet = container.querySelector(".trip-sheet");
+
+    expect(pane).not.toBeNull();
+    expect(sheet).not.toBeNull();
+    // If the pane is ever inside the sheet, a snap point acquires a code path
+    // that can unmount the map. There is no other way to state this in a test.
+    expect(sheet?.contains(pane as Node)).toBe(false);
+    expect(sheet?.textContent).toContain("entry body");
   });
 
   it("passes the index's entries to TripMap on the resolved path", async () => {

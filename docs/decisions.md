@@ -152,11 +152,14 @@ is what kills the habit.
 
 The studio needs accessible dialogs, comboboxes, selects and a drag-up sheet. shadcn copies
 source into the repo rather than shipping a dependency, so the code can be restyled freely.
-Its Drawer wraps Vaul and provides the snap-point sheet the mobile map layout needs.
 
 **Consequences.** Stock shadcn styling is one of the most recognisable generated-app looks and
 must be restyled, not tweaked — see `docs/design-brief.md`. None of it may reach public
 reading pages. `components/ui/**` is exempt from the arbitrary-Tailwind-values lint rule.
+
+**Amended 2026-09-14.** This decision used to claim shadcn's Drawer provides the mobile map
+layout's snap-point sheet, contradicting its own next paragraph. §26 withdraws that: the public
+sheet is hand-rolled and no shadcn component reaches a public reading page.
 
 ---
 
@@ -495,6 +498,39 @@ and `.claude/agents/nextjs-specialist.md`, the two other places that named it.
 **§26 is reserved** for the public map sheet, landing in phase 4 stage 4. It withdraws decision
 11's sentence about the Drawer providing the mobile map layout's snap-point sheet. Do not reuse
 the number.
+
+---
+
+## 26. The public sheet is hand-rolled; the trip shell is one responsive tree
+
+`vaul` stays studio-only and stays in `BANNED_DEPS`. The public sheet is about ninety lines of
+CSS and one component, and it was cheaper to write than the alternative was to fence: carving
+`vaul` out of the public group would open the hole the composition scan exists to close, on a
+library last published in 2024-12 whose snap-point API this repository has never verified.
+
+**Measured before it was designed** (2026-09-14, headless Chromium, 390×800). Three snap points
+in ONE scroller rest at 0 / 240 / 640 — that probe reserved no strip of map, and the shipped third
+detent is 576, `measure()` subtracting the 8dvh strip from the body's `offsetTop`; 640 is the
+scroller's maximum, not a rest position. **Full is a floor rather than a detent**: a body taller
+than the viewport rests freely anywhere past it, which is the CSS Scroll Snap large-snap-area rule
+and is what lets a long timeline scroll without the sheet yanking — and is why spec §5 had to be
+amended, since a pin can then land past the strip the same section promises. And `pointer-events`
+is load-bearing: with the fixed scroller at `auto`, `elementFromPoint` over the map returns the
+scroller and **every marker is untappable, silently**.
+
+**The map is a sibling of the sheet at every width, and nothing branches the tree on viewport
+width.** That is `CLAUDE.md`'s never-remounted rule expressed as a shape rather than a rule, and
+it is why the desktop layout landed in the same stage: reshaping the tree twice is how a rule like
+that rots.
+
+**Consequences.** The geometry lives in `app/globals.css`, not in `className` strings — `calc()`
+over viewport units is an arbitrary value, and the breakpoint is then spelled once. iOS Safari is
+unverified: Playwright here is Chromium, and `dvh` under a collapsing toolbar is the likeliest
+place for this to be wrong.
+
+**This decision withdraws a sentence from §11**, which claimed shadcn's Drawer "provides the
+snap-point sheet the mobile map layout needs" while the same decision forbade shadcn on public
+reading pages. §11 is amended rather than left standing.
 
 ---
 

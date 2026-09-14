@@ -26,12 +26,11 @@ export type MapInstanceOptions = {
   styleUrl?: string;
 };
 
-export function useMapInstance({
-  container,
-  active,
-  bbox,
-  styleUrl,
-}: MapInstanceOptions): { status: MapStatus; map: MapLibreMap | null; styleLoaded: boolean } {
+export function useMapInstance({ container, active, bbox, styleUrl }: MapInstanceOptions): {
+  status: MapStatus;
+  map: MapLibreMap | null;
+  styleLoaded: boolean;
+} {
   const [outcome, setOutcome] = useState<"pending" | "ready" | "failed">("pending");
   const [instance, setInstance] = useState<MapLibreMap | null>(null);
   // NOT map.isStyleLoaded() — see use-map-layers.ts's gate on this value.

@@ -261,8 +261,12 @@ cached-and-invalidated model expects.
         tabs popover command switch tooltip sonner
 
 - [x] Confirm `sonner` is used for toasts. shadcn's own `toast` component is deprecated.
-- [ ] Note that `drawer` pulls in `vaul`, last published 2024-12. Verify its snap-point API
-      against current shadcn docs, not blog posts. This component is the mobile map sheet.
+- [x] Note that `drawer` pulls in `vaul`, last published 2024-12. ~~Verify its snap-point API
+      against current shadcn docs, not blog posts. This component is the mobile map sheet.~~
+      **Struck 2026-09-14** — the mobile map sheet is hand-rolled from CSS scroll-snap and
+      `vaul` stays studio-only, in `BANNED_DEPS` (`docs/decisions.md` §26). There is no
+      public-path snap-point API left to verify; the Drawer's own behaviour under React 19 is
+      a studio question, in `docs/versions.md`.
 - [ ] Restyle rather than tweak: radius near zero, borders and background steps instead of
       shadows, focus rings in `accent`. See `docs/design-brief.md`.
 
@@ -1725,9 +1729,68 @@ statically importing the first three.
         fitted camera remain fixed by whichever trip's data the map hooks saw first — still
         unreachable, because the timeline links entries WITHIN one trip and no in-app link joins
         two trips yet. Whoever builds that link inherits the measurement.
-- [ ] Mobile drawer with three snap points, map staying mounted throughout
-      - Inherits stage 4a's unshipped timeline fields: `thumbnail`, `travelModeFrom` and
-        `precisionMeters`. The 4a spec §3 lists six; three ship.
+- [x] Mobile drawer with three snap points, map staying mounted throughout — landed 2026-09-14 on
+      branch `phase-4-stage-4b`, spec at
+      `docs/superpowers/specs/2026-09-14-map-sheet-stage-4b-design.md`, plan at
+      `docs/superpowers/plans/2026-09-14-map-sheet-stage-4b.md`, ten tasks from `7c2121d`. Suite
+      **1754 passed / 2 todo / 0 skipped / 87 files**; dead-port control 36 skipped, both
+      `test/integration/` files, and 36 passed with a Pod up; `size:public` 182.0 kB of 190 with
+      every studio-only dependency absent, `vaul` among them; `test:e2e` 17 passed.
+      - **The sheet is hand-rolled**, in `components/public/map-sheet/`: one fixed scroller, two
+        spacers, a sticky handle that is a real `<button>`, and three rest positions from CSS
+        scroll-snap. The geometry is ~90 lines of `app/globals.css` rather than `className`
+        strings, because `calc()` over viewport units is an arbitrary value. No `vaul`, no
+        `components/ui` — `docs/decisions.md` §26, which also withdraws §11's contrary sentence;
+        `docs/versions.md` and phase 0.5's vaul line were corrected in the same commit.
+      - **One tree at every width.** The `[slug]` layout renders the map as a sibling of the sheet
+        and nothing branches on viewport width: at `48rem` the spacers and the handle are
+        `display: none` and the sheet is a static column beside a sticky map pane. Same nodes,
+        same order, one canvas — which is the never-remounted rule expressed as a shape.
+      - **The pin.** `useHighlightState` gained `pinned` beside `pointer`: a marker tap pins its
+        entry, a tap on the map background clears it, and a pin outranks the route and outlives
+        the hover. The sheet reveals the **pinned row itself** (`pinnedSlug`, never the derived
+        `source` — a hover outranks the pin in `pinnedOrRoute`, so `source` reads `"map"` on the
+        very tap that pins and the sheet would not move until the pointer left; that is mutation
+        control 6 in `e2e/notes.md`), and `targetForRow` floors the reveal at half so it can
+        never close.
+      - **Stage 4a's three unshipped fields shipped**: `thumbnail`, `travelModeFrom` and
+        `precisionMeters` render, all server-rendered like the rest of the row, so 4a spec §3's
+        six are complete and nothing was added to the trip page's client chunk.
+      - **Prettier landed here too**, wired to production code only — `format` and `format:check`
+        over `{app,components,hooks,lib,scripts}/**/*.{ts,tsx}`, tests and Markdown untouched
+        (spec §9), so the comment ratchet and the docs' own wrapping are not reflowed.
+      - **Open, and the spec was amended rather than the code: the strip of map is a property of
+        the `full` DETENT, not of every scrolled position.** `targetForRow` aims at
+        `rowTop - handleHeight` and the scroller clamps at its maximum, so a pin on a row in the
+        last viewport of the list leaves no strip at all — and the background tap that clears a
+        pin is then unavailable exactly when the pin makes it wanted. Geometry, not seed data: it
+        holds at any timeline length. The sticky handle is the way back, one tap to peek. Clamping
+        the reveal to `full` would trade the hole for a row the reader asked to see and cannot,
+        which is a product call for the owner, with evidence. Measured in
+        `e2e/notes.md#the-strip-of-map-is-a-detent-not-a-pin`; spec §5 carries the amendment.
+      - **Open: iOS Safari is unverified.** Playwright here is Chromium only, and `dvh` under a
+        collapsing toolbar is the likeliest place this design is wrong. Named in §26 as well.
+      - **Open: no e2e case ASSERTS the desktop layout on a first paint.** Several cases load the
+        page at desktop width already — `playwright.config.ts` sets no `viewport`, so Playwright's
+        1280×720 default applies to `trip-map.spec.ts` and `trip-timeline.spec.ts`, both above the
+        48rem breakpoint — but none of them checks the desktop layout, and case 4 reaches that
+        width by resizing from 390×800 rather than starting there. So `align-self: start` on the
+        sticky map pane, and anything else that only shows on a first paint at that width, is
+        covered by nothing. The gap is an assertion, not another page load.
+      - **Open: the camera fit is not adjusted for the sheet.** `lib/map/view.ts` still fits the
+        trip's bbox with a uniform `padding: 32` against the whole viewport, so at peek a marker
+        can sit behind the sheet with no way to know it is there.
+      - **Open: three follow-ups this stage did not close.** (1) `use-highlight-state.ts`'s
+        docblock still says clearing falls back to the route, which is true only when nothing is
+        pinned. (2) `components/public/trip-map/trip-map.test.tsx` mocks the highlight context
+        against a locally declared type carrying neither `pinnedSlug` nor `source`, so `tsc`
+        cannot see it drift from the real one. (3) `e2e/map-sheet.spec.ts` case 3 polls the
+        literal `640` rather than computing `scrollHeight - clientHeight` in page, so a change to
+        the seeded trip's length turns it red for the wrong reason.
+      - **The stage-3 defect is still open, and still unreachable.** Marker identity, the cluster
+        threshold and the fitted camera remain fixed by whichever trip's data the map hooks saw
+        first, per-instance. 4b adds no link that joins two trips, so nothing in the app can reach
+        it; stage 5's globe is the first thing that will, and inherits the measurement.
 - [ ] Globe view for the all-trips map
 
 ## Phase 5 — publishing and sharing

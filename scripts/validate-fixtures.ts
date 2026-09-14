@@ -30,7 +30,16 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
 /** §6: coordinates are xsd:decimal, never xsd:float. `homeLat`/`homeLong` are
  *  spelled out because neither matched any other entry, so §7.6's pair was
  *  unchecked: ./notes.md#the-two-datatype-lists-and-what-each-was-missing */
-const GEO_PREDS = ["latitude", "longitude", "#lat", "#long", "bbox", "center", "homeLat", "homeLong"];
+const GEO_PREDS = [
+  "latitude",
+  "longitude",
+  "#lat",
+  "#long",
+  "bbox",
+  "center",
+  "homeLat",
+  "homeLong",
+];
 
 /** §6: counts and distances are xsd:integer. This half was missing entirely -
  *  homeRadiusMeters 3000.0 was a valid fixture and a read-time datatype error:

@@ -154,7 +154,7 @@ describe("useMapMarkers", () => {
   it("raises its own slug when the pointer enters the marker element", async () => {
     map.features = [leaf("kyoto"), leaf("osaka")];
     const onEnter = vi.fn();
-    renderHook(() => useMapMarkers(map as never, null, onEnter, vi.fn()));
+    renderHook(() => useMapMarkers(map as never, null, { onEnter, onLeave: vi.fn() }));
     await waitFor(() => expect(markers).toHaveLength(2));
     const osaka = markers.find((m) => m.element?.dataset.slug === "osaka")?.element;
     osaka?.dispatchEvent(new MouseEvent("mouseenter"));
@@ -164,7 +164,7 @@ describe("useMapMarkers", () => {
   it("clears when the pointer leaves the marker element", async () => {
     map.features = [leaf("kyoto")];
     const onLeave = vi.fn();
-    renderHook(() => useMapMarkers(map as never, null, vi.fn(), onLeave));
+    renderHook(() => useMapMarkers(map as never, null, { onEnter: vi.fn(), onLeave }));
     await waitFor(() => expect(markers).toHaveLength(1));
     markers[0].element?.dispatchEvent(new MouseEvent("mouseleave"));
     expect(onLeave).toHaveBeenCalledTimes(1);
@@ -177,9 +177,10 @@ describe("useMapMarkers", () => {
     // An inline arrow from the caller is the normal case, so a new identity on
     // every render must reach the listener through a ref, not through the
     // reconcile effect's deps — rebuilding markers on hover is the failure.
-    const { rerender } = renderHook(({ onEnter }) => useMapMarkers(map as never, null, onEnter), {
-      initialProps: { onEnter: first },
-    });
+    const { rerender } = renderHook(
+      ({ onEnter }) => useMapMarkers(map as never, null, { onEnter }),
+      { initialProps: { onEnter: first } },
+    );
     await waitFor(() => expect(markers).toHaveLength(1));
     rerender({ onEnter: second });
     // Flushes the reconcile effect's dynamic import: a wrongly-rebuilt marker
@@ -189,6 +190,50 @@ describe("useMapMarkers", () => {
     markers[0].element?.dispatchEvent(new MouseEvent("mouseenter"));
     expect(second).toHaveBeenCalledWith("kyoto");
     expect(first).not.toHaveBeenCalled();
+    expect(markers).toHaveLength(1);
+    expect(markers[0].removed).toBe(0);
+  });
+
+  it("a marker click selects, and does NOT reach a click handler on the map's container", async () => {
+    // maplibre appends markers INTO the canvas container it listens on, so a
+    // click that bubbles would select and immediately deselect.
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onSelect = vi.fn();
+    const onDeselect = vi.fn();
+    container.addEventListener("click", () => onDeselect());
+
+    map.features = [leaf("nara")];
+    renderHook(() => useMapMarkers(map as never, null, { onSelect, onDeselect }));
+    await waitFor(() => expect(markers).toHaveLength(1));
+
+    const element = markers[0].getElement();
+    container.append(element);
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onSelect).toHaveBeenCalledWith("nara");
+    expect(onDeselect).not.toHaveBeenCalled();
+  });
+
+  it("a click on the map itself deselects", async () => {
+    const onDeselect = vi.fn();
+    map.features = [leaf("nara")];
+    renderHook(() => useMapMarkers(map as never, null, { onDeselect }));
+    await waitFor(() => expect(markers).toHaveLength(1));
+
+    map.emit("click");
+    expect(onDeselect).toHaveBeenCalledTimes(1);
+  });
+
+  it("a fresh handlers object does not rebuild the markers", async () => {
+    map.features = [leaf("nara")];
+    const { rerender } = renderHook(
+      ({ onSelect }) => useMapMarkers(map as never, null, { onSelect }),
+      { initialProps: { onSelect: vi.fn() } },
+    );
+    await waitFor(() => expect(markers).toHaveLength(1));
+
+    rerender({ onSelect: vi.fn() });
     expect(markers).toHaveLength(1);
     expect(markers[0].removed).toBe(0);
   });

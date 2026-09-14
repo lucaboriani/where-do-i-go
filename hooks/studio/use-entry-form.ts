@@ -15,7 +15,12 @@ import {
 } from "@/lib/time/offsets";
 import { sourceOf } from "@/components/studio/entry-editor/state/actions";
 import { entryFormReducer } from "@/components/studio/entry-editor/state/entry-form-reducer";
-import type { EntryFormState, PhotoSlot, RestoreContext, TextField } from "@/components/studio/entry-editor/state/actions";
+import type {
+  EntryFormState,
+  PhotoSlot,
+  RestoreContext,
+  TextField,
+} from "@/components/studio/entry-editor/state/actions";
 import type { Entry, Status as EntryStatus, TravelMode as Mode } from "@/lib/pod/schema";
 import type { Draft } from "@/lib/studio/drafts";
 

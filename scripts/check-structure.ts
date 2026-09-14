@@ -12,7 +12,11 @@ import { walkTestFiles } from "../test/support/walk";
 const flag = process.argv.indexOf("--root");
 const IS_REPO = flag === -1;
 const ROOT = resolve(IS_REPO ? process.cwd() : process.argv[flag + 1]);
-const rel = (p: string) => p.slice(ROOT.length + 1).split("\\").join("/");
+const rel = (p: string) =>
+  p
+    .slice(ROOT.length + 1)
+    .split("\\")
+    .join("/");
 const SKIP = ["node_modules", ".next", ".git", ".pod-data", "test-results", "coverage"];
 
 /** Every .ts/.tsx under `dir`, tests included only when `withTests`. */
@@ -141,9 +145,14 @@ function componentFoldersAreOwn(): string[] {
 }
 
 const REPO_TESTS = [
-  "test/guardrails.test.ts", "test/check-commands.test.ts", "test/check-structure.test.ts",
-  "test/public-bundle.test.ts", "test/public-bundle-cli.test.ts",
-  "test/vitest-collection.test.ts", "test/network-guard.test.ts", "test/support/walk.test.ts",
+  "test/guardrails.test.ts",
+  "test/check-commands.test.ts",
+  "test/check-structure.test.ts",
+  "test/public-bundle.test.ts",
+  "test/public-bundle-cli.test.ts",
+  "test/vitest-collection.test.ts",
+  "test/network-guard.test.ts",
+  "test/support/walk.test.ts",
 ];
 
 function testsSitBesideSubjects(): string[] {
@@ -151,7 +160,9 @@ function testsSitBesideSubjects(): string[] {
   for (const path of walkTestFiles(ROOT)) {
     if (REPO_TESTS.includes(path) || path.startsWith("test/integration/")) continue;
     const dir = join(ROOT, dirname(path));
-    const stem = basename(path).replace(/\.test\.tsx?$/, "").split(".")[0];
+    const stem = basename(path)
+      .replace(/\.test\.tsx?$/, "")
+      .split(".")[0];
     if (!["ts", "tsx"].some((ext) => existsSync(join(dir, `${stem}.${ext}`))))
       bad.push(`${path} has no ${stem}.ts(x) beside it, and is not an allowed repo test`);
   }
@@ -170,7 +181,11 @@ function testsSitBesideSubjects(): string[] {
  * ./notes.md#github-heading-slugs
  */
 const slug = (heading: string) =>
-  heading.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/ /g, "-");
+  heading
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/ /g, "-");
 
 /** A pointer is a pointer only inside a comment: ./notes.md#tokens-not-prefixes */
 function pointersIn(file: string): Array<[string, string]> {
@@ -190,10 +205,13 @@ function notesPointersResolve(): string[] {
         bad.push(`${rel(file)} points at ${path}#${anchor}, which does not exist`);
         continue;
       }
-      const anchors = [...readFileSync(notes, "utf8").matchAll(/^#{1,6}\s+(.+)$/gm)]
-        .map((m) => slug(m[1]));
+      const anchors = [...readFileSync(notes, "utf8").matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) =>
+        slug(m[1]),
+      );
       if (!anchors.includes(anchor))
-        bad.push(`${rel(file)} points at #${anchor}, absent from ${rel(notes)} (has: ${anchors.join(", ")})`);
+        bad.push(
+          `${rel(file)} points at #${anchor}, absent from ${rel(notes)} (has: ${anchors.join(", ")})`,
+        );
     }
   }
   return bad;
@@ -204,20 +222,29 @@ async function driftReport(): Promise<string[]> {
   // The NAMESPACE, not `.default`, which is undefined: ./notes.md#no-default-export
   const parser = await import("@typescript-eslint/parser");
   const lines: string[] = [];
-  for (const [dirs, max] of [[["components", "app", "hooks"], 130], [["lib", "scripts"], 50]] as const) {
+  for (const [dirs, max] of [
+    [["components", "app", "hooks"], 130],
+    [["lib", "scripts"], 50],
+  ] as const) {
     const list = dirs.flatMap((d) => files(join(ROOT, d), false));
     if (list.length === 0) continue;
     const e = new ESLint({
       cwd: ROOT, // WITHOUT THIS THE REPORT IS ALWAYS EMPTY under --root.
-      overrideConfigFile: true, ignore: false,
+      overrideConfigFile: true,
+      ignore: false,
       allowInlineConfig: false, // ./notes.md#reporting-past-a-disable
-      overrideConfig: [{
-        files: ["**/*.ts", "**/*.tsx"],
-        languageOptions: { parser, parserOptions: { ecmaFeatures: { jsx: true } } },
-        rules: {
-          "max-lines-per-function": ["warn", { max, skipComments: true, skipBlankLines: true, IIFEs: true }],
+      overrideConfig: [
+        {
+          files: ["**/*.ts", "**/*.tsx"],
+          languageOptions: { parser, parserOptions: { ecmaFeatures: { jsx: true } } },
+          rules: {
+            "max-lines-per-function": [
+              "warn",
+              { max, skipComments: true, skipBlankLines: true, IIFEs: true },
+            ],
+          },
         },
-      }],
+      ],
     });
     for (const r of await e.lintFiles(list))
       for (const m of r.messages)
@@ -236,10 +263,14 @@ async function driftReport(): Promise<string[]> {
 function exemptionReport(): string[] {
   const found: string[] = [];
   for (const file of sources(true))
-    readFileSync(file, "utf8").split("\n").forEach((line, i) => {
-      const hit = /^\s*(?:\/\*|\/\/)\s*eslint-disable(?:-next-line)?\s+(max-lines[\w-]*)/.exec(line);
-      if (hit) found.push(`  ${rel(file)}:${i + 1} — ${hit[1]}`);
-    });
+    readFileSync(file, "utf8")
+      .split("\n")
+      .forEach((line, i) => {
+        const hit = /^\s*(?:\/\*|\/\/)\s*eslint-disable(?:-next-line)?\s+(max-lines[\w-]*)/.exec(
+          line,
+        );
+        if (hit) found.push(`  ${rel(file)}:${i + 1} — ${hit[1]}`);
+      });
   return found;
 }
 
@@ -278,7 +309,9 @@ async function main() {
   const scanned = sources(true).length;
   console.log(`scanned ${scanned} files under ${DIRS.join(", ")}`);
   if (IS_REPO && scanned < 50) {
-    console.log(`\nonly ${scanned} files scanned — a directory moved, and every rule below is vacuous.`);
+    console.log(
+      `\nonly ${scanned} files scanned — a directory moved, and every rule below is vacuous.`,
+    );
     process.exit(1);
   }
 

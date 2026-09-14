@@ -1,17 +1,17 @@
-# The e2e gate, and why the definition of done is nine commands plus one
+# The e2e gate, and why the definition of done is ten commands plus one
 
-`CLAUDE.md` `## How work is done here` carries the rule: nine unconditional commands, plus
+`CLAUDE.md` `## How work is done here` carries the rule: ten unconditional commands, plus
 `npm run test:e2e` when the diff touches one of the paths below. **This file is why those
 paths**, and why the gate is scoped to the diff rather than added to the list. No count here on
 purpose: the list gained `hooks/studio/**` on 2026-09-12 while three sentences elsewhere still
 said "six", and a reader reconciling a numeral against a list deletes the newest entry.
 
-**A tenth command, path-scoped rather than unconditional.** If the diff touches any of
+**An eleventh command, path-scoped rather than unconditional.** If the diff touches any of
 
 ```
 lib/studio/**   app/(studio)/**   components/studio/**   app/(public)/client-id.jsonld/**
 lib/media/**   lib/pod/write.ts   hooks/studio/**
-components/public/**   lib/map/**   hooks/map/**
+components/public/**   lib/map/**   hooks/map/**   hooks/trip/**
 ```
 
 then `npm run test:e2e` must pass too. **Three seams, not one.**
@@ -52,7 +52,7 @@ encoder, and a jsdom `Blob` arrives at MSW as the nine bytes of the string `"und
 measured 2026-09-06. So every faster test can check file names, content types, IRIs and call
 order, and none of them can check one pixel or one EXIF tag.
 
-It is deliberately NOT in the list above. The nine run anywhere with a checkout and Node 22;
+It is deliberately NOT in the list above. The ten run anywhere with a checkout and Node 22;
 this one needs a Pod, a 178 MB browser and port 3000 free, and a list gated on three pieces of
 infrastructure is a list people stop running. Scoping it to the diff keeps it checkable by
 reading the diff.
@@ -76,6 +76,18 @@ feature silently never ran, which is exactly the shape no faster test sees. The 
 not reach a `maplibre-gl` version bump: that touches `package.json` and `package-lock.json`
 instead, and §32 records the gap rather than closing it, because adding the lockfile would gate
 nearly every dependency bump.
+
+`hooks/trip/**` joined that seam on 2026-09-14, one stage late. Stage 4a created the directory —
+`useHighlightState` and the context that every marker and every timeline row reads — and put it in
+the ESLint belt, which is the OTHER of the two lists `docs/code-structure.md` says a new hooks area
+must join **in the same commit**. It reached this one only now, and **nothing failed in between**,
+which is exactly why it stayed invisible: every diff that has touched `hooks/trip` so far also
+touched `components/public/**`, so the gate fired anyway and no run was ever actually skipped. A
+diff confined to `hooks/trip` — the pin precedence in `useHighlightState`, say, which is what
+decides whether a tapped marker opens the sheet at all — would have slipped `e2e/map-sheet.spec.ts`
+and `e2e/trip-timeline.spec.ts` with nothing to say so. The belt half has a test behind it in
+`test/guardrails.test.ts`; this half is prose read by a person, the same hole `hooks/studio/**`
+above is named for.
 
 
 ## Running it

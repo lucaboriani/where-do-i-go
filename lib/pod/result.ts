@@ -11,7 +11,13 @@ export type PodError =
   | { kind: "parse"; url: string; message: string }
   | { kind: "shape"; url: string; issues: string[] }
   | { kind: "schemaVersion"; url: string; found: string | undefined; expected: number }
-  | { kind: "datatype"; url: string; predicate: string; found: string | undefined; expected: string }
+  | {
+      kind: "datatype";
+      url: string;
+      predicate: string;
+      found: string | undefined;
+      expected: string;
+    }
   | { kind: "slugMismatch"; url: string; slug: string; segment: string }
   /**
    * Access control was written, or read, and the result could not be confirmed.

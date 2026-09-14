@@ -10,7 +10,14 @@ export const Status = z.enum(["draft", "published"]);
 export type Status = z.infer<typeof Status>;
 
 export const TravelMode = z.enum([
-  "Flight", "Train", "Bus", "Car", "Boat", "Bike", "Walk", "Other",
+  "Flight",
+  "Train",
+  "Bus",
+  "Car",
+  "Boat",
+  "Bike",
+  "Walk",
+  "Other",
 ]);
 export type TravelMode = z.infer<typeof TravelMode>;
 

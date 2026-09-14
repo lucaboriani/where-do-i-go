@@ -15,6 +15,8 @@
     "check:vocab": "tsx scripts/check-vocab.ts",
     "check:commands": "tsx scripts/check-commands.ts",
     "check:structure": "tsx scripts/check-structure.ts",
+    "format": "prettier --write \"{app,components,hooks,lib,scripts}/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"{app,components,hooks,lib,scripts}/**/*.{ts,tsx}\"",
     "pod:dev": "npx --yes @solid/community-server@7.2.0 -p 3001 -c @css:config/file.json -f ./.pod-data",
     "pod:seed": "tsx scripts/seed-dev-pod.ts",
     "size:public": "tsx scripts/check-public-bundle.ts"

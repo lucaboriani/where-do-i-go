@@ -26,7 +26,9 @@ export async function GET() {
           `      <title>${escape(e.title.value)}</title>\n` +
           `      <link>${escape(link)}</link>\n` +
           `      <guid isPermaLink="true">${escape(link)}</guid>\n` +
-          (e.occurredAt ? `      <pubDate>${new Date(e.occurredAt).toUTCString()}</pubDate>\n` : "") +
+          (e.occurredAt
+            ? `      <pubDate>${new Date(e.occurredAt).toUTCString()}</pubDate>\n`
+            : "") +
           `    </item>`,
       );
     }

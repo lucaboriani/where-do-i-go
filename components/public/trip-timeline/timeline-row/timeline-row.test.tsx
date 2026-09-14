@@ -13,20 +13,30 @@ vi.mock("@/hooks/trip/highlight-context", () => ({ useTripHighlight: vi.fn() }))
 
 afterEach(cleanup);
 
-function setup(activeSlug: string | null) {
+function setup(activeSlug: string | null, slug = "arrival") {
   const raise = vi.fn();
   const clear = vi.fn();
-  vi.mocked(useTripHighlight).mockReturnValue({ activeSlug, source: null, raise, clear });
+  const pin = vi.fn();
+  const unpin = vi.fn();
+  vi.mocked(useTripHighlight).mockReturnValue({
+    activeSlug,
+    source: null,
+    pinnedSlug: null,
+    raise,
+    clear,
+    pin,
+    unpin,
+  });
   // The link and the time arrive as children now, rendered by the server
   // component — so the row is given one here rather than rendering its own.
   render(
     <ul>
-      <TimelineRow slug="arrival">
-        <Link href="/trips/japan/arrival">Arrival</Link>
+      <TimelineRow slug={slug}>
+        <Link href={`/trips/japan/${slug}`}>Arrival</Link>
       </TimelineRow>
     </ul>,
   );
-  return { raise, clear };
+  return { raise, clear, pin, unpin };
 }
 
 describe("TimelineRow", () => {
@@ -69,5 +79,13 @@ describe("TimelineRow", () => {
   it("renders whatever children it is handed, which is where the link lives now", () => {
     setup(null);
     expect(screen.getByRole("listitem")).toContainElement(screen.getByRole("link"));
+  });
+
+  // Through setup(), not a bare render(): the module-wide vi.mock returns
+  // undefined until a case sets it, so a lone render() here would only work on
+  // whatever the previous case happened to leave behind.
+  it("carries its slug in the DOM, so the sheet can find the row to reveal", () => {
+    setup(null, "nara");
+    expect(screen.getByRole("listitem")).toHaveAttribute("data-slug", "nara");
   });
 });

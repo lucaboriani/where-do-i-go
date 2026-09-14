@@ -116,6 +116,17 @@ which is what §2 measured. They are tokens rather than literals so the two spac
 tap target for the background tap that clears a pin — without it, clearing a pin needs a second
 affordance invented for one state.
 
+**Amended 2026-09-14: the strip is a property of the `full` DETENT, not of every scrolled
+position.** Resting past `full` is allowed (§2) and a pin uses it: `targetForRow` aims at
+`rowTop - handleHeight` with only `half` as a floor, so a pin on a row in the last viewport of
+the list puts the body's top at or above 0 and leaves no strip at all — the background tap is
+unavailable exactly when the pin makes it wanted. That is geometry rather than a seed-data
+accident; the scroller clamps at its maximum at any timeline length. **The sticky handle is then
+the affordance that gets the reader back**, one tap cycling to peek, which is why this is a gap
+rather than a dead end. Left as written in code on purpose: clamping the reveal to `full` would
+trade the missing tap target for a row the reader asked to see and cannot, and that is a product
+call. Open in `TODO.md` alongside the stage's record, for the owner to decide with evidence.
+
 The handle is a real `<button>`, not a decorative bar: it cycles peek → half → full → peek,
 which is the whole keyboard and screen-reader story for the sheet. **The drag is native.** The
 handle sits inside the scroller, so a touch drag on it is an ordinary scroll and the CSS snapping

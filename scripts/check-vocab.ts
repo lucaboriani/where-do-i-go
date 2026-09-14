@@ -16,9 +16,7 @@ const OUT_OF_SCOPE = /## 12\. Deliberately out of scope[\s\S]*?(?=\n## \d+\.)/;
 const doc = full.replace(OUT_OF_SCOPE, "");
 
 /** Every `dy:Term` mentioned anywhere in the document, prose and Turtle alike. */
-const inDoc = new Set(
-  [...doc.matchAll(/\bdy:([A-Za-z][A-Za-z0-9]*)/g)].map((m) => m[1]),
-);
+const inDoc = new Set([...doc.matchAll(/\bdy:([A-Za-z][A-Za-z0-9]*)/g)].map((m) => m[1]));
 
 /** Every dy: term exported from lib/vocab.ts. */
 const exported = new Set(

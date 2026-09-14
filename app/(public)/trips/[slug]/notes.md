@@ -13,6 +13,14 @@ Put the same map in `page.tsx` and every navigation to an entry would tear down
 a WebGL context and build a new one, with the tiles refetched and the camera
 reset. The invariant would be violated by the file it lives in.
 
+The layout now also owns the shell: `.trip-map-pane` and `<MapSheet>` render as
+SIBLINGS under `.trip-shell`, never one inside the other. That is what makes
+the never-remounted rule structural rather than a discipline — a snap point or
+a breakpoint can only ever affect the sheet's own subtree, so no code path
+through `MapSheet` can reach the pane and unmount it. See
+`components/public/map-sheet/notes.md` for the geometry the two siblings sit
+in at each width; this file only owns why the pane is a sibling, not a child.
+
 The layout does not await `params` on its shell path, for the reason
 `page.tsx`'s own docblock gives: reading URL data outside a boundary blocks the
 static shell, which is what makes a navigation feel slow. The frame is reserved

@@ -13,8 +13,7 @@ import { TARGETS, fitWithin, withinBlurBudget } from "./targets";
 
 export type WorkerRequest = { id: number; file: Blob };
 export type WorkerResponse =
-  | { id: number; ok: true; result: TransferableResult }
-  | { id: number; ok: false; message: string };
+  { id: number; ok: true; result: TransferableResult } | { id: number; ok: false; message: string };
 
 export type TransferableResult = {
   web: { blob: Blob; width: number; height: number };

@@ -162,10 +162,10 @@ what you are accepting:
 - **`exifr` was rejected.** Last published 2022-05. Replaced with **`exifreader` 4.44.0**
   (published 2026-08), which is actively maintained. If you find `exifr` in any generated
   code, it came from stale training data — replace it.
-- **`vaul` 1.1.2** (2024-12) backs shadcn's Drawer, which is the mobile map sheet. Verify
-  the snap-point API against current shadcn docs rather than blog posts. If it proves
-  unmaintained or broken under React 19, the fallback is a hand-written sheet using CSS
-  scroll-snap, which is a day of work, not a redesign.
+- **`vaul` 1.1.2** (2024-12) backs shadcn's Drawer, which is **studio-only**. It is not the
+  mobile map sheet: that is hand-rolled from CSS scroll-snap, and `vaul` stays in `BANNED_DEPS`
+  — `docs/decisions.md` §26. So its snap-point API needs no verification for the public map, and
+  the only thing to watch is the Drawer itself under React 19 in the studio.
 - **`class-variance-authority` 0.7.1** (2024-11) is a shadcn transitive dependency. Small,
   stable, low risk.
 

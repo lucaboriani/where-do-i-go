@@ -14,12 +14,16 @@ const doc = readFileSync(resolve(ROOT, "docs", "data-model.md"), "utf8");
 const [DIARY, TRIP, ENTRY, INDEX] = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)].map((m) => m[1]);
 
 const api = async (url: string, body?: unknown, token?: string) => {
-const headers: Record<string, string> = { accept: "application/json" };
-if (body !== undefined) headers["content-type"] = "application/json";
-if (token) headers.authorization = `CSS-Account-Token ${token}`;
-const r = await fetch(url, { method: body === undefined ? "GET" : "POST", headers, body: body === undefined ? undefined : JSON.stringify(body) });
-if (!r.ok) throw new Error(`${url} -> ${r.status}`);
-return r.json();
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (token) headers.authorization = `CSS-Account-Token ${token}`;
+  const r = await fetch(url, {
+    method: body === undefined ? "GET" : "POST",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+  return r.json();
 };
 
 // Unique per run: CSS rejects a duplicate pod name, and re-seeding after a
@@ -28,7 +32,11 @@ const name = process.env.SEED_NAME ?? `dev-${Date.now().toString(36)}`;
 const acct = await api(`${BASE}/.account/account/`, {});
 const token = acct.authorization as string;
 const controls = (await api(`${BASE}/.account/`, undefined, token)).controls;
-await api(controls.password.create, { email: `${name}@localhost.test`, password: "dev" }, token).catch(() => {});
+await api(
+  controls.password.create,
+  { email: `${name}@localhost.test`, password: "dev" },
+  token,
+).catch(() => {});
 const pod = await api(controls.account.pod, { name }, token);
 const POD: string = pod.pod;
 const webId = `${POD}profile/card#me`;
@@ -57,7 +65,12 @@ const put = async (path: string, body: string, type = "text/turtle") => {
   }
 };
 
-for (const c of ["travel/", "travel/trips/", "travel/trips/2026-japan/", "travel/trips/2026-japan/entries/"]) {
+for (const c of [
+  "travel/",
+  "travel/trips/",
+  "travel/trips/2026-japan/",
+  "travel/trips/2026-japan/entries/",
+]) {
   const r = await session.fetch(`${POD}${c}`, {
     method: "PUT",
     headers: {
