@@ -12,8 +12,9 @@ export function nextSnap(current: number, { peek, half, full }: SnapOffsets): nu
   return peek;
 }
 
-/** Revealing a row must not CLOSE the sheet, so half is the floor. Past full is
- *  allowed: a long timeline scrolls freely there (spec §2). */
+/** The half floor is defensive — every row in the current layout already sits
+ *  past full. Past full is allowed: a long timeline scrolls freely there
+ *  (spec §2). ./notes.md#only-a-pin-moves-the-sheet */
 export function targetForRow(rowTop: number, handleHeight: number, { half }: SnapOffsets): number {
   return Math.max(half, rowTop - handleHeight);
 }

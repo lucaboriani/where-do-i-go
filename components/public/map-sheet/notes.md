@@ -44,8 +44,14 @@ dragging the handle is scrolling the container, which CSS already snaps. No `poi
 A pin is deliberate — the reader tapped a marker and asked where that entry is — so the sheet
 scrolls to `targetForRow(rowTop, handleHeight, offsets)` (spec §6). A hover or a route change is
 not, and must never yank a sheet the reader has already placed. With one scroller, revealing a row
-far down the list necessarily raises the sheet past half; that is §2's accepted consequence, and
-`targetForRow` keeps half as the floor so a reveal can never CLOSE the sheet.
+far down the list necessarily raises the sheet past half; that is §2's accepted consequence.
+
+`targetForRow` keeps half as a floor, and that floor is **defensive rather than load-bearing**: it
+is unreachable in the current layout. Rows live inside `.trip-sheet-body`, whose `offsetTop` is 640
+at 390×800, so `rowTop - handleHeight` clears `full` (576) for every row there is. Nothing today
+would close the sheet if the floor were removed — but the floor states the invariant a reveal must
+hold, so a future layout that puts a row nearer the top cannot violate it silently. The test that
+covers it is testing the invariant, not a live code path.
 
 **The effect keys on `pinnedSlug`, the raw pin slot, and never on the derived
 `(activeSlug, source)` pair.** Deriving it looks equivalent and is not, in two ways that both

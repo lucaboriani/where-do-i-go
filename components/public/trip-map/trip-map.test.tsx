@@ -7,6 +7,7 @@
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HighlightValue } from "@/hooks/trip/highlight-context";
 import type { IndexEntry } from "@/lib/pod/schema";
 import TripMap, { MAP_FRAME_CLASS } from "./trip-map";
 
@@ -54,20 +55,22 @@ vi.mock("@/hooks/map/use-map-highlight", () => ({
 // A mutable module-level value: each test sets it before render rather than
 // standing up a real TripHighlightProvider, which needs next/navigation's
 // router context for no benefit here — only the value threaded through matters.
-type Highlight = {
-  activeSlug: string | null;
-  raise: ReturnType<typeof vi.fn>;
-  clear: ReturnType<typeof vi.fn>;
-  pin: ReturnType<typeof vi.fn>;
-  unpin: ReturnType<typeof vi.fn>;
-};
-let tripHighlight: Highlight = {
-  activeSlug: null,
-  raise: vi.fn(),
-  clear: vi.fn(),
-  pin: vi.fn(),
-  unpin: vi.fn(),
-};
+// Typed as the real HighlightValue, so a change to the context's shape fails
+// tsc here rather than drifting invisibly.
+let tripHighlight: HighlightValue = inertMock();
+
+function inertMock(): HighlightValue {
+  return {
+    activeSlug: null,
+    source: null,
+    pinnedSlug: null,
+    raise: vi.fn(),
+    clear: vi.fn(),
+    pin: vi.fn(),
+    unpin: vi.fn(),
+  };
+}
+
 vi.mock("@/hooks/trip/highlight-context", () => ({
   useTripHighlight: () => tripHighlight,
 }));
@@ -110,7 +113,7 @@ beforeEach(() => {
   layerCalls.length = 0;
   markerCalls.length = 0;
   highlightCalls.length = 0;
-  tripHighlight = { activeSlug: null, raise: vi.fn(), clear: vi.fn(), pin: vi.fn(), unpin: vi.fn() };
+  tripHighlight = inertMock();
 });
 
 afterEach(() => {

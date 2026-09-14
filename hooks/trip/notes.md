@@ -22,6 +22,13 @@ would make the map and timeline flicker to an unhighlighted state on every
 mouse-out, even while the visitor is still reading the entry the URL points
 at.
 
+Since the pin landed there is a slot between the two, and the rule is
+`pointer ?? pinned ?? route`: clearing the pointer falls back to the **pin**
+when one is set, and only to the route when none is. A pin outliving a hover
+is the behaviour `use-highlight-state.test.ts` and `e2e/notes.md`'s mutation
+control 2 exist to protect — "clear falls back to the route" unconditionally
+would kill it. See `#why-a-pin-is-a-second-slot-not-a-third-source`.
+
 ## A navigation drops the pointer
 
 The pointer outranks the route while it is set, and only `clear()` unsets it —

@@ -1770,10 +1770,13 @@ statically importing the first three.
         `e2e/notes.md#the-strip-of-map-is-a-detent-not-a-pin`; spec §5 carries the amendment.
       - **Open: iOS Safari is unverified.** Playwright here is Chromium only, and `dvh` under a
         collapsing toolbar is the likeliest place this design is wrong. Named in §26 as well.
-      - **Open: no e2e case loads the page AT desktop width.** Case 4 starts at 390×800 and
-        resizes, which is the harder thing and the reason it exists — but it means
-        `align-self: start` on the sticky map pane, and anything else that only shows on a first
-        paint at that width, is covered by nothing.
+      - **Open: no e2e case ASSERTS the desktop layout on a first paint.** Several cases load the
+        page at desktop width already — `playwright.config.ts` sets no `viewport`, so Playwright's
+        1280×720 default applies to `trip-map.spec.ts` and `trip-timeline.spec.ts`, both above the
+        48rem breakpoint — but none of them checks the desktop layout, and case 4 reaches that
+        width by resizing from 390×800 rather than starting there. So `align-self: start` on the
+        sticky map pane, and anything else that only shows on a first paint at that width, is
+        covered by nothing. The gap is an assertion, not another page load.
       - **Open: the camera fit is not adjusted for the sheet.** `lib/map/view.ts` still fits the
         trip's bbox with a uniform `padding: 32` against the whole viewport, so at peek a marker
         can sit behind the sheet with no way to know it is there.

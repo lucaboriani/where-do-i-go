@@ -3,8 +3,9 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Highlight, HighlightValue } from "./highlight-context";
 
-/** A pointer highlight outranks the route's while it lasts; clearing falls back
- *  to the route rather than to nothing. ./notes.md#why-clearing-falls-back-to-the-route */
+/** A pointer outranks pin and route while it lasts; clearing falls back to the
+ *  pin if one is set, else the route — never to nothing.
+ *  ./notes.md#why-clearing-falls-back-to-the-route */
 export function useHighlightState(routeSlug: string | null): HighlightValue {
   const [pointer, setPointer] = useState<Highlight | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
