@@ -15,8 +15,7 @@ second one. Where this file contradicts either, this file is newer and wins.
 - The same responsive shell as the trip page: below `48rem` the map fills the viewport with the
   trip list in the sheet over it; at and above, a sticky map beside the scrolling list.
 - A **second published trip in the dev seed**, without which none of the above is testable.
-- **A measurement, and whatever it implies**: whether `/` → trip A → back → trip B remounts the
-  `[slug]` layout, which is what decides if the stage-3 defect is reachable at last.
+- **The stage-3 defect's claim, closed by argument rather than deferred a fourth time** — see §9.
 - `docs/decisions.md` **§33** — trip markers are GL circles, not the DOM markers §30 chose.
 
 Out of scope and named so they are not smuggled in: clustering trips, a thumbnail on a trip marker,
@@ -38,9 +37,20 @@ survive trip → entry navigation. **`/` has no child routes**, so there is noth
 the shell belongs in the page. The sibling rule still holds and for the same reason: no snap point
 and no breakpoint may have a code path that unmounts the map.
 
-`TripHighlightProvider` reads `useSelectedLayoutSegment()`, which is `null` on `/`. The route-driven
-highlight is therefore simply absent here, and `activeSlug` is whatever the pointer or a pin says —
-no special case, no second provider.
+`TripHighlightProvider` reads `useSelectedLayoutSegment()`, which is `null` on `/` — verified
+against Next's own source, where the `__PAGE__` child segment is dropped and mapped to `null`. The
+route-driven highlight is therefore simply absent here, and `activeSlug` is whatever the pointer or
+a pin says — no special case, no second provider.
+
+**The `<Suspense>` is real, not decorative**, and that constrains the page: `page.tsx` must not
+await its reads itself, or the shell cannot flush before the Pod answers. It pushes them into an
+async child exactly as `app/(public)/trips/[slug]/layout.tsx` does, and the boundary's fallback
+reserves the map frame with the shared class.
+
+**The diary's own title and description move into the sheet**, above the list, where the page's
+`<main>` copy is today. The `!diary.ok` branch keeps the shell — an unreachable diary still renders
+the map pane and puts `describe(error)` in the sheet, because the alternative is a page that throws
+away a working map to show one line of text.
 
 ## 3. Nothing is renamed, and that is deliberate
 
@@ -52,6 +62,13 @@ one trip. The names describe the domain, not the route.
 The alternative — renaming to `map-shell`/`map-pane`/`sheet` — would churn freshly merged CSS, four
 `notes.md` anchors, and live e2e locators, in exchange for nothing a reader gets wrong. Recorded
 here so a reviewer does not raise it as an oversight.
+
+**One thing genuinely is wrong on `/` and it is copy, not a class name.** `MapSheet`'s handle is
+labelled "Resize the entry list", which is false on a page listing trips. The label becomes a prop
+with today's string as its default, so the trip page is untouched and `/` passes its own. Related
+and deliberate: the sheet's initial-open effect keys on `source === "route"`, which never fires on
+`/`, so the landing sheet always starts at peek — correct, because there is no entry whose prose
+would otherwise be below the fold.
 
 ## 4. Trip markers are GL circles, not DOM markers — §33
 
@@ -66,16 +83,19 @@ key on. Hover comes from `map.on("mouseenter"/"mouseleave", layer)` rather than 
 listeners.
 
 **What this costs, stated plainly**: two marker mechanisms now exist in one codebase, and a reader
-must know which surface uses which. §33 records the rule — thumbnail or clustering means DOM, plain
-points mean GL — so the next surface picks by criterion rather than by copying whichever file it
-found first.
+must know which surface uses which. §30's own words are "a cluster never touches a photo, so it
+never needs the DOM" — clustering was always GL, and the DOM half was bought by the photo thumbnail
+and the hand-walked `querySourceFeatures` loop that keeps marker elements in step with it. §33
+records the criterion that follows: **a marker that carries a photo is DOM, a marker that is a plain
+point is GL.** The next surface picks by that rather than by copying whichever file it found first.
 
 ## 5. The projection, and the one call site
 
 `lib/map/view.ts` gains `GLOBE_PROJECTION = { type: "globe" }` beside the existing mercator
 `PROJECTION`, and `useMapInstance` gains an optional `projection` defaulting to the latter. **The
 single `setProjection` call inside the `style.load` handler does not move** — it reads the option
-instead of the constant. That is the whole of the change to a hook three surfaces now share.
+instead of the constant, and that call site is the ONLY reader of `PROJECTION` in the tree. The hook
+has one caller today and two after this stage.
 
 §8's measurement stands and is not re-derived: `"globe"` is shorthand MapLibre 6 expands to
 `["interpolate", ["linear"], ["zoom"], 11, "vertical-perspective", 12, "mercator"]`, so the globe
@@ -97,8 +117,18 @@ single trip's failure — losing one index must not lose the diary.
 `lib/map/trips.ts` is the pure half, three functions, none of which touches a DOM or a map:
 `buildTripPoints(trips)` → a `FeatureCollection<Point, { slug, name }>`; `centresBbox(trips)` → the
 `Bbox` enclosing every placed trip's centre, or `undefined` when none is placed; and
-`flyOptions(bbox)` → the same shape `fitOptions` returns but with `animate` true, because the
-camera call in both cases is `fitBounds`. That is where this stage's coverage actually is.
+`flyOptions(bbox)` → **the same object shape `fitOptions` returns**, with `animate` true. Both are
+destructured at the call site the way `use-map-instance.ts` already destructures `fitOptions`
+(`const { bounds, ...camera } = …; map.fitBounds(bounds, camera)`), because the camera call in both
+cases is `fitBounds`. That is where this stage's coverage actually is.
+
+**The impure half is one new hook in `hooks/map/`**, not a parameterisation of the existing ones.
+`useMapLayers` takes `IndexEntry[]` and adds the legs source, the cluster layers and the route
+casing; `useMapHighlight` hardwires `LEGS_SOURCE`. Bending either into serving trips as well would
+put two unrelated shapes behind one signature to save a file. `hooks/map/use-map-trips.ts` owns the
+trips source, its circle layer, the hover and click handlers and the camera — and because it lands
+in an area that already exists, none of the three hand-typed lists a NEW `hooks/<area>` must join
+needs touching.
 
 ## 7. The camera
 
@@ -107,12 +137,19 @@ trip's own bbox, which would be a view of one trip. With one placed trip that bo
 point and `fitBounds` would zoom to its maximum, so `centresBbox` pads a degenerate box into a
 sensible one. The pure function owns that and is tested for it.
 
-Clicking a marker calls `map.fitBounds(...flyOptions(bbox))` for that trip — the same call the
-initial fit makes, animated. **`prefers-reduced-motion: reduce` turns
-the flight into a jump** — `animate: false`, not a shorter duration. The brief allows motion that
-answers a user action and requires the query be respected; a fly-to is exactly that motion.
+Clicking a marker fits that trip's own `bbox` with `flyOptions`, animated — the same `fitBounds`
+call the initial fit makes. **`prefers-reduced-motion: reduce` turns the flight into a jump**, and
+that is belt-and-braces rather than the mechanism: maplibre-gl 6.6.0 already zeroes the duration
+when the query matches and the movement is not `essential`. The explicit `animate: false` exists so
+a jsdom test can assert the decision rather than trust the library, and this says so instead of
+claiming to be the only thing between the reader and a spin.
 
 Nothing else moves the camera. Hover does not, the route does not, and there is no "reset" control.
+
+**A click also pins**, through 4b's existing `pin`/`unpin`. That is what makes the phone case
+coherent: the sheet already scrolls a pinned slug's `[data-slug]` row into view, so tapping a marker
+reveals its row instead of highlighting one hidden behind the sheet. The list's rows therefore carry
+`data-slug`, exactly as the timeline's do.
 
 ## 8. The seed gains a second published trip
 
@@ -120,45 +157,67 @@ Nothing else moves the camera. Hover does not, the route does not, and there is 
 exercises nothing: no fly-to worth watching, no second feature state, no multi-trip camera fit.
 
 So the seed gains a published trip far from Japan, with its own container, `trip.ttl`, index and a
-couple of entries carrying real coordinates. **`2026-secret` stays a draft** — it is the fixture
-that proves the publication boundary in phase 1 and 2 tests, and publishing it would delete that
-coverage to save a few lines.
+couple of entries carrying real coordinates. **`2026-secret` stays a draft** — not because a unit
+test names it (none does; the publication-boundary tests carry their own fixtures) but because it is
+the only draft in a running dev Pod, and it is what makes the not-found path something a person can
+walk through in a browser.
 
 This is fixture data. No `dy:` term is added or changed, and the container layout is the one
 `docs/data-model.md` already specifies.
 
-## 9. The measurement this stage owes, before any fix
+## 9. The stage-3 defect: closed by argument, because the measurement cannot answer it
 
-The stage-3 defect — marker identity, the cluster threshold and the fitted camera are all fixed by
-whichever trip's data the map hooks saw first — has been recorded as "unreachable, closes in stage
-5" through three stages. **Stage 5 must find out rather than inherit the claim.**
+The defect — marker identity, the cluster threshold and the fitted camera are all fixed by whichever
+trip's data the map hooks saw first — has been recorded as "unreachable, closes in stage 5" through
+three stages. The draft of this spec proposed measuring it by navigating `/` → trip A → back → trip
+B. **That measurement cannot distinguish its two outcomes**, and the reason matters: the path goes
+through `/`, which is outside the `[slug]` subtree, so the layout and its map are torn down whatever
+Next does with sibling dynamic params. The result would read "remount" in both worlds.
 
-The question is narrow: does navigating `/` → `/trips/a` → back → `/trips/b` remount the `[slug]`
-layout? If it does, the hooks are constructed fresh for trip B and nothing is stale, and the defect
-stays unreachable — in which case **this stage records that and stops predicting a future stage will
-close it**. If it does not, the defect is live, and the fix belongs in this stage with the failing
-browser case that found it.
+The question the note at `components/public/trip-map/notes.md` actually poses is a **direct** trip A
+→ trip B soft navigation, and the same note records that an injected `<a>` cannot fake one. §1 keeps
+navigation in the list's links, which always route through `/`, so **this stage adds no such link
+either**.
 
-The measurement runs after the seed lands and before any hook is touched, in a real browser, with
-the canvas node's identity as the evidence — the same `===` on a captured handle that 4b used.
-**A fix written before this measurement would be a fix with no failing test, which is the thing
-`CLAUDE.md` names.**
+So the honest close is structural, not empirical: **no in-app link joins two trips, stage 5 does not
+add one, and the three stale assumptions therefore remain unreachable.** They are real and they are
+still in the tree — `useMapLayers` fixes `cluster` at `addSource` and afterwards only calls
+`setData`; `useMapInstance` fits once from `style.load` against `latest.current`; `useMapMarkers`
+skips a slug it already holds rather than updating it. `TODO.md` stops predicting a stage that will
+close them and records instead what would have to exist first: a trip-to-trip link, which is a
+product decision nobody has taken.
+
+**No fix ships in this stage**, because a fix with no failing test is the thing `CLAUDE.md` names.
 
 ## 10. Testing
 
 - **Pure, by vitest**: `buildTripPoints` including a trip with no `center` and a trip whose index
   failed; `flyOptions`; the all-centres fit including the single-trip degenerate case.
-- **Components in jsdom** against the existing fake `maplibre-gl`: the source gets `promoteId`, the
-  circle layer is added, a hover sets feature state, a click flies with the right bounds, and
-  `prefers-reduced-motion` is read on the call rather than asserted through a class.
+- **Components in jsdom against a fake `maplibre-gl`** — and note that **there is no shared fake to
+  reuse**: `use-map-instance.test.ts` and `use-map-layers.test.ts` each declare a private `FakeMap`,
+  `trip-map.test.tsx` mocks the four hooks rather than the library, and neither fake implements
+  `setFeatureState` or the layer-scoped three-argument `on(event, layer, handler)`. Both are new
+  surface this stage has to write. Asserted: the source gets `promoteId`, the circle layer is added,
+  a hover sets feature state, a click fits the right bounds, and `prefers-reduced-motion` is read on
+  the call rather than through a class name.
+- **`DiaryMap` needs the same dev-only `__map` handle `TripMap` carries**, or the browser case
+  cannot read the camera at all. It is free outside production, and the existing comment explains
+  why.
 - **One browser case**, and it earns its place the way the others did: a real canvas on `/`, two
   markers, a click that moves the camera, and the cross-highlight in both directions. Plus the §9
   measurement, which is a browser case whether or not it becomes a regression test.
 - **Every browser case gets a mutation control**, recorded in `e2e/notes.md`. Seven of 4a's checks
   and two of 4b's could not fail until a mutation said so.
-- `size:public` weighs `/` — the most visited page in the app — so the landing route's budget line
-  is the one to read this stage. The map chunk is lazy and is not weighed; a static import of
-  `maplibre-gl` would be, and the fence already refuses it.
+- **Two paths join the `test:e2e` gate list**: `app/(public)/page.tsx` and
+  `scripts/seed-dev-pod.ts`. Neither is in any glob today. This stage fires the gate anyway through
+  `components/public/**`, which is exactly why the hole would stay invisible — a later page-only or
+  seed-only change is the one that would skip a run it needed. Same shape as the `hooks/trip/**`
+  omission 4b closed, and it goes in `docs/testing-gates.md` with its reason.
+- **`size:public` prints the WORST public route, not a line per route** — today that is the trip
+  page at 182.0 kB of 190. `/` acquires substantially the same client tree this stage, so the number
+  to predict is a landing route arriving near the trip page's, and the ceiling has about 8 kB of
+  headroom. The map chunk itself is lazy and is not weighed; a static `maplibre-gl` import would be,
+  and the fence already refuses it.
 
 ## 11. What no check here will see
 
