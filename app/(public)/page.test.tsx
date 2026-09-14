@@ -24,11 +24,6 @@ vi.mock("@/components/public/diary-map", () => ({
   default: () => <div data-testid="diary-map" />,
 }));
 
-vi.mock("@/components/public/trip-map", () => ({
-  default: () => <div data-testid="trip-map" />,
-  MAP_FRAME_CLASS: "size-full bg-surface",
-}));
-
 // null on `/`, which the provider's own test already records for a page segment.
 vi.mock("next/navigation", () => ({ useSelectedLayoutSegment: () => null }));
 
@@ -104,14 +99,17 @@ describe("the diary page", () => {
     expect(container.querySelector(".trip-sheet .animate-pulse")).not.toBeNull();
   });
 
-  it("keeps the shell when the diary cannot be read", async () => {
-    vi.mocked(getDiary).mockResolvedValue(gone(`${POD}diary.ttl`));
+  it("reports an unreadable diary once, and does not also claim it published nothing", async () => {
+    // publishedTripSlugs READS THE DIARY, so it returns the same error: there
+    // is no state where one fails and the other does not.
+    const unreachable = gone(`${POD}diary.ttl`);
+    vi.mocked(getDiary).mockResolvedValue(unreachable);
+    vi.mocked(publishedTripSlugs).mockResolvedValue(unreachable);
 
     const { container } = render(await DiaryContent());
 
-    // An unreachable diary still gets a map: throwing the surface away to show
-    // one line of text is the worse failure.
     expect(container.textContent).toContain("unavailable");
+    expect(container.textContent).not.toContain("No trips published yet");
   });
 
   it("says so when the diary has published nothing, rather than showing an empty list", async () => {

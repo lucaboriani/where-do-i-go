@@ -137,3 +137,22 @@ the zoom to make it happen.
 `"vertical-perspective"` is the value that stays a sphere at every zoom, and it
 is deliberately not used here. The landing page wants a globe at rest, not a
 globe forever.
+
+## The frame class is not in a client module
+
+`MAP_FRAME_CLASS` used to live in `components/public/trip-map/trip-map.tsx`, and
+both server pages imported it from there to reserve the map frame inside a
+`<Suspense>` fallback. `trip-map.tsx` is `"use client"` and is that folder's only
+module, so importing one string from it pulled `TripMap`, `useMapLayers`,
+`useMapMarkers` and `useMapHighlight` into the importing page's **eager** chunk —
+a component the page never renders.
+
+Measured on the build of 2026-09-14, when `app/(public)/page.tsx` acquired the
+import: the landing route's own chunk was 9.9 kB gz and contained `Trip map` and
+`trip-legs` strings, against 5.9 kB for the trip route's real map chunk. About
+4 kB of dead code, against 7.2 kB of headroom under the public budget.
+
+So the constant lives here, in a module with no React in it, and both
+`trip-map.tsx` and `diary-map.tsx` import it from here too. `trip-map.tsx` does
+NOT re-export it: a re-export is a second route back to the client module, and
+the next page to reach for it would pay the 4 kB again in silence.

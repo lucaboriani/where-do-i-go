@@ -3,8 +3,8 @@ import DiaryMap from "@/components/public/diary-map";
 import MapSheet from "@/components/public/map-sheet";
 import TripHighlightProvider from "@/components/public/trip-highlight";
 import TripList, { type TripListItem } from "@/components/public/trip-list";
-import { MAP_FRAME_CLASS } from "@/components/public/trip-map";
 import { config } from "@/lib/config";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
 import { getDiary, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { describe as describeError } from "@/lib/pod/result";
 import type { TripPoint } from "@/lib/map/trips";
@@ -64,7 +64,10 @@ export async function DiaryContent() {
         </>
       )}
       {trips.length === 0 ? (
-        <p className="mt-8 text-muted-foreground">{"No trips published yet."}</p>
+        // Only when the diary itself read. publishedTripSlugs reads the diary
+        // and returns the SAME error, so an unreachable diary would otherwise
+        // say it is unavailable AND that it has published nothing.
+        diary.ok && <p className="mt-8 text-muted-foreground">{"No trips published yet."}</p>
       ) : (
         <TripList trips={trips} />
       )}

@@ -5,7 +5,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useEffect, useRef, useState } from "react";
-import { MAP_FRAME_CLASS } from "@/components/public/trip-map";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
 import { useMapInstance } from "@/hooks/map/use-map-instance";
 import { useMapTrips } from "@/hooks/map/use-map-trips";
 import { useTripHighlight } from "@/hooks/trip/highlight-context";

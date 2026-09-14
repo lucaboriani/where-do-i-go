@@ -7,7 +7,7 @@
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAP_FRAME_CLASS } from "@/components/public/trip-map";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
 import type { MapInstanceOptions } from "@/hooks/map/use-map-instance";
 import type { HighlightValue } from "@/hooks/trip/highlight-context";
 import type { TripPoint } from "@/lib/map/trips";

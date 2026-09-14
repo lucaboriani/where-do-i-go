@@ -4,6 +4,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useEffect, useRef, useState } from "react";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
 import { type Bbox } from "@/lib/map/view";
 import type { IndexEntry } from "@/lib/pod/schema";
 import { useMapInstance } from "@/hooks/map/use-map-instance";
@@ -13,10 +14,6 @@ import { useMapHighlight } from "@/hooks/map/use-map-highlight";
 import { useTripHighlight } from "@/hooks/trip/highlight-context";
 
 type MapLibreMap = import("maplibre-gl").Map;
-
-// The PANE owns the position now; the frame just fills it.
-// ./notes.md#the-frame-is-reserved-by-the-server-and-the-class-is-shared
-export const MAP_FRAME_CLASS = "size-full bg-surface";
 
 // A stable identity, not an inline `= []` default: the latter allocates a
 // fresh array every render, which would re-run useMapLayers's effect on

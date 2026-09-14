@@ -11,9 +11,10 @@ import type { IndexEntry } from "@/lib/pod/schema";
 import Layout, { MapForTrip } from "./layout";
 import { getTripIndex } from "@/lib/pod/cached";
 
+// The constant is NOT mocked: it lives in lib/map/frame.ts precisely so a
+// server page can reach it without this client module. ../../../../lib/map/notes.md#the-frame-class-is-not-in-a-client-module
 vi.mock("@/components/public/trip-map", () => ({
   default: () => <div data-testid="trip-map" />,
-  MAP_FRAME_CLASS: "size-full bg-surface",
 }));
 
 vi.mock("@/lib/pod/cached", () => ({

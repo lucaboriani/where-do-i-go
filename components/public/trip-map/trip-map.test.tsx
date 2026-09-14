@@ -9,7 +9,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HighlightValue } from "@/hooks/trip/highlight-context";
 import type { IndexEntry } from "@/lib/pod/schema";
-import TripMap, { MAP_FRAME_CLASS } from "./trip-map";
+import { MAP_FRAME_CLASS } from "@/lib/map/frame";
+import TripMap from "./trip-map";
 
 const instances: { active: boolean }[] = [];
 // A sentinel, not null: proves the hooks receive THIS map instance, not just
