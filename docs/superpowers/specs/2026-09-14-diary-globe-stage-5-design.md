@@ -143,10 +143,11 @@ passes no `bbox` to `useMapInstance` and makes no camera call at all — the cam
 
 What this section used to specify was a load-time fit of `centresBbox`, the box enclosing every
 placed trip's centre. A reviewer computed it before it was written: naive `Math.min`/`Math.max`
-over longitudes has no antimeridian handling, so the two seeded centres give a box **212.6° wide
-running the long way round via Africa** (−72.886 to 139.7034 on the plan's own fixture pair;
-207.9° on the centres the seed actually writes). The camera would have centred on neither trip,
-somewhere over the Indian Ocean, which reads as a broken map rather than an overview. A correct
+over longitudes has no antimeridian handling, so the seed's two centres (`134.8414` and
+`-73.0119`) give a box **207.9° wide running the long way round via Africa** — 212.6° on the
+plan's own fixture pair, which used the entry coordinates rather than the centres. The camera
+would have centred on neither trip but on inland East Africa, around 33°E and −7°, which reads as
+a broken map rather than an overview. A correct
 version would have to choose the short way round and then wrap — real work, for a view no one had
 asked for. It was dropped, `centresBbox` was never written, and passing a `bbox` to `useMapInstance`
 as well would in any case have raced the click handler's own `fitBounds` on `style.load`.

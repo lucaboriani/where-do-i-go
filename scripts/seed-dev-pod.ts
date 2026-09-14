@@ -161,8 +161,6 @@ await put(
 // The second published trip, a hemisphere from the first: two markers a few
 // degrees apart exercise nothing the globe on `/` does — no fit worth watching
 // and no fly-to. ./notes.md#deriving-a-second-trip-from-the-fixtures
-// A third trip 90-180° east would change what the far side occludes, which
-// `e2e/diary-globe.spec.ts` asserts: e2e/notes.md#the-far-side-is-the-projection-assertion
 await put(
   "travel/trips/2025-patagonia/trip.ttl",
   derive(TRIP, [
@@ -190,7 +188,9 @@ await put(
 );
 // Centre and bbox are what the globe reads (§7.4); both come from the two
 // entries below rather than from anywhere else, so the marker lands on the
-// trip it claims.
+// trip it claims. Any third trip placed near either asserted coordinate, or
+// near the limb, breaks the far-side occlusion case:
+// e2e/notes.md#the-far-side-is-the-projection-assertion
 await put(
   "travel/trips/2025-patagonia/entries.ttl",
   `${derive(INDEX, [

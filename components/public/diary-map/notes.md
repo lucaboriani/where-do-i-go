@@ -19,14 +19,14 @@ against.
 ## The camera belongs to the trips hook, not the instance
 
 No `bbox` reaches `useMapInstance` here. The load view is maplibre's own default camera
-constrained to the pane — `MAP_STYLE_URL` is unset in `.env.local`, `.env.example` and
-`e2e/environment.ts`, and `buildBasemapStyle()` declares no `center` and no `zoom` — and only a
-marker click moves it, through `useMapTrips`'s `fitBounds` on that trip's own bbox.
+constrained to the pane — `lib/config.ts`'s `mapStyleUrl` is `undefined` unless `MAP_STYLE_URL`
+overrides it, so the style is `buildBasemapStyle()`, which declares no `center` and no `zoom` —
+and only a marker click moves it, through `useMapTrips`'s `fitBounds` on that trip's own bbox.
 
 The design spec's §7 originally opened on `centresBbox`, the box enclosing every placed trip's
 centre. That was ruled out before this task: naive min/max over longitudes has no antimeridian
-handling, so the two centres give a box 212.6° wide running the long way round via Africa, and a
-camera centred on neither trip. Passing a `bbox` here as well would also mean two camera calls
+handling, so the two centres give a box over 200° wide running the long way round via Africa —
+207.9° on the seed's centres, 212.6° on the plan's fixtures — centred on neither trip. Passing a `bbox` here as well would also mean two camera calls
 racing on `style.load`. So the component makes no camera call at all, and adding one to it is the
 wrong place — the camera is `useMapTrips`'s, whole.
 

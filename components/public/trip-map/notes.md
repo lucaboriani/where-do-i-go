@@ -19,8 +19,9 @@ that, by asserting the canvas is absent before the scroll.
 
 ## The frame is reserved by the server, and the class is shared
 
-`MAP_FRAME_CLASS` is declared in `lib/map/frame.ts` and has four importers:
-this component, `DiaryMap`, and both server pages' Suspense fallbacks — it is
+`MAP_FRAME_CLASS` is declared in `lib/map/frame.ts` and has four production
+importers: this component, `DiaryMap`, and both server pages' Suspense
+fallbacks, plus the two tests that assert against it — it is
 neither declared nor re-exported here, and moved out on 2026-09-14 because one
 string imported from this `"use client"` module cost `/` 4 kB of eager chunk
 (`lib/map/notes.md`, "The frame class is not in a client module"). A layout can
@@ -29,7 +30,7 @@ depend on the data — so the page reserves the map's space before any JavaScrip
 runs and nothing shifts when the instance arrives.
 
 Two copies of that class string would drift, and the drift would be a layout
-shift that no test asserts against. One declaration, four call sites.
+shift that no test asserts against. One declaration, four production call sites.
 
 ## Navigating between trips, measured
 

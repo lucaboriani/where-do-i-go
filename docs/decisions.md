@@ -731,9 +731,12 @@ true of a trip on the diary globe: there is no thumbnail, and a diary with fifty
 not a problem this project has.
 
 So the trips source is one GeoJSON source with `promoteId: "slug"` and a `circle` layer, and the
-active trip is painted with `setFeatureState` — the mechanism §30 already uses for clusters and 4a
-uses for legs. Hover is layer-scoped, `map.on("mouseenter", TRIPS_LAYER, …)`, rather than a
-listener per element, because there are no elements to hang one on.
+active trip is painted with `setFeatureState`: GL is the shape §30 already chose for clusters, and
+`setFeatureState` is what **4a proved on legs**. §30's clusters do neither half — static paint, a
+`has point_count` filter, and no `promoteId` on their source — so feature state on a cluster id is
+a silent no-op, which is the bug 4a shipped on legs before the id was promoted. Hover is
+layer-scoped, `map.on("mouseenter", TRIPS_LAYER, …)`, rather than a listener per element, because
+there are no elements to hang one on.
 
 **Consequences.** Two marker mechanisms exist in one codebase and a reader must know which surface
 uses which; the criterion above is the rule, not the file they happened to open first. A trip

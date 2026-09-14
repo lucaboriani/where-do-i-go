@@ -1811,9 +1811,10 @@ statically importing the first three.
         stated cost.
       - **There is no initial camera fit, and the spec was corrected rather than the code.** §6 and
         §7 specified `centresBbox` and a load-time `fitBounds` over every trip's centre. Naive
-        min/max over longitudes has no antimeridian handling, so the two centres give a box 212.6°
-        wide running the long way round via Africa — a camera centred on neither trip, over the
-        Indian Ocean. It was dropped before it was written, `centresBbox` exists nowhere, and the
+        min/max over longitudes has no antimeridian handling, so the two centres give a box over
+        200° wide running the long way round via Africa — 207.9° on the centres the seed writes,
+        212.6° on the plan's own fixtures — centred on neither trip but on inland East Africa,
+        around 33°E. It was dropped before it was written, `centresBbox` exists nowhere, and the
         globe opens on maplibre's default camera until a marker click flies it.
       - **`MAP_FRAME_CLASS` moved to `lib/map/frame.ts`.** Importing one string from
         `components/public/trip-map` — `"use client"`, and that folder's only module — put `TripMap`
@@ -1841,8 +1842,9 @@ statically importing the first three.
         `CLAUDE.md` names. What would have to exist first is a trip-to-trip link, which is a
         product decision nobody has taken — this list stops predicting a stage that will close it.
       - **Open: the far-side assertion depends on the seed's geometry.** A third published trip
-        90–180° east could change what sits on the far side without changing a line of assertion
-        text. `scripts/seed-dev-pod.ts` carries a pointer at the trip that supplies it.
+        near either asserted coordinate, or near the limb of the pinned `[0, 0]` camera, breaks the
+        occlusion case without changing a line of assertion text. `scripts/seed-dev-pod.ts` carries
+        a pointer at the index block the assertion's coordinates actually come from.
       - **Open, inherited and untouched**: iOS Safari is still unverified, no e2e case asserts the
         desktop layout on a first paint, the camera fit is still not adjusted for the sheet, and
         4b's three named follow-ups stand.
