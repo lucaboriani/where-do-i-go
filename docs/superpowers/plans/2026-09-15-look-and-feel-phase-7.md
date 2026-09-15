@@ -49,17 +49,17 @@ Self-host Syne and DM Mono via `next/font/google`, point the three font custom p
 
 - [ ] **Step 1: Write the failing drift test**
 
-`lib/fonts.test.ts` — modelled on `lib/map/tokens.test.ts` (reads `globals.css` from disk, regex-scrapes, asserts no drift):
+`lib/fonts.test.ts` — modelled on `lib/map/tokens.test.ts`. **It must NOT import `lib/fonts.ts`:** that module calls `next/font`'s `Syne()`/`DM_Mono()` at module scope, and `next/font/google` is a 0-byte stub outside Next's webpack/Turbopack build, so importing it throws `Syne is not a function` under Vitest (found during execution, 2026-09-15). Instead read `lib/fonts.ts` as text and confirm it declares the CSS variable names `globals.css` consumes — a configuration drift guard, never executing the loaders. Runtime application of the fonts is verified out-of-band by the implementer (the built `<html>` carries both `.variable` classes and preloads the woff2), consistent with spec §9's "the eye is the check, no screenshot tests".
 
 ```ts
-import { readFileSync } from "node:fs";
+import { readFileSync, globSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { globSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { syne, dmMono, FONT_CLASS } from "@/lib/fonts";
 
 const root = new URL("../", import.meta.url);
-const CSS = readFileSync(fileURLToPath(new URL("app/globals.css", root)), "utf8");
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, root)), "utf8");
+const CSS = read("app/globals.css");
+const FONTS = read("lib/fonts.ts");
 
 describe("font tokens against app/globals.css", () => {
   it("points --font-sans at the Syne variable, not at itself", () => {
@@ -67,30 +67,30 @@ describe("font tokens against app/globals.css", () => {
     expect(CSS).not.toMatch(/--font-sans:\s*var\(--font-sans\)/);
   });
 
-  it("points --font-mono at the DM Mono variable", () => {
+  it("points --font-mono at the DM Mono variable and drops the geist token", () => {
     expect(CSS).toMatch(/--font-mono:\s*var\(--font-dm-mono\)/);
     expect(CSS).not.toMatch(/--font-geist-mono/);
   });
 
-  it("exposes the variable names the loaders generate", () => {
-    expect(syne.variable).toBe("--font-syne");
-    expect(dmMono.variable).toBe("--font-dm-mono");
-    expect(FONT_CLASS).toContain(syne.variable);
-    expect(FONT_CLASS).toContain(dmMono.variable);
+  it("declares in lib/fonts.ts the exact variable names globals.css consumes", () => {
+    expect(FONTS).toMatch(/variable:\s*["']--font-syne["']/);
+    expect(FONTS).toMatch(/variable:\s*["']--font-dm-mono["']/);
   });
 
   it("declares the families once — no hard-coded font-family in app or components", () => {
     const files = globSync("{app,components}/**/*.{ts,tsx,css}", {
       cwd: fileURLToPath(root),
-    }).filter((f) => !f.includes("components/ui/"));
+    }).filter((f) => !f.includes("components/ui/") && f !== "app/globals.css");
     for (const rel of files) {
-      const src = readFileSync(fileURLToPath(new URL(rel, root)), "utf8");
+      const src = read(rel);
       expect(src, rel).not.toMatch(/font-family\s*:/);
       expect(src, rel).not.toMatch(/["'`](Syne|DM Mono)["'`]/);
     }
   });
 });
 ```
+
+If `globSync` from `node:fs` is unavailable or warns in the pinned Node 22, fall back to a small recursive `readdirSync` walk — the assertion set is unchanged.
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -277,13 +277,7 @@ After the existing `@layer base { ... }` block (currently ending at line 125), a
 .precision.exact::before { border-radius: 2px; opacity: 1; }
 ```
 
-Note: `font-family` appears here in `globals.css`, but the Task 1 drift test only scans `.ts/.tsx/.css` under `app/` and `components/` — `app/globals.css` IS scanned. So the drift test's `font-family` assertion must exempt `globals.css` (the one place families are wired). Update `lib/fonts.test.ts` Step-1 glob filter to also drop `app/globals.css`:
-
-```ts
-    }).filter((f) => !f.includes("components/ui/") && f !== "app/globals.css");
-```
-
-Make that edit as part of this task and re-run `lib/fonts.test.ts` to keep it green.
+Note: `font-family` legitimately appears in `globals.css` (the one place families are wired), and the Task 1 drift test already exempts `app/globals.css` from its no-hard-coded-`font-family` scan — so no test edit is needed here (this was folded into the Task 1 rewrite on 2026-09-15).
 
 - [ ] **Step 4: Write the footer component and barrel**
 
