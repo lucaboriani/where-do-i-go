@@ -287,6 +287,7 @@ const eslintConfig = defineConfig([
       "lib/place/**/*.ts",
       "lib/config.ts",
       "lib/vocab.ts",
+      "lib/fonts.ts",
       "lib/pod/read.ts",
       "lib/pod/cached.ts",
       "lib/pod/result.ts",

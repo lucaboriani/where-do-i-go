@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { config } from "@/lib/config";
+import { FONT_CLASS } from "@/lib/fonts";
 import "../globals.css";
 
 /** Public root layout, separate from the studio's on purpose: separate root
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={FONT_CLASS}>
       <body>{children}</body>
     </html>
   );

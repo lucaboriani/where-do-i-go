@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FONT_CLASS } from "@/lib/fonts";
 import "./globals.css";
 
 /** Root not-found, for paths that match no route group at all. It renders its
@@ -7,7 +8,7 @@ import "./globals.css";
  *  paths fall back to Next's stock 404 and the site has two 404 designs. */
 export default function RootNotFound() {
   return (
-    <html lang="en">
+    <html lang="en" className={FONT_CLASS}>
       <body>
         <main className="mx-auto max-w-2xl p-8">
           <h1 className="text-2xl">Not found</h1>

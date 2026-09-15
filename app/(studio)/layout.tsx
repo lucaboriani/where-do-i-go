@@ -1,3 +1,4 @@
+import { FONT_CLASS } from "@/lib/fonts";
 import "../globals.css";
 
 /**
@@ -9,7 +10,7 @@ export const metadata = { robots: { index: false, follow: false } };
 
 export default function StudioLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={FONT_CLASS}>
       <body>{children}</body>
     </html>
   );
