@@ -163,7 +163,7 @@ Port the mockup type classes into `globals.css` and add the one shared component
 - Create: `components/public/site-footer/index.ts`
 - Create: `components/public/site-footer/site-footer.test.tsx`
 - Create: `components/public/site-footer/notes.md`
-- Modify: `app/(public)/layout.tsx` (render `<SiteFooter/>` after `{children}`)
+- (The `SiteFooter` is NOT rendered in the layout — every public page is inside a fixed map shell that would hide it; Tasks 3/4/5 render it at each page's content end. Corrected 2026-09-15.)
 
 **Interfaces:**
 - Consumes: the font tokens from Task 1.
@@ -302,9 +302,9 @@ export { SiteFooter } from "./site-footer";
 
 `components/public/site-footer/notes.md`: one line — `# SiteFooter` and a pointer to spec §5 (the status line is mono, deadpan, from the reference).
 
-- [ ] **Step 5: Render it in the public layout**
+- [ ] **Step 5: Do NOT render it in the layout**
 
-In `app/(public)/layout.tsx`, import `{ SiteFooter }` and `{ config }` (already imported) and render `<SiteFooter siteName={config.siteName} />` after `{children}` inside `<body>`.
+The `SiteFooter` is placed per-page at content end by Tasks 3/4/5 (`EntryContent`, `TripContent`, `DiaryContent`), inside the `<main>`. A layout-level footer would sit behind the fixed map shell (`.trip-map-pane`/`.trip-sheet` are `position: fixed; inset: 0`). Task 2 delivers only the component + CSS; it renders nowhere yet, and its unit test exercises it directly.
 
 - [ ] **Step 6: Run the tests**
 
@@ -361,7 +361,7 @@ Expected: FAIL — `text-2xl`, not `display`; the date has no `data` class.
 
 - [ ] **Step 3: Restyle `EntryContent`**
 
-Replace the inline markup (current lines 74-90) with the display masthead + meta row + prose, mirroring `.mockups/entry.html`. The h1 becomes `<h1 className="display">`; wrap the page body in `.wrap`; the date/place/precision go into a `<dl className="meta-row">` with mono `dt`/`dd`; the article body becomes `<div className="prose"> ... </div>` with `whitespace-pre-line` kept. Render precision with `<span className={precisionMeters === undefined ? "precision exact" : "precision"}>`. Keep the "Back to the trip" link but restyle it as a mono `.label` + Syne 700 link per the mockup's `.nextprev`. Do NOT add coordinates unless the read model already exposes them here.
+Replace the inline markup (current lines 74-90) with the display masthead + meta row + prose, mirroring `.mockups/entry.html`. The h1 becomes `<h1 className="display">`; wrap the page body in `.wrap`; the date/place/precision go into a `<dl className="meta-row">` with mono `dt`/`dd`; the article body becomes `<div className="prose"> ... </div>` with `whitespace-pre-line` kept. Render precision with `<span className={precisionMeters === undefined ? "precision exact" : "precision"}>`. Keep the "Back to the trip" link but restyle it as a mono `.label` + Syne 700 link per the mockup's `.nextprev`. Do NOT add coordinates unless the read model already exposes them here. **Render `<SiteFooter siteName={config.siteName} />` at the END of the content** (after the nav), inside the `<main>` — the mockup's `footer.status` sits at the end of the article, and a layout-level footer would sit behind the fixed map shell.
 
 - [ ] **Step 4: Run the test and the entry e2e**
 
@@ -417,6 +417,8 @@ Expected: FAIL.
 
 `trip-timeline.tsx`: title link → Syne interface weight (drop the underline; keep the accent on hover/active only); date `<time className="data">`; travel mode `<span className="label">` (replaces `font-mono text-xs uppercase text-muted-foreground`); precision `<span className={precisionMeters === undefined ? "precision" : "precision exact"}>` around the label. Keep the `list-decimal` numbering and the `data-active` surface treatment.
 
+`TripContent` also renders `<SiteFooter siteName={config.siteName} />` at the END of the column content (after the timeline), inside the `<main>` — matching `.mockups/trip.html`'s footer inside the scrolling column; NOT in the layout (the fixed map shell would hide it).
+
 - [ ] **Step 4: Run tests + the trip e2e-relevant unit cases**
 
 Run: `npx vitest run components/public/trip-timeline "app/(public)/trips/[slug]"`
@@ -465,7 +467,7 @@ Expected: FAIL — the list is currently `list-decimal`.
 - [ ] **Step 3: Restyle**
 
 `trip-list.tsx`: change `<ol className="mt-8 list-inside list-decimal space-y-1">` to an unnumbered `<ul>` (spec §5 — a set). Trip name in Syne interface weight; dates `<span className="data">`. Keep `TripRow`'s hover/focus highlight.
-`DiaryContent`: `<h1 className="display">` for the diary title; description as muted interface text; render `<SiteFooter siteName={...} status="…" />` only if the layout footer is not already sufficient (avoid a double footer — the layout renders one globally, so `DiaryContent` should NOT add a second; instead pass a per-page status up if desired, otherwise leave the global footer). `DiarySkeleton` height classes stay.
+`DiaryContent`: `<h1 className="display">` for the diary title; description as muted interface text; render `<SiteFooter siteName={config.siteName} />` at the END of the content (after the trip list), inside the `<main>` — NOT in the layout. Every public page renders inside a fixed map shell (`.trip-map-pane`/`.trip-sheet` are `position: fixed; inset: 0`), so a layout-level footer sits behind the map; the mockups place the status line at content end (corrected 2026-09-15, superseding the Task 2 "global footer" text). `DiarySkeleton` height classes stay.
 
 - [ ] **Step 4: Run tests**
 
