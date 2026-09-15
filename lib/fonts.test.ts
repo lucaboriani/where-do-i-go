@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, globSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { globSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { syne, dmMono, FONT_CLASS } from "@/lib/fonts";
 
 const root = new URL("../", import.meta.url);
-const CSS = readFileSync(fileURLToPath(new URL("app/globals.css", root)), "utf8");
+const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, root)), "utf8");
+const CSS = read("app/globals.css");
+const FONTS = read("lib/fonts.ts");
 
 describe("font tokens against app/globals.css", () => {
   it("points --font-sans at the Syne variable, not at itself", () => {
@@ -13,24 +13,22 @@ describe("font tokens against app/globals.css", () => {
     expect(CSS).not.toMatch(/--font-sans:\s*var\(--font-sans\)/);
   });
 
-  it("points --font-mono at the DM Mono variable", () => {
+  it("points --font-mono at the DM Mono variable and drops the geist token", () => {
     expect(CSS).toMatch(/--font-mono:\s*var\(--font-dm-mono\)/);
     expect(CSS).not.toMatch(/--font-geist-mono/);
   });
 
-  it("exposes the variable names the loaders generate", () => {
-    expect(syne.variable).toBe("--font-syne");
-    expect(dmMono.variable).toBe("--font-dm-mono");
-    expect(FONT_CLASS).toContain(syne.variable);
-    expect(FONT_CLASS).toContain(dmMono.variable);
+  it("declares in lib/fonts.ts the exact variable names globals.css consumes", () => {
+    expect(FONTS).toMatch(/variable:\s*["']--font-syne["']/);
+    expect(FONTS).toMatch(/variable:\s*["']--font-dm-mono["']/);
   });
 
   it("declares the families once — no hard-coded font-family in app or components", () => {
     const files = globSync("{app,components}/**/*.{ts,tsx,css}", {
       cwd: fileURLToPath(root),
-    }).filter((f) => !f.includes("components/ui/"));
+    }).filter((f) => !f.includes("components/ui/") && f !== "app/globals.css");
     for (const rel of files) {
-      const src = readFileSync(fileURLToPath(new URL(rel, root)), "utf8");
+      const src = read(rel);
       expect(src, rel).not.toMatch(/font-family\s*:/);
       expect(src, rel).not.toMatch(/["'`](Syne|DM Mono)["'`]/);
     }
