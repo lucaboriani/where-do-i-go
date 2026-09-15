@@ -124,6 +124,83 @@
   }
 }
 
+/* Phase-7 type scale. Ported from .mockups/_shared.css; the mockups are the
+   design record. Plain classes, not @apply — Tailwind v4 is CSS-first and the
+   arbitrary-value ban keeps these out of className. Spec §3. */
+.wrap { max-width: 78rem; margin-inline: auto; padding-inline: clamp(1.25rem, 4vw, 3rem); }
+.prose { max-width: 66ch; }
+.prose p { margin: 0 0 1.6em; }
+
+.display {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(2.75rem, 9vw, 7rem);
+  line-height: 0.94;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.display-sm {
+  margin: 0;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.data {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  color: var(--color-text-muted);
+}
+.data-lg { font-family: var(--font-mono); font-size: 0.95rem; color: var(--color-text-muted); }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+}
+
+.aside { font-family: var(--font-mono); font-size: 0.78rem; color: var(--color-text-muted); opacity: 0.75; }
+.aside::before { content: "// "; color: var(--color-accent-deep); }
+
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin-top: 6rem;
+  padding: 1.25rem clamp(1.25rem, 4vw, 3rem) calc(3rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-hairline);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2.5rem;
+  margin-top: clamp(1.5rem, 4vh, 2.25rem);
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-hairline);
+}
+.meta-row dt { margin: 0 0 0.3rem; font-family: var(--font-mono); font-size: 0.68rem;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-deep); }
+.meta-row dd { margin: 0; font-family: var(--font-mono); font-size: 0.86rem; color: var(--color-text-muted); }
+
+/* A fuzzed coordinate is a soft circle, an exact one a square. The shape is the
+   claim the data makes. docs/design-brief.md; lib/place/precision.ts owns decimals. */
+.precision { display: inline-flex; align-items: center; gap: 0.45rem; }
+.precision::before {
+  content: ""; width: 9px; height: 9px; flex: none;
+  border: 1.5px solid var(--color-accent); border-radius: 50%; opacity: 0.85;
+}
+.precision.exact::before { border-radius: 2px; opacity: 1; }
+
 /* The trip shell and its sheet. GEOMETRY, not tokens: calc() over viewport
    units, which the arbitrary-value ban keeps out of className, and the
    breakpoint is spelled ONCE here rather than half here and half in md:.
