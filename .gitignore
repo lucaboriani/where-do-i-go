@@ -64,3 +64,6 @@ where-i-go.zip
 
 # Local Community Solid Server data (pnpm/npm `pod:dev`). Disposable.
 .pod-data/
+
+# phase 7 design mockups, throwaway
+.mockups/
