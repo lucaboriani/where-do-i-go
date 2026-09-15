@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { SiteFooter } from "@/components/public/site-footer";
 import { config } from "@/lib/config";
 import { FONT_CLASS } from "@/lib/fonts";
 import "../globals.css";
@@ -20,10 +19,7 @@ export const metadata: Metadata = {
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={FONT_CLASS}>
-      <body>
-        {children}
-        <SiteFooter siteName={config.siteName} />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

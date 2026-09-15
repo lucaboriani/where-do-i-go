@@ -124,9 +124,9 @@
   }
 }
 
-/* Phase-7 type scale. Ported from .mockups/_shared.css; the mockups are the
-   design record. Plain classes, not @apply — Tailwind v4 is CSS-first and the
-   arbitrary-value ban keeps these out of className. Spec §3. */
+/* Phase-7 type scale: type classes from .mockups/_shared.css, .meta-row and
+   .precision from .mockups/entry.html. Plain classes, not @apply — Tailwind v4
+   is CSS-first and arbitrary values are banned outside className. Spec §3. */
 .wrap { max-width: 78rem; margin-inline: auto; padding-inline: clamp(1.25rem, 4vw, 3rem); }
 .prose { max-width: 66ch; }
 .prose p { margin: 0 0 1.6em; }
