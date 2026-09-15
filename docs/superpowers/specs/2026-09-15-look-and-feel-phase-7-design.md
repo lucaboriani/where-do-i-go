@@ -95,8 +95,7 @@ rounded cards with the same shadow.
 ## 6. The route and the markers — agreed against the running app
 
 `.mockups/route.html` compares the current treatment with the proposal over a screenshot of the
-real map. The proposal is adopted, provisionally: the legs stay for now, and removing them entirely
-remains open (§10).
+real map. The proposal is adopted, and the legs are kept — that question is closed, not deferred (§10).
 
 - **The leg is an arc, not a chord.** On the trip page it reads as a journey rather than a vector.
   On the globe it is simply correct: the shortest path between two distant points is a great
@@ -162,10 +161,12 @@ Being honest about that is the point of this section.
 
 ## 10. Open, and deliberately not decided here
 
-- **Whether the legs survive at all.** The numbered timeline already carries the sequence, and a map
-  with no leg answers "where" rather than implying it can answer "how" from data it does not have.
-  Deleting them would remove `buildLegs`, the dash-by-travel-mode expression and the leg feature
-  state. Kept for now; revisit with the globe in front of you.
+- ~~Whether the legs survive at all.~~ **Decided 2026-09-15: the legs stay.** The question was
+  whether a line between two entries claims more than the data supports — there is no `dy:track`, so
+  the app knows both endpoints and nothing in between. The arc in §6 is the answer: it reads as a
+  connection rather than as a route you could follow, and the travel-mode dashes carry information
+  that would otherwise appear only as a chip in the list. `buildLegs`, the dash expression and the
+  leg feature state all stay.
 - **The photographs are unjudged.** The mockups use CSS gradients, so the full-bleed figure — the
   thing the whole design bet rests on — has not actually been seen. Settle it with real images
   before the entry page is built, not after.
