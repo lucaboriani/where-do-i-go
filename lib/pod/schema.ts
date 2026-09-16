@@ -79,6 +79,17 @@ export const Photo = z.object({
 });
 export type Photo = z.infer<typeof Photo>;
 
+export const Section = z
+  .object({
+    text: LangText.optional(),
+    photos: z.array(Photo).max(2),
+    sortOrder: z.number().int(),
+  })
+  .refine((s) => s.text !== undefined || s.photos.length > 0, {
+    message: "a section needs text or at least one photo",
+  });
+export type Section = z.infer<typeof Section>;
+
 export const Trip = z.object({
   iri: z.url(),
   slug: z.string().min(1),
@@ -113,6 +124,9 @@ export const Entry = z.object({
   travelModeFrom: TravelMode.optional(),
   place: Place.optional(),
   photos: z.array(Photo),
+  // Legacy `articleBody`/`photos` stay until Stage 3 removes them; new content
+  // is `sections`. See ./notes.md#sections-supersede-articlebody-and-photos
+  sections: z.array(Section),
   tags: z.array(z.string()),
   /**
    * NOT redundant with `datePublished` (§7.3), and both were missing until

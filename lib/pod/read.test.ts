@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { Parser } from "n3";
 import { readDiary, readEntry, readTrip, readTripIndex } from "@/lib/pod/read";
+import { SCHEMA_VERSION } from "@/lib/vocab";
 // The §6.4 budget itself, so the probes below move with it rather than
 // hard-coding 1200 and quietly slipping under a raised budget. A test file is
 // under neither import fence, so it may reach into studio-only lib/media.
@@ -583,5 +584,69 @@ describe("readDiary", () => {
     if (!r.ok) return;
     expect(r.value.title?.value).toBe("Somewhere Else");
     expect(r.value.trips).toHaveLength(2);
+  });
+});
+
+describe("readEntry — sections", () => {
+  const sectioned = (body: string) => `
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix schema:  <https://schema.org/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix dy:      <https://example.org/ns/traveldiary#> .
+<#it> a schema:BlogPosting, dy:Entry ;
+    schema:headline "T"@en ;
+    dcterms:creator <https://me.solidcommunity.net/profile/card#me> ;
+    dy:schemaVersion ${SCHEMA_VERSION} ;
+    dy:slug "2026-03-29-arrival" ;
+    dy:status dy:Published ;
+${body}
+`;
+
+  it("reads sections in dy:sortOrder, not document order", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-2>, <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 ; schema:text "first"@en .
+<#section-2> a dy:Section ; dy:sortOrder 2 ; schema:text "second"@en .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.sections.map((s) => s.text?.value)).toEqual(["first", "second"]);
+  });
+
+  it("reads a two-photo section, photos ordered by sortOrder", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 ;
+    schema:image <#section-1-photo-2>, <#section-1-photo-1> .
+<#section-1-photo-1> a schema:ImageObject ; dy:sortOrder 1 ;
+    schema:contentUrl <../../../media/a/web.webp> ; schema:width 1600 ; schema:height 1067 .
+<#section-1-photo-2> a schema:ImageObject ; dy:sortOrder 2 ;
+    schema:contentUrl <../../../media/b/web.webp> ; schema:width 1600 ; schema:height 1067 .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.sections).toHaveLength(1);
+    // Order by sortOrder (2 before 1 in document order); assert the filename
+    // tail rather than the resolved absolute URL, which depends on the base.
+    expect(r.value.sections[0].photos.map((p) => p.contentUrl.split("/").slice(-2).join("/"))).toEqual([
+      "a/web.webp",
+      "b/web.webp",
+    ]);
+  });
+
+  it("reports a structured shape error for a section with neither text nor a photo", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("shape");
   });
 });
