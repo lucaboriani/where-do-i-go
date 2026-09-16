@@ -155,16 +155,18 @@ npm run format:check      # prettier, production code only
 **Start the Pod before `npm test`, not just before `npm run build`.** The Community Solid Server
 integration tests skip themselves when nothing answers on `localhost:3001` — correctly, as
 skips rather than vacuous passes. But `npm test` then reports green having never run
-`test/integration/pod-read.integration.test.ts` or
-`test/integration/pod-access.integration.test.ts` at all, and the list
+`test/integration/pod-read.integration.test.ts`,
+`test/integration/pod-access.integration.test.ts`, or
+`test/integration/pod-authoring.integration.test.ts` at all, and the list
 above put the Pod requirement only against `build`, six lines too late. With a Pod up they pass
 in a few seconds. They are real tests, not rot — which is precisely why a run that quietly omits
 them is the "half a check" this section warns about.
 
-**The two file names are the durable form of that, and a count is not.** This paragraph said "23
-of them" from 2026-09-04 until 2026-09-06, when the same two files ran 29 — the number moves
-every time either file gains a case, and it was never the point. If a third integration file
-appears, name it here; do not reintroduce a total.
+**The file names are the durable form of that, and a count is not.** This paragraph said "23
+of them" from 2026-09-04 until 2026-09-06, when two of the files ran 29 — the number moves
+every time any file gains a case, and it was never the point. `pod-authoring.integration.test.ts`
+joined the set on 2026-09-16 (the studio authoring/publishing ACL proof). If a fourth integration
+file appears, name it here; do not reintroduce a total.
 
 **An eleventh command, path-scoped rather than unconditional.** If the diff touches any of
 
