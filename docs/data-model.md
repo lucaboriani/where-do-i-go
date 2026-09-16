@@ -91,6 +91,7 @@ appears in §7 examples and in `vocab.ts`, nowhere else.
 - `dy:Diary` — the root object, one per Pod
 - `dy:Trip` — a trip; co-typed with `schema:TouristTrip`
 - `dy:Entry` — a diary entry; co-typed with `schema:BlogPosting`
+- `dy:Section` — an ordered part of an entry; its own text and up to two photos
 - `dy:TripIndex` — the denormalised read model for one trip
 - `dy:IndexEntry` — one row in that read model
 - `dy:PublicationStatus` — the class of publication states
