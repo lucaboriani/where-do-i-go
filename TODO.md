@@ -1938,11 +1938,25 @@ it.
       desktop overflows (bled photo onto the map; the `9vw` headline overflowing the 448px column) and
       an unstyled breadcrumb. Commits `878f2b7..162fdca`; all gates green; `size:public` unchanged at
       182.3–182.5 kB; e2e 23/23.
-- [ ] **Stage 3 — the studio section editor.** Section authoring (add / remove / reorder sections,
-      0–2 photos each); draft key `wig.draft.v2` → `v3`; then **remove the legacy `articleBody`/
-      `photos`** from `Entry` and the dead read/serialise/page code. Also closes the deferred gap: the
-      pre-sections editor writes new photos to legacy `entry.photos`, so a studio-CREATED entry has no
-      listing thumbnail until the editor writes photos into sections.
+- [x] **Stage 3a — the studio section editor** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3a-studio-editor.md`,
+      4 tasks, commits `9f55e65..5150733`). The editor authors an ordered `sections` list — each a text
+      field + 0–2 photos, with add / remove / move-up / move-down (up/down buttons, maintainer choice) —
+      replacing the single `story` textarea + flat photo pool. `EntryFormState`/reducer/`use-entry-form`,
+      the Draft (key `v2`→`v3`, `sections`), `use-entry-draft`, `use-entry-save` (`sectionsFor`, no more
+      `articleBody`/top-level `photos` write), `use-photo-pipeline` (per-section attach, 2-photo cap at
+      reducer+pipeline+UI), and the UI (new `sections-field`; `identity-fields` lost its story control)
+      all cut over. A ≥1-non-empty-section pre-flight was added. The photo GPS/EXIF-time still fills the
+      single entry-level coordinate/timestamp (unchanged). All gates green; `size:public` unchanged;
+      e2e 23/23. **Legacy `Entry.articleBody`/`photos` kept but UNWRITTEN — Stage 3b removes them.**
+- [ ] **Stage 3b — remove the legacy fields.** Drop `articleBody`/`photos` from the `Entry` Zod schema,
+      `lib/pod/read.ts` (stop parsing them), `lib/pod/entry-model.ts` (stop serialising the top-level
+      `schema:articleBody`/`schema:image`), and update the read/serialise/save tests + guardrails. Before
+      starting, confirm no local pre-sections (legacy) entry matters — editing one today already drops
+      its prose (migration was out of scope; fixtures are already sectioned; no live Pod). Needs a plan.
+- [ ] **Future (not Stage 3) — a studio EDIT surface.** The running studio can only CREATE: `studio-shell`
+      always mounts `EntryEditor` with no `initial`, and there is no entries list / `/studio/entries/[id]`
+      route. The edit-with-sections path is component-tested but unreachable in the app. Pre-existing,
+      predates the sectioned entry; needs its own task.
 
 ### Phase-7 Tasks 4–9 (independent of the sectioned entry; order with the maintainer)
 
