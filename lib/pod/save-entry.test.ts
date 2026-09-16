@@ -427,7 +427,15 @@ describe("serialiseEntry — the inverse of readEntry", () => {
 
     const subjects = new Set(quadsOf(ttl.value, ENTRY_URL).map((q) => q.subject.value));
     expect([...subjects].sort()).toEqual(
-      [`${ENTRY_URL}#it`, `${ENTRY_URL}#place`, `${ENTRY_URL}#address`, `${ENTRY_URL}#geo`, `${ENTRY_URL}#photo-1`].sort(),
+      [
+        `${ENTRY_URL}#it`,
+        `${ENTRY_URL}#place`,
+        `${ENTRY_URL}#address`,
+        `${ENTRY_URL}#geo`,
+        `${ENTRY_URL}#section-1`,
+        `${ENTRY_URL}#section-2`,
+        `${ENTRY_URL}#section-2-photo-1`,
+      ].sort(),
     );
   });
 
@@ -488,7 +496,7 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     expect(datatypeOf(oneObject(quads, `${ENTRY_URL}#it`, DY.schemaVersion))).toBe(XSD.integer);
     expect(datatypeOf(oneObject(quads, `${ENTRY_URL}#geo`, DY.precisionMeters))).toBe(XSD.integer);
     for (const predicate of [SCHEMA.width, SCHEMA.height, DY.sortOrder]) {
-      expect(datatypeOf(oneObject(quads, `${ENTRY_URL}#photo-1`, predicate))).toBe(XSD.integer);
+      expect(datatypeOf(oneObject(quads, `${ENTRY_URL}#section-2-photo-1`, predicate))).toBe(XSD.integer);
     }
   });
 
@@ -503,10 +511,10 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     const { quads } = await load();
     const it = `${ENTRY_URL}#it`;
     expect(languageOf(oneObject(quads, it, SCHEMA.headline))).toBe("en");
-    expect(languageOf(oneObject(quads, it, SCHEMA.articleBody))).toBe("en");
+    expect(languageOf(oneObject(quads, `${ENTRY_URL}#section-1`, SCHEMA.text))).toBe("en");
     expect(languageOf(oneObject(quads, `${ENTRY_URL}#place`, SCHEMA.name))).toBe("en");
     expect(languageOf(oneObject(quads, `${ENTRY_URL}#address`, SCHEMA.addressLocality))).toBe("en");
-    expect(languageOf(oneObject(quads, `${ENTRY_URL}#photo-1`, SCHEMA.caption))).toBe("en");
+    expect(languageOf(oneObject(quads, `${ENTRY_URL}#section-2-photo-1`, SCHEMA.caption))).toBe("en");
 
     // The negative half. A rule that tags everything is as wrong as one that
     // tags nothing: a slug is an identifier and a country code is a code, and
@@ -656,7 +664,9 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     expect(types(`${ENTRY_URL}#place`)).toEqual([SCHEMA.Place]);
     expect(types(`${ENTRY_URL}#address`)).toEqual([SCHEMA.PostalAddress]);
     expect(types(`${ENTRY_URL}#geo`)).toEqual([SCHEMA.GeoCoordinates]);
-    expect(types(`${ENTRY_URL}#photo-1`)).toEqual([SCHEMA.ImageObject]);
+    expect(types(`${ENTRY_URL}#section-1`)).toEqual([DY_CLASS.Section]);
+    expect(types(`${ENTRY_URL}#section-2`)).toEqual([DY_CLASS.Section]);
+    expect(types(`${ENTRY_URL}#section-2-photo-1`)).toEqual([SCHEMA.ImageObject]);
   });
 
   it("writes dy:status as an IRI, and a draft as dy:Draft", async () => {

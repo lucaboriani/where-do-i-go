@@ -244,5 +244,6 @@ export const XSD = {
 } as const;
 
 /** Bumped when the shape of a top-level resource changes. Checked on every
- *  read of a top-level resource, entries included (§11). */
-export const SCHEMA_VERSION = 1;
+ *  read of a top-level resource, entries included (§11). 2: entries carry
+ *  `schema:hasPart` sections instead of a single `schema:articleBody`. */
+export const SCHEMA_VERSION = 2;

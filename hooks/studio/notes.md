@@ -1223,6 +1223,17 @@ draft sat." An edit that rewrites the resource without them destroys them
 silently and permanently — the place and its (already fuzzed) coordinates, the
 photos, the original creator.
 
+`sections` joined this list the day schemaVersion 2 landed, and it is the one
+member this form cannot yet edit at all — there is no section UI, only the
+legacy `story` textarea feeding `articleBody`. A literal `[]` therefore is not
+"nothing changed," it is a delete: `dy:thumbnail` on the index row is sourced
+from `entry.sections`, not from `photos` (lib/pod/index-model.ts), so a plain
+edit through this form — headline only, say — would silently blank the
+listing's picture for an entry that still has one. Carrying `existing?.sections`
+through, the same as `created`, is the correct placeholder until Stage 3 builds
+the editing UI; discarding it is not a smaller version of that work, it is a
+different bug the tests in entry-editor.photos.test.tsx exist to catch.
+
 ## the timestamp is concatenated, never converted
 
 `occurredAt` is what the two controls hold, joined by `toOffsetDateTime`. Either

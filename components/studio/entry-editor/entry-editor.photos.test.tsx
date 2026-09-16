@@ -348,14 +348,17 @@ describe("entry editor — photos an edit did not touch", () => {
     const fake = fakeStudioSession();
     const entry = await specEntry();
 
-    // NON-VACUOUS: the fixture really does carry a photo to preserve. Without
-    // this the assertions below are about an entry that never had one.
-    expect(entry.photos, "the §7.3 fixture carries no photo to preserve").toHaveLength(1);
-    const kept = entry.photos[0]!;
-    expect(kept.dateCreated, "the fixture's photo carries no dateCreated").toBeDefined();
+    // NON-VACUOUS: the fixture really does carry a photo to preserve. It now
+    // lives on section-2 rather than the legacy `photos` shim (§7.3, Stage 1);
+    // moved into the shim slot here, which is the shape this pre-sections
+    // editor still reads — Stage 3 migrates it to sections.
+    const kept = entry.sections[1]?.photos[0];
+    expect(kept, "the §7.3 fixture carries no photo to preserve").toBeDefined();
+    expect(kept!.dateCreated, "the fixture's photo carries no dateCreated").toBeDefined();
+    const withPhoto: Entry = { ...entry, photos: [kept!] };
 
     await renderEditor(fake.session, {
-      initial: { entry, etag: '"entry-7"' },
+      initial: { entry: withPhoto, etag: '"entry-7"' },
       pipeline: fakePipeline().pipeline,
     });
 
@@ -455,14 +458,17 @@ describe("entry editor — a photo added to an entry that already has one", () =
     const fake = fakeStudioSession();
     const entry = await specEntry();
 
-    // NON-VACUOUS, both halves: there is a photo to preserve, and it carries the
-    // number the new one has to be placed after.
-    expect(entry.photos, "the §7.3 fixture carries no photo to preserve").toHaveLength(1);
-    const kept = entry.photos[0]!;
-    expect(kept.sortOrder, "the fixture's photo carries no sortOrder").toBe(1);
+    // NON-VACUOUS, both halves: there is a photo to preserve, and it carries
+    // the number the new one has to be placed after. It now lives on
+    // section-2 rather than the legacy `photos` shim (§7.3, Stage 1); moved
+    // into the shim slot here, the shape this pre-sections editor still reads.
+    const kept = entry.sections[1]?.photos[0];
+    expect(kept, "the §7.3 fixture carries no photo to preserve").toBeDefined();
+    expect(kept!.sortOrder, "the fixture's photo carries no sortOrder").toBe(1);
+    const withPhoto: Entry = { ...entry, photos: [kept!] };
 
     await renderEditor(fake.session, {
-      initial: { entry, etag: '"entry-7"' },
+      initial: { entry: withPhoto, etag: '"entry-7"' },
       pipeline: rig.pipeline,
     });
 
@@ -543,10 +549,14 @@ describe("entry editor — a photo added to an entry that already has one", () =
     );
 
     const entry = await specEntry();
+    // The fixture's one real photo now lives on section-2, not the legacy
+    // `photos` shim this pre-sections editor still reads (§7.3, Stage 1).
+    const seedPhoto = entry.sections[1]?.photos[0];
+    expect(seedPhoto, "the §7.3 fixture carries no photo to preserve").toBeDefined();
     const already: Entry = {
       ...entry,
       photos: [
-        { ...entry.photos[0]!, contentUrl: `${container}web.webp`, thumbnailUrl: `${container}thumb.webp` },
+        { ...seedPhoto!, contentUrl: `${container}web.webp`, thumbnailUrl: `${container}thumb.webp` },
       ],
     };
 
@@ -629,9 +639,13 @@ describe("entry editor — a photo added to an entry that already has one", () =
     const fake = fakeStudioSession();
 
     const entry = await specEntry();
+    // The fixture's one real photo now lives on section-2, not the legacy
+    // `photos` shim this pre-sections editor still reads (§7.3, Stage 1).
+    const seedPhoto = entry.sections[1]?.photos[0];
+    expect(seedPhoto, "the §7.3 fixture carries no photo to preserve").toBeDefined();
     const unnumbered: Entry = {
       ...entry,
-      photos: [{ ...entry.photos[0]!, sortOrder: undefined }],
+      photos: [{ ...seedPhoto!, sortOrder: undefined }],
     };
     expect(unnumbered.photos[0]!.sortOrder, "the carried photo still has a number").toBeUndefined();
 
