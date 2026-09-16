@@ -909,6 +909,7 @@ describe("publishTrip/unpublishTrip — the revalidate hook, wired (Task 2.3)", 
 
     expect(report.failed).toBeUndefined();
     expect(tags).toEqual([[TAGS.diary]]);
+    expect(report.completed).toEqual(["trip", "acl", "diary", "revalidate"]);
   });
 
   it("unpublishTrip stamps TAGS.diary through the injected hook on success", async () => {
@@ -928,6 +929,32 @@ describe("publishTrip/unpublishTrip — the revalidate hook, wired (Task 2.3)", 
 
     expect(report.failed).toBeUndefined();
     expect(tags).toEqual([[TAGS.diary]]);
+    expect(report.completed).toEqual(["trip", "acl", "diary", "revalidate"]);
+  });
+
+  it("D1 fix: a THROWING revalidate hook on publishTrip is surfaced, not swallowed", async () => {
+    // The Pod writes (trip/acl/diary) already happened — this must read as a
+    // partial success, exactly like save-entry.ts's own "revalidate" step,
+    // never as `report.failed` undefined with the cache silently stale.
+    const publishTrip = await loadPublish();
+    podFake({ diaryTrips: [OTHER_TRIP_IRI] });
+
+    const report = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+      revalidate: () => {
+        throw new Error("route handler said no");
+      },
+    });
+
+    expect(report.completed).toEqual(["trip", "acl", "diary"]);
+    expect(report.failed?.step).toBe("revalidate");
+    expect(report.failed?.error.kind).toBe("network");
+    expect(report.recovery).toBe("retry");
   });
 
   it("publishTrip with no revalidate hook still succeeds — the field is optional", async () => {
@@ -965,6 +992,7 @@ describe("saveTrip — the revalidate hook on the edit (update) path (Task 2.3)"
 
     expect(report.failed).toBeUndefined();
     expect(tags).toEqual([[TAGS.trip(SLUG)]]);
+    expect(report.completed).toEqual(["trip", "revalidate"]);
   });
 
   it("a create — even of a draft — calls the hook zero times", async () => {

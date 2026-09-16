@@ -19,7 +19,7 @@ import type { Status, Trip } from "./schema";
 
 /* --------------------------------------------------------------------- types */
 
-export type SaveTripStep = "container" | "trip" | "index" | "entriesContainer";
+export type SaveTripStep = "container" | "trip" | "index" | "entriesContainer" | "revalidate";
 
 export type SaveTripReport = {
   tripUrl: string;
@@ -165,14 +165,15 @@ export async function saveTrip(opts: SaveTripOptions): Promise<SaveTripReport> {
   // An update stops here: entries.ttl and entries/ already exist, and
   // rewriting either on every edit is exactly the blind overwrite §10 bans.
   if (!creating) {
-    if (opts.revalidate) {
-      await runTripRevalidation({
-        revalidate: opts.revalidate,
-        kind: "edit",
-        tripSlug: stamped.slug,
-        tripUrl: url,
-      });
-    }
+    if (!opts.revalidate) return { tripUrl: url, completed, recovery: "none", etag };
+    const revalidated = await runTripRevalidation({
+      revalidate: opts.revalidate,
+      kind: "edit",
+      tripSlug: stamped.slug,
+      tripUrl: url,
+    });
+    if (!revalidated.ok) return stoppedAt("revalidate", revalidated.error, "retry", etag);
+    completed.push("revalidate");
     return { tripUrl: url, completed, recovery: "none", etag };
   }
 
@@ -224,7 +225,7 @@ export async function reconcile(opts: ReconcileOptions): Promise<Result<AccessSt
 
 /* ------------------------------------------------------ publish / unpublish */
 
-export type PublishStep = "trip" | "acl" | "diary";
+export type PublishStep = "trip" | "acl" | "diary" | "revalidate";
 
 export type PublishTripReport = {
   tripUrl: string;
@@ -319,12 +320,14 @@ async function publishStatus(opts: PublishTripOptions, status: Status): Promise<
   completed.push("diary");
 
   if (opts.revalidate) {
-    await runTripRevalidation({
+    const revalidated = await runTripRevalidation({
       revalidate: opts.revalidate,
       kind: status === "published" ? "publish" : "unpublish",
       tripSlug: stamped.slug,
       tripUrl: url,
     });
+    if (!revalidated.ok) return stoppedAt("revalidate", revalidated.error, "retry", etag);
+    completed.push("revalidate");
   }
 
   return { tripUrl: url, completed, recovery: "none", etag };
