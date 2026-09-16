@@ -353,3 +353,19 @@ li[data-active] .row-title { color: var(--color-accent-bright); }
 
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(0.75rem, 2vw, 1.5rem); }
 @media (max-width: 40rem) { .pair { grid-template-columns: 1fr; } }
+
+/* Cross-document view transitions, browser-native and CSS-only (spec §7). Next
+   needs no config flag for this; same-document (next/link) transitions would
+   need React's <ViewTransition> component instead, which is JS, not CSS, so
+   it does not ship here — see docs/decisions.md and the Task 9 report. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

@@ -154,6 +154,7 @@ const REPO_TESTS = [
   "test/network-guard.test.ts",
   "test/seed-dev-pod.test.ts",
   "test/support/walk.test.ts",
+  "test/globals-view-transition.test.ts",
 ];
 
 function testsSitBesideSubjects(): string[] {

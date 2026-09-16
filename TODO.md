@@ -1964,15 +1964,18 @@ it.
 
 ### Phase-7 Tasks 4–9 (independent of the sectioned entry; order with the maintainer)
 
-- [ ] Task 4 — restyle the trip page (full-width masthead, quiet numbered timeline)
-- [ ] Task 5 — restyle the diary page; unnumber the trip list (a set, not a sequence)
-- [ ] Task 6 — the route leg becomes a fading great-circle arc: no casing, no dash (decisions §34–35)
-- [ ] Task 7 — restyle the markers: 26px, photograph fills them, arrival gets a soft halo (§36)
-- [ ] Task 8 — bring the diary-globe trip points into the quieter language
-- [ ] Task 9 — CSS-first page view transitions (reduced-motion opt-out), record §34–36, phase close
+- [x] Task 4 — restyle the trip page (full-width masthead, quiet numbered timeline)
+- [x] Task 5 — restyle the diary page; unnumber the trip list (a set, not a sequence)
+- [x] Task 6 — the route leg becomes a fading great-circle arc: no casing, no dash (decisions §34–35)
+- [x] Task 7 — restyle the markers: 26px, photograph fills them, arrival gets a soft halo (§36)
+- [x] Task 8 — bring the diary-globe trip points into the quieter language
+- [x] Task 9 — CSS-first page view transitions (reduced-motion opt-out); §34–36 recorded. Same-document
+      (`next/link`) transitions need React's `<ViewTransition>` component, not CSS, so they do not
+      ship (spec §8); only the cross-document `@view-transition` opt-in landed.
 
-**Branch must NOT merge to `main` until the feature is complete** — Stage 1 alone leaves entry pages
-without bodies. The `dy:` namespace is still `example.org`, so nothing here reaches a live Pod.
+**All 9 tasks done; the sectioned entry (Stages 1–3b) is also done.** Phase 7 is feature-complete
+on this branch, unmerged. The `dy:` namespace is still `example.org`, so nothing here reaches a
+live Pod.
 
 **Found while designing, still unfixed:** one seeded marker renders a broken-image icon
 (`dy:thumbnail` set to something that does not resolve in dev) — a data bug, not styling.

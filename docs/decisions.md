@@ -744,3 +744,26 @@ uses which; the criterion above is the rule, not the file they happened to open 
 marker cannot show a photo without moving to the DOM shape, which is a real cost if phase 7 wants
 one. §30 is unchanged and not contradicted: its own words are "a cluster never touches a photo, so
 it never needs the DOM".
+
+---
+
+## 34. The route line loses its casing
+
+Overrides `docs/design-brief.md` ("the route line needs a casing"). The casing separated the
+accent line from land it did not need separating from; at 1.5px on the quiet basemap the bare line
+reads as a route through the map, not an overlay on it. Settled with the maintainer 2026-09-15.
+
+---
+
+## 35. The on-map travel-mode dash is dropped in favour of the origin fade
+
+MapLibre cannot both `line-gradient`-fade and `line-dasharray` on one line. The fade (departure is
+context, arrival the subject) was chosen; travel mode remains in the timeline chip. `lib/map/dashes.ts`
+removed. Overrides spec §10 as written.
+
+---
+
+## 36. Entry markers are 26px with a soft halo; geometry lives in `.map-marker`
+
+26px has no Tailwind step and arbitrary className values are banned, so the size and halo are a
+named CSS class, consistent with the sheet geometry (§26).
