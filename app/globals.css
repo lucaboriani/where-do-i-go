@@ -322,6 +322,18 @@ li[data-active] .row-title { color: var(--color-accent-bright); }
   }
 }
 
+/* Entry markers. 26px has no Tailwind step and arbitrary className values are
+   banned, so the geometry lives here (like the sheet geometry above). The
+   photograph fills the box; arrival gets a soft halo, a fuzzed point a soft
+   circle. Spec §6, decision §36; the active ring is toggled in JS, not here. */
+.map-marker { width: 26px; height: 26px; overflow: hidden; background: var(--color-surface); }
+.map-marker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.map-marker--exact {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--color-accent-bright), 0 0 8px 2px rgb(132 192 253 / 0.14);
+}
+.map-marker--fuzzed { border-radius: 50%; opacity: 0.8; box-shadow: 0 0 0 1px var(--color-accent); }
+
 .entry-prose { padding-block-start: clamp(1rem, 3vh, 2rem); }
 
 /* Entry photographs. Ported from .mockups/entry.html + _shared.css; the mockup

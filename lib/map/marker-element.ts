@@ -1,11 +1,11 @@
 import type { PointProps } from "@/lib/map/points";
 
-const BASE = "size-10 overflow-hidden border-2 border-accent bg-surface";
+const BASE = "map-marker";
 /** A fuzzed coordinate is a circle, an exact one a pin: the shape is the claim
  *  the data makes. docs/design-brief.md, and lib/place/precision.ts owns the
  *  matching decimal count. */
-const EXACT = "rounded-sm";
-const FUZZED = "rounded-full opacity-80";
+const EXACT = "map-marker--exact";
+const FUZZED = "map-marker--fuzzed";
 // Kept out of BASE: applied by a classList.toggle, not composed at build time.
 export const MARKER_ACTIVE = "ring-2 ring-accent-bright";
 
@@ -26,7 +26,6 @@ export function buildMarkerElement({
     img.src = thumbnail;
     img.alt = "";
     img.loading = "lazy";
-    img.className = "size-full object-cover";
     el.append(img);
   }
   return el;
