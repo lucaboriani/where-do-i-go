@@ -966,3 +966,17 @@ until the owner sets one. The studio has to say so.
 
 A Pod root without its trailing slash resolves `travel/` against the parent,
 which is why the root is normalised before anything is built from it.
+
+## ensurePodInitialised authors no privacy.ttl, a ruling not the brief
+
+task-1-brief.md's Task 1.4 asked `ensurePodInitialised` to also author a default
+`settings/privacy.ttl` — `home` absent, a "conservative" `defaultPrecisionMeters`
+chosen by the implementer. `docs/data-model.md` §4/§5/§9 already say the
+opposite: first run creates `travel/settings/` and writes no document into it,
+because a default precision is still a choice made on the owner's behalf, and
+"initialiseContainers creates no content, and privacy.ttl least of all" above is
+the identical rule for the container step. The maintainer ruled for the doc over
+the brief (task-1b-report.md): `bootstrap.ts` creates the four containers and
+`diary.ttl` only. `bootstrap.test.ts`'s privacy-authoring test was deleted for
+the same reason, not weakened around it — `readPrivacySettings` still fails
+closed (`read.ts`), and the studio editor is designed for `privacy.ttl` absent.
