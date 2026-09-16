@@ -14,10 +14,10 @@ import {
   OWNER,
   clickSaveAndWait,
   draftKeyFor,
+  draftStory,
   fakeStorage,
   fakeStudioSession,
   fillNewEntry,
-  oneObject,
   outcomeText,
   parseDraft,
   placeNodeOf,
@@ -26,6 +26,7 @@ import {
   registerEditorLifecycle,
   renderEditor,
   saveButton,
+  sectionTextNode,
   seededDraft,
   setText,
   specEntry,
@@ -35,7 +36,6 @@ import {
 } from "./entry-editor.harness";
 import { describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SCHEMA } from "@/lib/vocab";
 
 registerEditorLifecycle();
 
@@ -360,7 +360,7 @@ describe("entry editor — an editor that goes away mid-sentence", () => {
     // The mutation half: what was flushed is what was being typed, not an empty
     // form flushed for the sake of flushing something.
     expect(payload.headline).toBe("Rain on the Philosopher's Path");
-    expect(payload.story).toBe("Two hours of drizzle and nobody else on the path.");
+    expect(draftStory(payload)).toBe("Two hours of drizzle and nobody else on the path.");
     // Nine fields and an offset, exactly as a debounced write would have left
     // them (§6): a flush that took a different path to storage must not produce
     // a payload `readDraft` would refuse.
@@ -453,7 +453,7 @@ describe("entry editor — the draft key after a create succeeds", () => {
       draftKeys(store),
       "the editor is still autosaving under `new` after the entry was created",
     ).toEqual([CREATED_KEY]);
-    expect(parseDraft(store.items.get(CREATED_KEY)!).story).toBe(
+    expect(draftStory(parseDraft(store.items.get(CREATED_KEY)!))).toBe(
       "Two hours of drizzle, and then the rain stopped.",
     );
 
@@ -542,7 +542,7 @@ describe("entry editor — the draft key after a create succeeds", () => {
     // IT NEVER REACHED THE POD: what was written is the snapshot taken before
     // the await, which is exactly why the local copy has to survive.
     const put = pod.entryPut()!;
-    const body = oneObject(quadsOf(put.body, put.url), `${put.url}#it`, SCHEMA.articleBody)?.value;
+    const body = sectionTextNode(quadsOf(put.body, put.url), put.url)?.value;
     expect(body, "the in-flight text reached the Pod, so this test proves nothing").toBe(
       SAVED_STORY,
     );
@@ -554,7 +554,7 @@ describe("entry editor — the draft key after a create succeeds", () => {
       draftKeys(store),
       "the text typed during the save is in neither the Pod nor storage",
     ).toEqual([CREATED_KEY]);
-    expect(parseDraft(store.items.get(CREATED_KEY)!).story).toBe(IN_FLIGHT);
+    expect(draftStory(parseDraft(store.items.get(CREATED_KEY)!))).toBe(IN_FLIGHT);
   });
 
   /**

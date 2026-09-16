@@ -6,12 +6,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { announce, preconditionFor, useEntrySave } from "./use-entry-save";
-import { draftTextOf } from "./use-entry-draft";
 import { initialEntryFormState } from "./use-entry-form";
+import type { DraftText } from "./use-entry-draft";
 import type { EntrySaveSeed } from "./use-entry-save";
 import type { EditorTrip } from "@/components/studio/entry-editor/entry-editor";
-import type { EntryFormState } from "@/components/studio/entry-editor/state/actions";
-import type { Entry } from "@/lib/pod/schema";
+import type { EntryFormState, PhotoSlot } from "@/components/studio/entry-editor/state/actions";
+import type { Entry, Photo } from "@/lib/pod/schema";
 import type { SaveEntryOptions, SaveEntryReport } from "@/lib/pod/save-entry";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
@@ -44,13 +44,13 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   headline: { value: "Morning in Yanaka", language: "en" },
   trip: TRIP.iri,
   tags: [],
-  photos: [],
+  sections: [],
   ...over,
 });
 
-/** A form that would save: a trip, a slug and a headline. `status` is
- *  PUBLISHED rather than the create's own default, so that the draft case below
- *  is a change from it rather than a restatement of it. */
+/** A form that would save: a trip, a slug, a headline, and a non-empty
+ *  section — CREATE's own default is one EMPTY section, which Task 3's
+ *  pre-flight below refuses. ./notes.md#why-values-overrides-the-default-section */
 function values(over: Partial<EntryFormState> = {}): EntryFormState {
   return {
     ...initialEntryFormState({ existing: undefined, tripIris: [TRIP.iri] }),
@@ -58,11 +58,45 @@ function values(over: Partial<EntryFormState> = {}): EntryFormState {
     slug: "2026-04-11-morning",
     headline: "Morning in Yanaka",
     status: "published",
+    sections: [{ id: "a", text: "Morning in Yanaka", slots: [] }],
     ...over,
   };
 }
 
 const GEO = { lat: 35.69423, long: 139.70348, precisionMeters: 500 };
+
+/** A ready slot carrying a photo at the given media hash — what a settled pick
+ *  looks like once the bytes are on the Pod. */
+const readySlot = (hash: string): PhotoSlot => ({
+  key: hash,
+  name: `${hash}.jpg`,
+  state: "ready",
+  photo: { contentUrl: `${POD}/travel/media/${hash}/web.jpg` } satisfies Photo,
+});
+
+/** The draft as the form holds it — a literal, decoupled from `draftTextOf`, so
+ *  the save tests do not turn on that function's own cutover. `text` is a pure
+ *  passthrough to `settle` here, checked only by identity. */
+function draftText(over: Partial<DraftText> = {}): DraftText {
+  return {
+    tripIri: TRIP.iri,
+    slug: "2026-04-11-morning",
+    headline: "Morning in Yanaka",
+    occurred: "",
+    offset: "+09:00",
+    tagsText: "",
+    mode: "",
+    status: "published",
+    lat: "",
+    long: "",
+    precision: "",
+    placeName: "",
+    locality: "",
+    country: "",
+    sections: [{ text: "", photos: [] }],
+    ...over,
+  };
+}
 
 function seed(over: Partial<EntrySaveSeed> = {}): EntrySaveSeed {
   const v = over.values ?? values();
@@ -71,8 +105,7 @@ function seed(over: Partial<EntrySaveSeed> = {}): EntrySaveSeed {
     trips: [TRIP],
     initial: undefined,
     values: v,
-    text: draftTextOf(v, []),
-    attached: [],
+    text: draftText(),
     fuzzed: vi.fn(() => GEO),
     ...over,
   };
@@ -210,6 +243,46 @@ describe("useEntrySave — what it refuses before anything is sent", () => {
     expect(save).not.toHaveBeenCalled();
     expect(result.current.outcome?.text).toMatch(/did not return a version tag/i);
   });
+
+  /** TASK 3's OWN PRE-FLIGHT: a title over nothing is still nothing to save.
+   *  Message wording deliberately unpinned beyond "needs … section …" and
+   *  "Nothing has been sent". ./notes.md#the-section-pre-flight-extends-the-same-refusal */
+  it("refuses to save when every section is empty, and sends nothing", async () => {
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "", slots: [] },
+          { id: "b", text: "   ", slots: [] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    expect(save, "a trip, a slug and a headline over nothing is still nothing to save").not
+      .toHaveBeenCalled();
+    expect(result.current.outcome?.tone).toBe("problem");
+    expect(result.current.outcome?.text).toMatch(/needs/i);
+    expect(result.current.outcome?.text).toMatch(/section/i);
+    expect(result.current.outcome?.text).toMatch(/nothing has been sent/i);
+  });
+
+  it("saves once at least one section has text or a ready photo — the allow-case", async () => {
+    // Paired with the refusal above: a pre-flight that rejected every save
+    // would pass that test for the wrong reason.
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "", slots: [] },
+          { id: "b", text: "Something happened here", slots: [] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    expect(save).toHaveBeenCalled();
+  });
 });
 
 describe("useEntrySave — what it assembles", () => {
@@ -303,34 +376,85 @@ describe("useEntrySave — what it assembles", () => {
     expect(sent().entry.place?.geo).toEqual(GEO);
   });
 
-  it("appends the picked photos to the ones the entry arrived with", async () => {
-    const carried = { contentUrl: `${POD}/travel/media/old/web.jpg`, sortOrder: 1 };
-    const picked = { contentUrl: `${POD}/travel/media/new/web.jpg`, sortOrder: 1 };
-    const { result } = mount({
-      initial: { entry: entry({ photos: [carried] }), etag: '"v1"' },
-      attached: [picked],
-    });
-    await act(async () => {
-      await result.current.save(vi.fn());
-    });
-    expect(sent().entry.photos.map((p) => p.contentUrl)).toEqual([
-      carried.contentUrl,
-      picked.contentUrl,
-    ]);
-  });
-
-  it("parses the tags, drops an empty story, and carries the original creator", async () => {
+  it("parses the tags and carries the original creator", async () => {
     const older = entry({ creator: "https://someone.example/card#me" });
     const { result } = mount({
       initial: { entry: older, etag: '"v1"' },
-      values: values({ tagsText: " walking , morning ,, ", story: "   " }),
+      values: values({ tagsText: " walking , morning ,, " }),
     });
     await act(async () => {
       await result.current.save(vi.fn());
     });
     expect(sent().entry.tags).toEqual(["walking", "morning"]);
-    expect(sent().entry.articleBody).toBeUndefined();
     expect(sent().entry.creator).toBe("https://someone.example/card#me");
+  });
+});
+
+/* ─── the sections, which replace the flat body and photo pool ────────────── */
+
+describe("useEntrySave — the sections it writes", () => {
+  it("builds Entry.sections from the form's sections, with per-section sortOrder", async () => {
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "Morning in Yanaka", slots: [] },
+          { id: "b", text: "The cemetery", slots: [readySlot("p0"), readySlot("p1")] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    const sections = sent().entry.sections;
+    expect(sections).toHaveLength(2);
+    expect(sections[0]).toMatchObject({
+      text: { value: "Morning in Yanaka", language: "en" },
+      sortOrder: 1,
+    });
+    expect(sections[0].photos, "a text-only section carries no photo").toEqual([]);
+    expect(sections[1].text).toEqual({ value: "The cemetery", language: "en" });
+    expect(sections[1].sortOrder).toBe(2);
+    expect(sections[1].photos.map((p) => p.contentUrl)).toEqual([
+      `${POD}/travel/media/p0/web.jpg`,
+      `${POD}/travel/media/p1/web.jpg`,
+    ]);
+    expect(sections[1].photos.map((p) => p.sortOrder), "photos numbered within the section").toEqual([
+      1, 2,
+    ]);
+  });
+
+  it("drops a section with no text and no photo, and renumbers the rest", async () => {
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "Kept", slots: [] },
+          { id: "b", text: "   ", slots: [] },
+          { id: "c", text: "", slots: [readySlot("p0")] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    const sections = sent().entry.sections;
+    // The blank middle section is dropped; a photo-only section is kept.
+    expect(sections).toHaveLength(2);
+    expect(sections.map((s) => s.sortOrder), "sortOrder follows position after the drop").toEqual([
+      1, 2,
+    ]);
+    expect(sections[0].text).toEqual({ value: "Kept", language: "en" });
+    expect(sections[1].text, "whitespace-only text is no text").toBeUndefined();
+    expect(sections[1].photos).toHaveLength(1);
+  });
+
+  it("puts a section's photo on the section, with no top-level list to leak into", async () => {
+    const { result } = mount({
+      values: values({ sections: [{ id: "a", text: "Morning", slots: [readySlot("p0")] }] }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    expect(sent().entry.sections[0].photos, "the photo belongs to its section").toHaveLength(1);
   });
 });
 

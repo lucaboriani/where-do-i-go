@@ -4,13 +4,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { entryFormReducer } from "./entry-form-reducer";
-import type { EntryFormAction, EntryFormState, PhotoSlot } from "./actions";
+import type { EntryFormAction, EntryFormState, PhotoSlot, SectionDraft } from "./actions";
 
 const blank: EntryFormState = {
   tripIri: "",
   slug: "",
   headline: "",
-  story: "",
   occurred: "",
   offset: "+02:00",
   tagsText: "",
@@ -22,12 +21,15 @@ const blank: EntryFormState = {
   placeName: "",
   locality: "",
   country: "",
-  slots: [],
+  sections: [{ id: "sec-0", text: "", slots: [] }],
   coordinateAuthor: { kind: "nobody" },
   occurredAuthor: { kind: "nobody" },
   offsetAuthor: { kind: "nobody" },
   offsetGuess: false,
 };
+
+/** A state with the sections handed in, otherwise blank. */
+const withSections = (...sections: SectionDraft[]): EntryFormState => ({ ...blank, sections });
 
 /** What React does with a queue of actions, which is the whole point. */
 const fold = (from: EntryFormState, ...actions: EntryFormAction[]) =>
@@ -55,43 +57,181 @@ describe("entryFormReducer — routing", () => {
   });
 });
 
-describe("entryFormReducer — the slots", () => {
-  const decoding = (key: string, name: string): PhotoSlot => ({ key, name, state: "decoding" });
+/* ─── the sections: the text, and the three list moves ───────────────────── */
 
-  it("appends without reading the list from a render", () => {
-    // A wholesale `{ kind: "slots" }` would be built from the slots the render
-    // held, and two photos picked at once would each append to the same stale
-    // array. ./notes.md#three-deviations-from-the-plans-action-union-each-measured
-    const next = fold(
-      blank,
-      { kind: "slot-added", slot: decoding("photo-0", "first.jpg") },
-      { kind: "slot-added", slot: decoding("photo-1", "second.jpg") },
-    );
-    expect(next.slots.map((slot) => slot.key)).toEqual(["photo-0", "photo-1"]);
+describe("entryFormReducer — a section's text", () => {
+  const two = withSections(
+    { id: "a", text: "First", slots: [] },
+    { id: "b", text: "Second", slots: [] },
+  );
+
+  it("sets the named section's text and leaves every other one alone", () => {
+    const next = entryFormReducer(two, { kind: "section-text", id: "b", value: "Rewritten" });
+    expect(next.sections.map((s) => s.text)).toEqual(["First", "Rewritten"]);
+    // Identity untouched: reorder relies on the id staying with the section.
+    expect(next.sections.map((s) => s.id)).toEqual(["a", "b"]);
   });
 
-  it("settles the row it names and leaves the others alone", () => {
-    const two = fold(
-      blank,
-      { kind: "slot-added", slot: decoding("photo-0", "first.jpg") },
-      { kind: "slot-added", slot: decoding("photo-1", "second.jpg") },
+  it("ignores a section-text for an id that is no longer held", () => {
+    expect(entryFormReducer(two, { kind: "section-text", id: "gone", value: "X" }).sections).toEqual(
+      two.sections,
     );
-    const next = entryFormReducer(two, {
-      kind: "slot-settled",
-      key: "photo-1",
-      slot: { key: "photo-1", name: "second.jpg", state: "uploading" },
-    });
-    expect(next.slots.map((slot) => slot.state)).toEqual(["decoding", "uploading"]);
+  });
+});
+
+describe("entryFormReducer — adding and removing a section", () => {
+  it("appends an empty section with a fresh, unique id", () => {
+    const start = withSections({ id: "a", text: "First", slots: [] });
+    const next = entryFormReducer(start, { kind: "section-added" });
+    expect(next.sections).toHaveLength(2);
+    const added = next.sections[1];
+    expect(added.text, "a new section opens empty").toBe("");
+    expect(added.slots, "and with no photos").toEqual([]);
+    expect(typeof added.id, "the id is a synthetic string").toBe("string");
+    expect(added.id.length).toBeGreaterThan(0);
+    expect(added.id, "the id must not collide with a section already present").not.toBe("a");
   });
 
-  it("ignores a settle for a key that is no longer held", () => {
+  it("removes the named section only", () => {
+    const three = withSections(
+      { id: "a", text: "A", slots: [] },
+      { id: "b", text: "B", slots: [] },
+      { id: "c", text: "C", slots: [] },
+    );
+    const next = entryFormReducer(three, { kind: "section-removed", id: "b" });
+    expect(next.sections.map((s) => s.id)).toEqual(["a", "c"]);
+  });
+});
+
+describe("entryFormReducer — moving a section", () => {
+  const three = withSections(
+    { id: "a", text: "A", slots: [] },
+    { id: "b", text: "B", slots: [] },
+    { id: "c", text: "C", slots: [] },
+  );
+
+  it("moves a section up past its predecessor", () => {
+    const next = entryFormReducer(three, { kind: "section-moved", id: "b", dir: "up" });
+    expect(next.sections.map((s) => s.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("moves a section down past its successor", () => {
+    const next = entryFormReducer(three, { kind: "section-moved", id: "b", dir: "down" });
+    expect(next.sections.map((s) => s.id)).toEqual(["a", "c", "b"]);
+  });
+
+  it("is a no-op at the ends: the first cannot go up, the last cannot go down", () => {
     expect(
-      entryFormReducer(blank, {
+      entryFormReducer(three, { kind: "section-moved", id: "a", dir: "up" }).sections.map((s) => s.id),
+      "the first section moved up",
+    ).toEqual(["a", "b", "c"]);
+    expect(
+      entryFormReducer(three, { kind: "section-moved", id: "c", dir: "down" }).sections.map(
+        (s) => s.id,
+      ),
+      "the last section moved down",
+    ).toEqual(["a", "b", "c"]);
+  });
+});
+
+/* ─── the slots, now scoped to the section they belong to ─────────────────── */
+
+describe("entryFormReducer — the slots are a section's, not the form's", () => {
+  const decoding = (key: string, name: string): PhotoSlot => ({ key, name, state: "decoding" });
+  const two = withSections(
+    { id: "a", text: "", slots: [] },
+    { id: "b", text: "", slots: [] },
+  );
+
+  it("appends to the named section and touches no other", () => {
+    const next = fold(
+      two,
+      { kind: "slot-added", sectionId: "b", slot: decoding("photo-0", "first.jpg") },
+      { kind: "slot-added", sectionId: "b", slot: decoding("photo-1", "second.jpg") },
+    );
+    expect(next.sections[0].slots, "the other section gained a slot").toEqual([]);
+    expect(next.sections[1].slots.map((slot) => slot.key)).toEqual(["photo-0", "photo-1"]);
+  });
+
+  it("settles the row it names, in the section it names, and leaves the rest", () => {
+    const filled = fold(
+      two,
+      { kind: "slot-added", sectionId: "a", slot: decoding("photo-0", "a.jpg") },
+      { kind: "slot-added", sectionId: "b", slot: decoding("photo-1", "b0.jpg") },
+      { kind: "slot-added", sectionId: "b", slot: decoding("photo-2", "b1.jpg") },
+    );
+    const next = entryFormReducer(filled, {
+      kind: "slot-settled",
+      sectionId: "b",
+      key: "photo-2",
+      slot: { key: "photo-2", name: "b1.jpg", state: "uploading" },
+    });
+    expect(next.sections[0].slots.map((s) => s.state)).toEqual(["decoding"]);
+    expect(next.sections[1].slots.map((s) => s.state)).toEqual(["decoding", "uploading"]);
+  });
+
+  it("ignores a settle for a section that is gone, and one for a key not held", () => {
+    expect(
+      entryFormReducer(two, {
         kind: "slot-settled",
-        key: "gone",
-        slot: decoding("gone", "gone.jpg"),
-      }).slots,
-    ).toEqual([]);
+        sectionId: "gone",
+        key: "photo-0",
+        slot: decoding("photo-0", "a.jpg"),
+      }).sections,
+    ).toEqual(two.sections);
+  });
+});
+
+/* ─── the belt: `slot-added` must not exceed 2, whoever dispatches it ─────── */
+
+describe("entryFormReducer — the per-section 2-photo cap (the belt)", () => {
+  const decoding = (key: string, name: string): PhotoSlot => ({ key, name, state: "decoding" });
+  const ready = (key: string, name: string): PhotoSlot => ({
+    key,
+    name,
+    state: "ready",
+    photo: { contentUrl: `https://pod.example/travel/media/${key}/web.jpg` },
+  });
+  const failed = (key: string, name: string): PhotoSlot => ({
+    key,
+    name,
+    state: "failed",
+    message: "boom",
+  });
+
+  it("refuses a third slot-added for a section that already holds 2", () => {
+    const atCap = withSections({
+      id: "a",
+      text: "",
+      slots: [ready("k0", "a.jpg"), ready("k1", "b.jpg")],
+    });
+    const next = entryFormReducer(atCap, {
+      kind: "slot-added",
+      sectionId: "a",
+      slot: decoding("k2", "c.jpg"),
+    });
+    // UI-level disabling is the first line of defence; this is the reducer's
+    // own — a caller that reached `dispatch` directly must still not exceed 2.
+    expect(next.sections[0].slots.map((s) => s.key), "the third slot must not land").toEqual([
+      "k0",
+      "k1",
+    ]);
+  });
+
+  it("does not count a FAILED slot toward the cap: a freed place still accepts a slot", () => {
+    // THE ALLOW-CASE: a cap that counts every row, including one that never
+    // held a photo, would strand an owner whose first pick failed.
+    const oneFailed = withSections({
+      id: "a",
+      text: "",
+      slots: [ready("k0", "a.jpg"), failed("k1", "b.jpg")],
+    });
+    const next = entryFormReducer(oneFailed, {
+      kind: "slot-added",
+      sectionId: "a",
+      slot: decoding("k2", "c.jpg"),
+    });
+    expect(next.sections[0].slots.map((s) => s.key)).toEqual(["k0", "k1", "k2"]);
   });
 });
 

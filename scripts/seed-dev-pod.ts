@@ -230,8 +230,12 @@ const elChalten = derive(ENTRY, [
   ['"2026-03-29-arrival"', '"2025-03-09-el-chalten"'],
   ['"First night in Shinjuku"@en', '"Under Fitz Roy"@en'],
   [
-    "Landed at 17:20 and took the Narita Express in, which\nwas a mistake at rush hour. Ate standing up at a counter with six seats.",
-    "Walked in from the road with the granite still lit, which\nwas worth the five hours. Ate lentil stew standing up, out of the wind.",
+    'schema:text "Landed at 17:20 and took the Narita Express in, which was a mistake at rush hour."@en',
+    'schema:text "Walked in from the road with the granite still lit, which was worth the five hours."@en',
+  ],
+  [
+    'schema:text  "Ate standing up at a counter with six seats."@en',
+    'schema:text  "Ate lentil stew standing up, out of the wind."@en',
   ],
   [
     'schema:datePublished "2026-03-30T08:15:00+09:00"',
@@ -271,8 +275,12 @@ await put(
     ['"2025-03-09-el-chalten"', '"2025-03-14-perito-moreno"'],
     ['"Under Fitz Roy"@en', '"Ice calving at Perito Moreno"@en'],
     [
-      "Walked in from the road with the granite still lit, which\nwas worth the five hours. Ate lentil stew standing up, out of the wind.",
-      "Stood on the walkways for two hours waiting for the ice to go, and\nit went twice: a crack like a rifle, then the swell crossing the channel.",
+      'schema:text "Walked in from the road with the granite still lit, which was worth the five hours."@en',
+      'schema:text "Stood on the walkways for two hours waiting for the ice to go, and it went twice."@en',
+    ],
+    [
+      'schema:text  "Ate lentil stew standing up, out of the wind."@en',
+      'schema:text  "A crack like a rifle, then the swell crossing the channel."@en',
     ],
     [
       'schema:datePublished "2025-03-10T09:05:00-03:00"',

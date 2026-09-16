@@ -3,7 +3,9 @@ import { DataFactory, Writer, type Quad } from "n3";
 import {
   DCTERMS, DY, DY_CLASS, GEO, NS, RDF, SCHEMA, SCHEMA_VERSION, STATUS, TRAVEL_MODE, XSD,
 } from "@/lib/vocab";
-import { addressQuads, geoQuads, itQuads, photoQuads, placeQuads } from "@/lib/pod/entry-model";
+import {
+  addressQuads, geoQuads, itQuads, placeQuads, serialiseEntry,
+} from "@/lib/pod/entry-model";
 import { graphEquals, triples } from "@/test/graph";
 import type { Entry } from "@/lib/pod/schema";
 
@@ -26,7 +28,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   status: "published",
   schemaVersion: SCHEMA_VERSION,
   headline: { value: "First night in Shinjuku", language: "en" },
-  photos: [],
+  sections: [],
   tags: [],
   ...over,
 });
@@ -99,17 +101,13 @@ describe("itQuads — §7.3 <#it>, the entry itself", () => {
         .not.toContain(absent);
   });
 
-  it("tags the headline and the body, and leaves the slug and every tag plain", async () => {
-    const full = itQuads(
-      IT,
-      entry({ articleBody: { value: "Landed at 17:20.", language: "en" }, tags: ["food", "trains"] }),
-    );
+  it("tags the headline, and leaves the slug and every tag plain", async () => {
+    const full = itQuads(IT, entry({ tags: ["food", "trains"] }));
     const set = [...triples(await turtleOf(full), DOC)];
     expect(set).toContain(`N|${IT.value} N|${DY.slug} L|2026-03-29-arrival|${XSD.string}|`);
     expect(set).toContain(`N|${IT.value} N|${DY.tag} L|food|${XSD.string}|`);
     expect(set).toContain(`N|${IT.value} N|${DY.tag} L|trains|${XSD.string}|`);
     expect(set).toContain(`N|${IT.value} N|${SCHEMA.headline} L|First night in Shinjuku|${NS.rdf}langString|en`);
-    expect(set).toContain(`N|${IT.value} N|${SCHEMA.articleBody} L|Landed at 17:20.|${NS.rdf}langString|en`);
   });
 
   it("writes every instant as xsd:dateTime, keeping the offset it was handed", async () => {
@@ -208,63 +206,52 @@ describe("geoQuads — §7.3 <#geo>", () => {
   });
 });
 
-/* =========================================================== §7.3 <#photo-n> */
+/* ========================================================= §7.3 <#section-n> */
 
-describe("photoQuads — §7.3 <#photo-n>", () => {
-  it("numbers the fragments from 1, one ImageObject hung off <#it> each", async () => {
-    const written = await predicatesOf(
-      photoQuads(frag, IT, [{ contentUrl: `${MEDIA}/a.webp` }, { contentUrl: `${MEDIA}/b.webp` }]),
-    );
-    expect(written.filter((p) => p === SCHEMA.image)).toHaveLength(2);
-    const set = [...triples(await turtleOf(photoQuads(frag, IT, [{ contentUrl: `${MEDIA}/a.webp` }])), DOC)];
-    expect(set).toContain(`N|${IT.value} N|${SCHEMA.image} N|${DOC}#photo-1`);
-    expect(set).toContain(`N|${DOC}#photo-1 N|${RDF.type} N|${SCHEMA.ImageObject}`);
-  });
-
-  it("falls back to the array position when a photo carries no sortOrder", async () => {
-    // §6: ordering is always explicit, because parse order carries no meaning.
-    const set = [...triples(
-      await turtleOf(photoQuads(frag, IT, [
-        { contentUrl: `${MEDIA}/a.webp` },
-        { contentUrl: `${MEDIA}/b.webp`, sortOrder: 7 },
-      ])),
-      DOC,
-    )];
-    expect(set).toContain(`N|${DOC}#photo-1 N|${DY.sortOrder} L|1|${XSD.integer}|`);
-    expect(set).toContain(`N|${DOC}#photo-2 N|${DY.sortOrder} L|7|${XSD.integer}|`);
-  });
-
-  it("writes the whole §7.3 photo clause, caption tagged and the rest plain", async () => {
-    const blur = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+describe("sectionQuads — §7.3 <#section-n>", () => {
+  it("writes a section: schema:hasPart, dy:Section, text, and a nested photo", async () => {
+    const { sectionQuads } = await import("./entry-model");
     await expectGraph(
-      photoQuads(frag, IT, [{
-        contentUrl: `${MEDIA}/web.webp`,
-        thumbnailUrl: `${MEDIA}/thumb.webp`,
-        caption: { value: "Counter seating, no menu.", language: "en" },
-        width: 1600,
-        height: 1067,
-        encodingFormat: "image/webp",
-        dateCreated: "2026-03-29T21:38:02+09:00",
-        blurDataUrl: blur,
-        sortOrder: 1,
-      }]),
+      sectionQuads(frag, IT, [
+        {
+          text: { value: "Counter seating, no menu.", language: "en" },
+          sortOrder: 2,
+          photos: [{ contentUrl: `${MEDIA}/web.webp`, sortOrder: 1 }],
+        },
+      ]),
       [
-        quad(IT, namedNode(SCHEMA.image), frag("photo-1")),
-        quad(frag("photo-1"), namedNode(RDF.type), namedNode(SCHEMA.ImageObject)),
-        quad(frag("photo-1"), namedNode(SCHEMA.contentUrl), namedNode(`${MEDIA}/web.webp`)),
-        quad(frag("photo-1"), namedNode(SCHEMA.thumbnailUrl), namedNode(`${MEDIA}/thumb.webp`)),
-        quad(frag("photo-1"), namedNode(SCHEMA.caption), literal("Counter seating, no menu.", "en")),
-        quad(frag("photo-1"), namedNode(SCHEMA.width), literal("1600", namedNode(XSD.integer))),
-        quad(frag("photo-1"), namedNode(SCHEMA.height), literal("1067", namedNode(XSD.integer))),
-        quad(frag("photo-1"), namedNode(SCHEMA.encodingFormat), literal("image/webp")),
-        quad(frag("photo-1"), namedNode(SCHEMA.dateCreated), literal("2026-03-29T21:38:02+09:00", namedNode(XSD.dateTime))),
-        quad(frag("photo-1"), namedNode(DY.blurDataUrl), literal(blur)),
-        quad(frag("photo-1"), namedNode(DY.sortOrder), literal("1", namedNode(XSD.integer))),
+        quad(IT, namedNode(SCHEMA.hasPart), frag("section-1")),
+        quad(frag("section-1"), namedNode(RDF.type), namedNode(DY_CLASS.Section)),
+        quad(frag("section-1"), namedNode(DY.sortOrder), literal("2", namedNode(XSD.integer))),
+        quad(frag("section-1"), namedNode(SCHEMA.text), literal("Counter seating, no menu.", "en")),
+        quad(frag("section-1"), namedNode(SCHEMA.image), frag("section-1-photo-1")),
+        quad(frag("section-1-photo-1"), namedNode(RDF.type), namedNode(SCHEMA.ImageObject)),
+        quad(frag("section-1-photo-1"), namedNode(SCHEMA.contentUrl), namedNode(`${MEDIA}/web.webp`)),
+        quad(frag("section-1-photo-1"), namedNode(DY.sortOrder), literal("1", namedNode(XSD.integer))),
       ],
     );
   });
+});
 
-  it("emits nothing at all for an entry with no photos", async () => {
-    expect(photoQuads(frag, IT, [])).toEqual([]);
+/* ================================= Stage 3b: no legacy entry-level fields */
+
+/**
+ * Permanent regression check: `Entry` no longer has `articleBody`/`photos` at
+ * all, so this pins the serialiser side of that removal — an entry with only
+ * `sections` writes no legacy predicates on `<#it>`.
+ */
+describe("serialiseEntry — Stage 3b removes the legacy fields", () => {
+  it("writes no schema:articleBody and no entry-level schema:image", async () => {
+    const e = entry({
+      sections: [{ text: { value: "first", language: "en" }, sortOrder: 1, photos: [] }],
+    });
+    const r = await serialiseEntry(e);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const set = [...triples(r.value, DOC)];
+    expect(set.some((t) => t.startsWith(`N|${IT.value} N|${SCHEMA.articleBody} `))).toBe(false);
+    expect(set.some((t) => t.startsWith(`N|${IT.value} N|${SCHEMA.image} `))).toBe(false);
+    // The section itself still round-trips.
+    expect(set).toContain(`N|${IT.value} N|${SCHEMA.hasPart} N|${DOC}#section-1`);
   });
 });

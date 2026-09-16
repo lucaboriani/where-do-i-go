@@ -27,6 +27,7 @@ import {
   fillNewEntry,
   importModule,
   oneObject,
+  draftStory,
   outcomeText,
   parseDraft,
   podFake,
@@ -34,6 +35,7 @@ import {
   registerEditorLifecycle,
   renderEditor,
   saveButton,
+  sectionTextNode,
   seededDraft,
   setText,
   specEntry,
@@ -158,7 +160,7 @@ describe("entry editor — the autosave debounce", () => {
     const payload = parseDraft(written.value);
     expect(Object.keys(payload).sort()).toEqual(DRAFT_FIELDS);
     expect(payload.headline).toBe("Rain on the Philosopher's Path");
-    expect(payload.story).toBe("Two hours of drizzle and nobody else on the path.");
+    expect(draftStory(payload)).toBe("Two hours of drizzle and nobody else on the path.");
     expect(payload.tripIri).toBe(JAPAN.iri);
     expect(payload.slug).toBe("2026-04-02-kyoto");
     expect(payload.occurred).toBe("2026-04-02T16:20");
@@ -516,7 +518,9 @@ describe("entry editor — the unsaved-draft banner", () => {
     fireEvent.click(within(banner()).getByRole("button", { name: "Restore" }));
 
     expect((screen.getByLabelText(LABEL.headline) as HTMLInputElement).value).toBe(draft.headline);
-    expect((screen.getByLabelText(LABEL.articleBody) as HTMLTextAreaElement).value).toBe(draft.story);
+    expect((screen.getByLabelText(LABEL.articleBody) as HTMLTextAreaElement).value).toBe(
+      draftStory(draft),
+    );
     expect((screen.getByLabelText(LABEL.occurredAt) as HTMLInputElement).value).toBe(draft.occurred);
     expect((screen.getByLabelText(LABEL.tags) as HTMLInputElement).value).toBe(draft.tagsText);
     expect((screen.getByLabelText(LABEL.travelModeFrom) as HTMLSelectElement).value).toBe(draft.mode);
@@ -852,7 +856,7 @@ describe("entry editor — clearing the draft after a save", () => {
       expect(payload.headline, "the owner's text is not in the surviving draft").toBe(
         RESTORED_HEADLINE,
       );
-      expect(payload.story).toBe(RESTORED_STORY);
+      expect(draftStory(payload)).toBe(RESTORED_STORY);
       expect(payload.slug).toBe("2026-04-02-kyoto");
       expect(payload.tripIri).toBe(JAPAN.iri);
       // The one field allowed to have moved: whichever copy is at the key, the
@@ -1012,7 +1016,7 @@ describe("entry editor — clearing the draft after a save", () => {
       store.calls.set.map((c) => c.key),
       "no draft was autosaved on an edit form, so this test could not detect a resurrection",
     ).toEqual([EDIT_KEY]);
-    expect(parseDraft(store.items.get(EDIT_KEY)!).story).toBe(FIRST_PASS);
+    expect(draftStory(parseDraft(store.items.get(EDIT_KEY)!))).toBe(FIRST_PASS);
 
     /* ── one more keystroke, then Save with no await in between ───────────── */
     expect(
@@ -1037,9 +1041,7 @@ describe("entry editor — clearing the draft after a save", () => {
     expect(put!.headers["if-none-match"]).toBeUndefined();
     // The story the Pod took is the second pass — so the form and the resource
     // agree, and `settleDraft` has no legitimate reason to write anything back.
-    expect(
-      oneObject(quadsOf(put!.body, put!.url), `${put!.url}#it`, SCHEMA.articleBody)?.value,
-    ).toBe(SECOND_PASS);
+    expect(sectionTextNode(quadsOf(put!.body, put!.url), put!.url)?.value).toBe(SECOND_PASS);
 
     /* ── the save reached settleDraft and cleared the key it was writing to ─ */
     expect(store.calls.remove, "the edit's own draft key was never cleared").toContain(EDIT_KEY);

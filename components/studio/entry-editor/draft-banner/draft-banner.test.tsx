@@ -21,7 +21,6 @@ function draft(over: Partial<Draft> = {}): Draft {
     tripIri: "https://pod.example/travel/trips/kyoto.ttl#it",
     slug: "arrival",
     headline: "Arrival",
-    story: "",
     occurred: "2026-04-02T19:00",
     offset: "+09:00",
     tagsText: "",
@@ -33,7 +32,7 @@ function draft(over: Partial<Draft> = {}): Draft {
     placeName: "",
     locality: "",
     country: "",
-    photos: [],
+    sections: [{ text: "", photos: [] }],
     savedAt: "2026-04-02T19:00:00+09:00",
     ...over,
   };

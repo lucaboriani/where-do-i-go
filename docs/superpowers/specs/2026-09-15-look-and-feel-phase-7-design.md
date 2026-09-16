@@ -164,9 +164,10 @@ Being honest about that is the point of this section.
 - ~~Whether the legs survive at all.~~ **Decided 2026-09-15: the legs stay.** The question was
   whether a line between two entries claims more than the data supports — there is no `dy:track`, so
   the app knows both endpoints and nothing in between. The arc in §6 is the answer: it reads as a
-  connection rather than as a route you could follow, and the travel-mode dashes carry information
-  that would otherwise appear only as a chip in the list. `buildLegs`, the dash expression and the
-  leg feature state all stay.
+  connection rather than as a route you could follow. `buildLegs` and the leg feature state stay.
+  **The travel-mode dash, as written above, was dropped rather than kept** — MapLibre cannot both
+  `line-gradient`-fade and `line-dasharray` on one line, and the fade won; travel mode remains in
+  the timeline chip only. See `docs/decisions.md` §35.
 - **The photographs are unjudged.** The mockups use CSS gradients, so the full-bleed figure — the
   thing the whole design bet rests on — has not actually been seen. Settle it with real images
   before the entry page is built, not after.

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import DiaryMap from "@/components/public/diary-map";
 import MapSheet from "@/components/public/map-sheet";
+import { SiteFooter } from "@/components/public/site-footer";
 import TripHighlightProvider from "@/components/public/trip-highlight";
 import TripList, { type TripListItem } from "@/components/public/trip-list";
 import { config } from "@/lib/config";
@@ -52,14 +53,14 @@ export async function DiaryContent() {
     <>
       {diary.ok ? (
         <>
-          <h1 className="text-2xl">{diary.value.title?.value ?? "Travel diary"}</h1>
+          <h1 className="display">{diary.value.title?.value ?? "Travel diary"}</h1>
           {diary.value.description && (
             <p className="mt-2 text-muted-foreground">{diary.value.description.value}</p>
           )}
         </>
       ) : (
         <>
-          <h1 className="text-2xl">{"This diary is unavailable"}</h1>
+          <h1 className="display">{"This diary is unavailable"}</h1>
           <p className="mt-2 text-muted-foreground">{describeError(diary.error)}</p>
         </>
       )}
@@ -71,6 +72,7 @@ export async function DiaryContent() {
       ) : (
         <TripList trips={trips} />
       )}
+      <SiteFooter siteName={config.siteName} />
     </>
   );
 }

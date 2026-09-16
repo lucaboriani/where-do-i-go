@@ -2,6 +2,7 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TRIPS_LAYER, TRIPS_SOURCE, useMapTrips } from "./use-map-trips";
+import { MAP_COLORS } from "@/lib/map/tokens";
 import type { TripPoint } from "@/lib/map/trips";
 
 type Point = { x: number; y: number };
@@ -138,6 +139,15 @@ describe("useMapTrips", () => {
       "2026-japan",
       "2025-patagonia",
     ]);
+  });
+
+  it("strokes trip points in accent-deep at 1px, active fill bright", () => {
+    renderHook(() => useMapTrips(map as never, [japan], true, null, {}));
+
+    const layer = map.layers.find((one) => one.id === TRIPS_LAYER);
+    const paint = layer?.paint as Record<string, unknown>;
+    expect(paint["circle-stroke-width"]).toBe(1);
+    expect(paint["circle-stroke-color"]).toBe(MAP_COLORS.accentDeep);
   });
 
   it("updates data in place on a changed trips array instead of re-adding", () => {

@@ -122,7 +122,7 @@ test.describe("the mobile sheet", () => {
     // broken. The assertion belongs here, not only above the click.
     await expect(row).toHaveAttribute("data-active", "true");
 
-    // A corner the seeded markers are nowhere near — nara's 40px box measures
+    // A corner the seeded markers are nowhere near — nara's 26px box measures
     // at (207,340). Asserted before the click so a tap that lands on the sheet
     // says so, rather than reporting a pin that would not clear.
     await expect

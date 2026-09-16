@@ -1,9 +1,22 @@
 // @vitest-environment jsdom
 import { renderHook } from "@testing-library/react";
+import { createPropertyExpression } from "@maplibre/maplibre-gl-style-spec";
+import type { StylePropertySpecification } from "@maplibre/maplibre-gl-style-spec";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LAYERS, LEGS_SOURCE, POINTS_SOURCE, useMapLayers } from "./use-map-layers";
 import { MAP_COLORS } from "@/lib/map/tokens";
+import { ROUTE_WIDTH, ROUTE_WIDTH_ACTIVE } from "@/lib/map/view";
 import type { IndexEntry } from "@/lib/pod/schema";
+
+// The line-gradient property spec, so createPropertyExpression compiles the
+// paint value as a color ramp over line-progress rather than a constant.
+const LINE_GRADIENT_SPEC = {
+  type: "color",
+  "property-type": "color-ramp",
+  expression: { interpolated: true, parameters: ["line-progress"] },
+} as unknown as StylePropertySpecification;
+
+type CompiledExpr = { value: { evaluate: (globals: object) => { a: number } } };
 
 class FakeSource {
   data: unknown = null;
@@ -55,15 +68,10 @@ describe("useMapLayers", () => {
     expect(() => renderHook(() => useMapLayers(null, [entry("a")], true))).not.toThrow();
   });
 
-  it("adds both sources and all four layers once the map is there", () => {
+  it("adds both sources and all three layers once the map is there", () => {
     renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
     expect([...map.sources.keys()].sort()).toEqual([LEGS_SOURCE, POINTS_SOURCE].sort());
-    expect(map.added).toEqual([LAYERS.casing, LAYERS.line, LAYERS.clusters, LAYERS.clusterCount]);
-  });
-
-  it("draws the casing before the line, because insertion order is paint order", () => {
-    renderHook(() => useMapLayers(map as never, [entry("a")], true));
-    expect(map.added.indexOf(LAYERS.casing)).toBeLessThan(map.added.indexOf(LAYERS.line));
+    expect(map.added).toEqual([LAYERS.line, LAYERS.clusters, LAYERS.clusterCount]);
   });
 
   it("updates data in place on a rerender instead of re-adding the source", () => {
@@ -73,7 +81,7 @@ describe("useMapLayers", () => {
     const before = map.getSource(POINTS_SOURCE);
     rerender({ e: [entry("a"), entry("b", { sortOrder: 2 })] });
     expect(map.getSource(POINTS_SOURCE)).toBe(before);
-    expect(map.added).toHaveLength(4);
+    expect(map.added).toHaveLength(3);
   });
 
   it("clusters only above the threshold", () => {
@@ -109,14 +117,57 @@ describe("useMapLayers", () => {
     expect(map.sourceOptions[LEGS_SOURCE].promoteId).toBe("toSlug");
   });
 
-  it("paints the active leg with the bright accent, keyed on feature state", () => {
+  it("fades the leg along its length with a line-gradient, and sets no dasharray", () => {
     renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
     const paint = map.layerSpecs[LAYERS.line].paint as Record<string, unknown>;
-    expect(paint["line-color"]).toEqual([
+    expect(paint["line-gradient"]).toEqual([
+      "interpolate",
+      ["linear"],
+      ["line-progress"],
+      0,
+      ["to-color", `${MAP_COLORS.accent}40`],
+      0.5,
+      ["to-color", `${MAP_COLORS.accent}99`],
+      1,
+      ["to-color", `${MAP_COLORS.accentBright}F2`],
+    ]);
+    expect(paint).not.toHaveProperty("line-dasharray");
+  });
+
+  it("bakes the origin fade into the gradient alpha, not a folded line-opacity", () => {
+    // line-progress is honored only inside line-gradient; in line-opacity it
+    // folds flat. Guard: no line-opacity, and the compiled gradient's alpha
+    // actually ramps 0.25 -> 0.95 along the leg.
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    const paint = map.layerSpecs[LAYERS.line].paint as Record<string, unknown>;
+    expect(paint).not.toHaveProperty("line-opacity");
+
+    const compiled = createPropertyExpression(
+      paint["line-gradient"],
+      "line-gradient",
+      LINE_GRADIENT_SPEC,
+    );
+    expect(compiled.result).toBe("success");
+    const alphaAt = (lineProgress: number) =>
+      (compiled as CompiledExpr).value.evaluate({ zoom: 5, lineProgress }).a;
+    expect(alphaAt(0)).toBeCloseTo(0.25, 1);
+    expect(alphaAt(1)).toBeCloseTo(0.95, 1);
+    expect(alphaAt(0)).toBeLessThan(alphaAt(1));
+  });
+
+  it("widens the active leg via feature-state, not color", () => {
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    const paint = map.layerSpecs[LAYERS.line].paint as Record<string, unknown>;
+    expect(paint["line-width"]).toEqual([
       "case",
       ["boolean", ["feature-state", "active"], false],
-      MAP_COLORS.accentBright,
-      MAP_COLORS.accent,
+      ROUTE_WIDTH_ACTIVE,
+      ROUTE_WIDTH,
     ]);
+  });
+
+  it("creates the legs source with lineMetrics, or line-progress has nothing to key on", () => {
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    expect(map.sourceOptions[LEGS_SOURCE].lineMetrics).toBe(true);
   });
 });

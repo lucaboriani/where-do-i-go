@@ -25,12 +25,11 @@ export const NS = {
   foaf: "http://xmlns.com/foaf/0.1/",
 
   /**
-   * BLOCKED, still example.org: NOTHING MAY BE WRITTEN TO A LIVE POD until the
-   * real project domain replaces this. A permanent identifier baked into every
-   * triple, hardcoded and never an env var (§2 rule 4). Local Community Solid
-   * Server data is disposable; ./notes.md#the-dy-namespace-is-hardcoded-and-blocked
+   * Resolved 2026-09-16: the example.org placeholder blocker is cleared. A
+   * permanent identifier baked into every triple, hardcoded and never an env
+   * var (§2 rule 4); ./notes.md#the-dy-namespace-is-hardcoded-and-blocked
    */
-  dy: "https://example.org/ns/traveldiary#",
+  dy: "https://zeropara.me/ns/traveldiary#",
 } as const;
 
 const dy = (term: string) => `${NS.dy}${term}` as const;
@@ -47,6 +46,7 @@ export const DY_CLASS = {
   Diary: dy("Diary"),
   Trip: dy("Trip"),
   Entry: dy("Entry"),
+  Section: dy("Section"),
   TripIndex: dy("TripIndex"),
   IndexEntry: dy("IndexEntry"),
   PublicationStatus: dy("PublicationStatus"),
@@ -156,6 +156,8 @@ export const SCHEMA = {
   description: schema("description"),
   headline: schema("headline"),
   articleBody: schema("articleBody"),
+  hasPart: schema("hasPart"),
+  text: schema("text"),
   datePublished: schema("datePublished"),
   tripOrigin: schema("tripOrigin"),
   contentLocation: schema("contentLocation"),
@@ -241,5 +243,6 @@ export const XSD = {
 } as const;
 
 /** Bumped when the shape of a top-level resource changes. Checked on every
- *  read of a top-level resource, entries included (§11). */
-export const SCHEMA_VERSION = 1;
+ *  read of a top-level resource, entries included (§11). 2: entries carry
+ *  `schema:hasPart` sections instead of a single `schema:articleBody`. */
+export const SCHEMA_VERSION = 2;

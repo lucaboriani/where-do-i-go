@@ -1,5 +1,5 @@
 /**
- * The twenty values the form IS, as one `useReducer`, plus the named callbacks
+ * The nineteen values the form IS, as one `useReducer`, plus the named callbacks
  * the five field groups get instead of `dispatch`.
  * components/studio/entry-editor/state/notes.md#guard-inside-the-transition
  */
@@ -13,8 +13,9 @@ import {
   wallClockNow,
   wallClockOf,
 } from "@/lib/time/offsets";
-import { sourceOf } from "@/components/studio/entry-editor/state/actions";
+import { sid, sourceOf } from "@/components/studio/entry-editor/state/actions";
 import { entryFormReducer } from "@/components/studio/entry-editor/state/entry-form-reducer";
+import { restoredSections } from "@/components/studio/entry-editor/state/apply-restore";
 import type {
   EntryFormState,
   PhotoSlot,
@@ -40,7 +41,6 @@ export function initialEntryFormState({ existing, tripIris }: EntryFormSeed): En
     tripIri: existing?.trip !== undefined && tripIris.includes(existing.trip) ? existing.trip : "",
     slug: existing?.slug ?? "",
     headline: existing?.headline.value ?? "",
-    story: existing?.articleBody?.value ?? "",
     occurred: wallClockOf(existing?.occurredAt),
     /** The other half of the timestamp, and an answer rather than a guess. The
      *  chain is the old save-time one: ./notes.md#the-offset-seeding-is-the-old-chain */
@@ -66,9 +66,18 @@ export function initialEntryFormState({ existing, tripIris }: EntryFormSeed): En
     /** A CODE, not prose (§7.3) — `schema:addressCountry` is written untagged,
      *  so what belongs in this box is `JP`, not `Japan`. */
     country: existing?.place?.country ?? "",
-    /** The photos picked in THIS editor, and not the ones the entry arrived
-     *  with — carried by `photosFor`: ./notes.md#slots-is-not-seeded-from-the-entry */
-    slots: [],
+    /** The ordered section list. CREATE opens with one empty section; EDIT
+     *  restores one per `existing.sections`, its text and its ready photos — a
+     *  legacy top-level `photos` pool is NOT seeded into a section. */
+    sections:
+      existing === undefined || existing.sections.length === 0
+        ? [{ id: sid(), text: "", slots: [] }]
+        : restoredSections(
+            existing.sections.map((section) => ({
+              text: section.text?.value ?? "",
+              photos: section.photos,
+            })),
+          ),
     /** Who supplied the coordinate; seeded from the entry, which is ruling
      *  T3-B: ./notes.md#the-coordinate-author-and-ruling-t3-b */
     coordinateAuthor: existing?.place?.geo === undefined ? { kind: "nobody" } : { kind: "owner" },
@@ -83,12 +92,11 @@ export function initialEntryFormState({ existing, tripIris }: EntryFormSeed): En
 }
 
 /** One callback per control, so a group never holds `dispatch` and cannot
- *  invent a transition. Spelled by hand: fifteen names is the interface. */
+ *  invent a transition. Spelled by hand: fourteen names is the interface. */
 export interface EntryFormSetters {
   tripIri: (value: string) => void;
   slug: (value: string) => void;
   headline: (value: string) => void;
-  story: (value: string) => void;
   occurred: (value: string) => void;
   offset: (value: string) => void;
   tagsText: (value: string) => void;
@@ -111,8 +119,15 @@ export interface EntryForm {
    *  `sources` is from three: ./notes.md#the-offset-option-list-is-the-forms-own */
   offsetOptions: string[];
   set: EntryFormSetters;
-  addSlot: (slot: PhotoSlot) => void;
-  settleSlot: (key: string, slot: PhotoSlot) => void;
+  /** A section's text, and the three list moves — the id is what a reorder is
+   *  keyed on, minted by the reducer on `addSection`. */
+  setSectionText: (id: string, value: string) => void;
+  addSection: () => void;
+  removeSection: (id: string) => void;
+  moveSection: (id: string, dir: "up" | "down") => void;
+  /** A slot appended to a section, and a slot replaced within it. */
+  addSlot: (sectionId: string, slot: PhotoSlot) => void;
+  settleSlot: (sectionId: string, key: string, slot: PhotoSlot) => void;
   offerCoordinate: (name: string, lat: string, long: string) => void;
   offerTimestamp: (offer: { key: string; name: string; wall?: string; offset?: string }) => void;
   restore: (draft: Draft, context: RestoreContext) => void;
@@ -131,7 +146,6 @@ export function useEntryForm(seed: EntryFormSeed): EntryForm {
       tripIri: field("tripIri"),
       slug: field("slug"),
       headline: field("headline"),
-      story: field("story"),
       occurred: field("occurred"),
       offset: field("offset"),
       tagsText: field("tagsText"),
@@ -163,8 +177,12 @@ export function useEntryForm(seed: EntryFormSeed): EntryForm {
       offset: sourceOf(values.offsetAuthor),
     },
     set,
-    addSlot: (slot) => dispatch({ kind: "slot-added", slot }),
-    settleSlot: (key, slot) => dispatch({ kind: "slot-settled", key, slot }),
+    setSectionText: (id, value) => dispatch({ kind: "section-text", id, value }),
+    addSection: () => dispatch({ kind: "section-added" }),
+    removeSection: (id) => dispatch({ kind: "section-removed", id }),
+    moveSection: (id, dir) => dispatch({ kind: "section-moved", id, dir }),
+    addSlot: (sectionId, slot) => dispatch({ kind: "slot-added", sectionId, slot }),
+    settleSlot: (sectionId, key, slot) => dispatch({ kind: "slot-settled", sectionId, key, slot }),
     offerCoordinate: (name, lat, long) => dispatch({ kind: "photo-coordinate", name, lat, long }),
     offerTimestamp: (offer) => dispatch({ kind: "photo-timestamp", ...offer }),
     restore: (draft, context) => dispatch({ kind: "restore", draft, context }),

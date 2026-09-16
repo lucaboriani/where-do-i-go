@@ -44,11 +44,26 @@ const photo = (hash: string): Photo => ({
   sortOrder: 1,
 });
 
+/** A draft as the FORM holds it, built as a literal rather than through
+ *  `draftTextOf` so these debounce/settle tests do not turn on that function's
+ *  own cutover. One empty section is what a create opens with. */
 function text(over: Partial<DraftText> = {}): DraftText {
   return {
-    ...draftTextOf(initialEntryFormState({ existing: undefined, tripIris: [] }), []),
+    tripIri: "",
     slug: "2026-04-11-morning",
     headline: "Morning in Yanaka",
+    occurred: "",
+    offset: "+09:00",
+    tagsText: "",
+    mode: "",
+    status: "draft",
+    lat: "",
+    long: "",
+    precision: "",
+    placeName: "",
+    locality: "",
+    country: "",
+    sections: [{ text: "", photos: [] }],
     ...over,
   };
 }
@@ -97,9 +112,9 @@ afterEach(() => {
 });
 
 describe("draftTextOf", () => {
-  it("carries the sixteen fields and nothing the reducer holds beyond them", () => {
+  it("carries the fifteen form fields, sections among them, and nothing the reducer holds", () => {
     const values = initialEntryFormState({ existing: undefined, tripIris: [] });
-    const projected = draftTextOf(values, [photo("aa")]);
+    const projected = draftTextOf(values);
     expect(Object.keys(projected).sort()).toEqual(
       [
         "country",
@@ -110,29 +125,45 @@ describe("draftTextOf", () => {
         "mode",
         "occurred",
         "offset",
-        "photos",
         "placeName",
         "precision",
+        "sections",
         "slug",
         "status",
-        "story",
         "tagsText",
         "tripIri",
       ].sort(),
     );
-    // `slots` and the three credits are the reducer's and must not reach a
-    // stored draft: a slot holds no URL until it settles.
-    expect(projected).not.toHaveProperty("slots");
+    // The three credits and `offsetGuess` are the reducer's and must not reach a
+    // stored draft; `story`/`photos` are gone with the flat model.
+    expect(projected).not.toHaveProperty("story");
+    expect(projected).not.toHaveProperty("photos");
     expect(projected).not.toHaveProperty("coordinateAuthor");
     expect(projected).not.toHaveProperty("offsetGuess");
   });
 
-  it("takes the photos from the READY list rather than from the slots", () => {
-    const values = initialEntryFormState({ existing: undefined, tripIris: [] });
-    expect(
-      draftTextOf({ ...values, slots: [{ key: "photo-0", name: "a.jpg", state: "decoding" }] }, [])
-        .photos,
-    ).toEqual([]);
+  it("maps each section's READY slots to that section's photos, dropping those in flight", () => {
+    const base = initialEntryFormState({ existing: undefined, tripIris: [] });
+    const values = {
+      ...base,
+      sections: [
+        {
+          id: "a",
+          text: "Morning",
+          slots: [
+            { key: "p0", name: "a.jpg", state: "ready" as const, photo: photo("aa") },
+            { key: "p1", name: "b.jpg", state: "decoding" as const },
+          ],
+        },
+        { id: "b", text: "", slots: [] },
+      ],
+    };
+    // A slot holds no URL until it settles, so only the ready one reaches the
+    // draft; the section's text rides beside its photos.
+    expect(draftTextOf(values).sections).toEqual([
+      { text: "Morning", photos: [photo("aa")] },
+      { text: "", photos: [] },
+    ]);
   });
 });
 
@@ -342,17 +373,20 @@ describe("useEntryDraft — settling, once the Pod holds the text", () => {
     expect(storage.calls, "the Pod holds exactly what is on the screen").toHaveLength(0);
   });
 
-  it("counts a photo attached during the round trip as a difference", () => {
+  it("counts a photo attached to a section during the round trip as a difference", () => {
     const storage = fakeStorage();
-    const sent = text({ photos: [] });
+    const sent = text({ sections: [{ text: "", photos: [] }] });
     const { result, rerender } = renderHook((p: EntryDraftSeed) => useEntryDraft(p), {
       initialProps: seed({ storage: storage.store, text: sent }),
     });
-    rerender(seed({ storage: storage.store, text: text({ photos: [photo("bb")] }) }));
+    rerender(
+      seed({ storage: storage.store, text: text({ sections: [{ text: "", photos: [photo("bb")] }] }) }),
+    );
     act(() => {
       result.current.settleDraft(sent, ENTRY_URL);
     });
-    // Bytes already on the Pod, about to be referenced by nothing at all.
+    // Bytes already on the Pod, about to be referenced by nothing at all —
+    // `sameText` compares the section list, so this is a difference.
     expect(storage.calls).toHaveLength(1);
   });
 });

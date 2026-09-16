@@ -7,8 +7,8 @@
 
 import { gridOf } from "@/lib/studio/place/place";
 import { OFFSET_SHAPE } from "@/lib/time/offsets";
-import { withTimeCredit } from "./actions";
-import type { EntryFormAction, EntryFormState, PhotoSlot } from "./actions";
+import { sid, withTimeCredit } from "./actions";
+import type { EntryFormAction, EntryFormState, PhotoSlot, SectionDraft } from "./actions";
 import type { Photo } from "@/lib/pod/schema";
 
 /** What a restored draft can still say about a photo whose file name is long
@@ -16,16 +16,29 @@ import type { Photo } from "@/lib/pod/schema";
  *  file-name field on purpose — §7.3 describes the resource, not the pick. */
 const restoredName = (photo: Photo, index: number) => photo.caption?.value ?? `Photo ${index + 1}`;
 
-/** THE PHOTOS COME BACK ALREADY UPLOADED, and a pre-photo draft restores an
- *  EMPTY list rather than half of one:
+/** THE PHOTOS COME BACK ALREADY UPLOADED, keyed from `startAt` so keys stay
+ *  globally unique across sections (§11.5's cross-half guard):
  *  ./notes.md#restored-photos-come-back-already-uploaded */
-const restoredSlots = (photos: readonly Photo[]): PhotoSlot[] =>
+export const restoredSlots = (photos: readonly Photo[], startAt = 0): PhotoSlot[] =>
   photos.map((photo, at) => ({
-    key: `restored-${at}`,
+    key: `restored-${startAt + at}`,
     name: restoredName(photo, at),
     state: "ready",
     photo,
   }));
+
+/** One `SectionDraft` per restored section, its ready slots numbered so no two
+ *  sections share a slot key. A pre-photo section restores an empty list. */
+export function restoredSections(
+  sections: readonly { text: string; photos: readonly Photo[] }[],
+): SectionDraft[] {
+  let at = 0;
+  return sections.map((section) => {
+    const slots = restoredSlots(section.photos, at);
+    at += section.photos.length;
+    return { id: sid(), text: section.text, slots };
+  });
+}
 
 export function applyRestore(
   state: EntryFormState,
@@ -56,7 +69,6 @@ export function applyRestore(
           slug: draft.slug,
         }),
     headline: draft.headline,
-    story: draft.story,
     occurred: draft.occurred,
     offset: offsetGiven ? draft.offset : state.offset,
     tagsText: draft.tagsText,
@@ -77,7 +89,7 @@ export function applyRestore(
     placeName: draft.placeName ?? state.placeName,
     locality: draft.locality ?? state.locality,
     country: draft.country ?? state.country,
-    slots: restoredSlots(draft.photos),
+    sections: restoredSections(draft.sections),
     coordinateAuthor: pairGiven ? { kind: "owner" } : state.coordinateAuthor,
   };
 

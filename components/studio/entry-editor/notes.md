@@ -1,4 +1,3 @@
-
 ## the-allow-half-is-a-wait
 
 Section 12m's three cases each pair a refusal with an allow — "the second photo did not overwrite
@@ -247,11 +246,15 @@ until 2026-09-08 is gone: at 195 it was already an UNUSED directive and
 "Remove this line with the last field group" — was wrong, and Task 5 proved it:
 after all five groups this function was still 633 lines.
 
-## what the 164 are, and why they stay
+## what the 167 are, and why they stay
 
 Stage C's Task 7, 2026-09-09. **The banner was extracted and the rest stays**,
 with the number measured after the extraction rather than predicted before it:
-`check:structure` reports 164, over the 130 tendency and 36 under the 200 bound.
+`check:structure` reported 164 then, over the 130 tendency and 36 under the 200
+bound. Stage 3a's Task 2 (2026-09-16) swapped the single-section block for one
+`<SectionsField>` call and left the count at 167, 33 under the 200 bound —
+still the composition-plus-frame shape this section describes, not a reason to
+re-measure the argument.
 
 **What left.** `draft-banner/` — the unsaved-draft banner, `HOLD_REASON_ID` and
 `savedAtText`, 31 code lines of the 195. It was the one block in here that
@@ -260,13 +263,14 @@ Stage B left it out for timing rather than merit
 (`hooks/studio/notes.md#what-the-195-are-and-what-they-are-not`). The reason it was left
 had expired; the merit had not.
 
-**What the 164 are.** Roughly 55 lines of composition — the props, the reducer,
+**What the 167 are.** Roughly 55 lines of composition — the props, the reducer,
 five hook calls, `attached`, `text`, `restore` — and roughly 110 of JSX in one
 `return`. The composition is this component's whole job and cannot be moved
 without moving the thing being composed. The JSX is the page's frame: an
 `<h2>`, the banner's one condition, the `<form>` with its two handlers, the held
-`<fieldset>` and the five groups inside it, the Save button, the storage note
-and the outcome region.
+`<fieldset>` and the six groups inside it (`SectionsField` replacing the old
+inline text-and-photo block), the Save button, the storage note and the outcome
+region.
 
 **What was considered next, and declined.** Three candidates remain, and each
 would move lines without moving responsibility:

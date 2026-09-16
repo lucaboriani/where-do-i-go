@@ -1,7 +1,7 @@
 /**
- * The four controls that say WHICH entry this is: the trip it belongs to, the
- * slug its URL is built from, its headline and its story. Presentational — every
- * value and every callback arrives as a prop: ./notes.md#props-only
+ * The three controls that say WHICH entry this is: the trip it belongs to, the
+ * slug its URL is built from, and its headline. The prose moved to sections.
+ * Presentational — every value and every callback is a prop: ./notes.md#props-only
  */
 
 import Field, { CONTROL } from "../../field";
@@ -22,8 +22,6 @@ export interface IdentityFieldsProps {
   onSlugChange: (slug: string) => void;
   headline: string;
   onHeadlineChange: (headline: string) => void;
-  story: string;
-  onStoryChange: (story: string) => void;
 }
 
 export default function IdentityFields({
@@ -35,8 +33,6 @@ export default function IdentityFields({
   onSlugChange,
   headline,
   onHeadlineChange,
-  story,
-  onStoryChange,
 }: IdentityFieldsProps) {
   return (
     <>
@@ -87,17 +83,6 @@ export default function IdentityFields({
           className={CONTROL}
           value={headline}
           onChange={(event) => onHeadlineChange(event.target.value)}
-        />
-      </Field>
-
-      <Field id="entry-story" label="Story">
-        <textarea
-          id="entry-story"
-          name="entry-story"
-          rows={8}
-          className={CONTROL}
-          value={story}
-          onChange={(event) => onStoryChange(event.target.value)}
         />
       </Field>
     </>

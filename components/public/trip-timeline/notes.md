@@ -28,15 +28,17 @@ the link is what this change must not be mistaken for.
 
 ## The other three fields
 
-`thumbnail`, `travelModeFrom` and `precisionMeters` render the same way — built
+`thumbnail`, `travelModeFrom` and the coordinate render the same way — built
 in `TripTimeline`, passed down as more of the row's `children`, never inside
 `TimelineRow` itself. The thumbnail is a plain `<img>`, not `next/image`: an
 arbitrary Pod origin has no entry in `images.remotePatterns`, and `next/image`
-would ship a client component for a 40px square. `precisionMeters` is rendered
-through `precisionLabel` (`lib/place/precision.ts`) rather than formatted here,
-so the `~500 m` / `~10 km` choice has one owner. `TimelineRow`'s `<li>` also
-carries `data-slug` now, alongside `data-active` — the sheet's reveal query
-finds a row by it.
+would ship a client component for a 40px square. `lat`/`long` render through a
+private `formatCoordinate` (phase 7, mirroring `EntryContent`'s `MetaRow`), not
+`lib/place/precision.ts`'s `precisionLabel` — the row shows the coordinate
+itself, shaped by `.precision`/`.precision.exact` (undefined `precisionMeters`
+= exact = square), not a `~500 m` radius. `TimelineRow`'s `<li>` also carries
+`data-slug`, alongside `data-active` — the sheet's reveal query finds a row by
+it.
 
 ## `data-slug` is on the row AND on the map marker
 

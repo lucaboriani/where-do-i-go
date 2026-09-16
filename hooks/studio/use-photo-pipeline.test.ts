@@ -6,11 +6,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { ok } from "@/lib/pod/result";
-import { attachedOf, photosFor, usePhotoPipeline } from "./use-photo-pipeline";
+import { attachedOf, usePhotoPipeline } from "./use-photo-pipeline";
 import type { PhotoPipelineSeed } from "./use-photo-pipeline";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { Photo } from "@/lib/pod/schema";
-import type { PhotoSlot } from "@/components/studio/entry-editor/state/actions";
+import type { PhotoSlot, SectionDraft } from "@/components/studio/entry-editor/state/actions";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
 const upload = vi.hoisted(() => vi.fn());
@@ -21,6 +21,8 @@ vi.mock("@/lib/media/pipeline", () => ({ createPipeline: create }));
 afterEach(cleanup);
 
 const POD = "https://pod.example/";
+/** The section a pick attaches to — every `attachAll` below names it. */
+const SECTION = "sec-0";
 const session = { fetch: vi.fn(), info: { isLoggedIn: true, webId: "u" } } as unknown as
   StudioSessionLike;
 
@@ -63,10 +65,10 @@ function formSpy() {
   return {
     calls,
     slots: [] as PhotoSlot[],
-    addSlot: vi.fn((slot: PhotoSlot) => {
+    addSlot: vi.fn((_sectionId: string, slot: PhotoSlot) => {
       calls.push(`add:${slot.key}:${slot.state}`);
     }),
-    settleSlot: vi.fn((key: string, slot: PhotoSlot) => {
+    settleSlot: vi.fn((_sectionId: string, key: string, slot: PhotoSlot) => {
       calls.push(`settle:${key}:${slot.state}`);
     }),
     offerCoordinate: vi.fn((name: string, lat: string, long: string) => {
@@ -78,6 +80,10 @@ function formSpy() {
   };
 }
 
+/** The section a pick lands in, as the hook must see it to enforce the
+ *  2-photo cap — restored slots on an EDIT count exactly like ones this
+ *  session just added, so the cap reads the live section rather than a
+ *  counter the hook keeps itself. ./notes.md#the-cap-seam-sections-on-photopipelineseed */
 function seed(over: Partial<PhotoPipelineSeed> = {}): PhotoPipelineSeed {
   return {
     session,
@@ -86,8 +92,9 @@ function seed(over: Partial<PhotoPipelineSeed> = {}): PhotoPipelineSeed {
     coordinatesLive: true,
     markTouched: vi.fn(),
     form: formSpy(),
+    sections: [],
     ...over,
-  };
+  } as PhotoPipelineSeed;
 }
 
 const jpeg = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: "image/jpeg" });
@@ -103,37 +110,6 @@ beforeEach(() => {
   upload.mockReset();
   create.mockReset();
   upload.mockResolvedValue(ok(stored("aa")));
-});
-
-describe("photosFor", () => {
-  it("APPENDS what was picked; it never replaces what the entry arrived with", () => {
-    const carried = [{ contentUrl: `${POD}travel/media/old/web.jpg`, sortOrder: 1 }];
-    expect(photosFor(carried, [stored("new")])).toHaveLength(2);
-    expect(photosFor(carried, []), "pick nothing and the carried travel through").toEqual(carried);
-  });
-
-  it("takes a photo ONCE however many times it is picked", () => {
-    // The media path is content-addressed, so a re-pick returns the SAME URL and
-    // appending blindly writes two `#photo-N` fragments at one binary.
-    expect(photosFor([], [stored("aa"), stored("aa")])).toHaveLength(1);
-    expect(photosFor([stored("aa")], [stored("aa")])).toHaveLength(1);
-  });
-
-  it("seeds `sortOrder` from what the SERIALISER will write, not from the length", () => {
-    // `entry-model.ts` writes `photo.sortOrder ?? i + 1`, so one unnumbered
-    // carried photo is stored as 1 — and `carried.length` is 1 too: a collision
-    // in the very case the fallback exists for.
-    const unnumbered = [{ contentUrl: `${POD}travel/media/old/web.jpg` }];
-    expect(photosFor(unnumbered, [stored("new")])[1].sortOrder).toBe(2);
-    expect(photosFor([], [stored("a"), stored("b")]).map((p) => p.sortOrder)).toEqual([1, 2]);
-  });
-
-  it("leaves the carried numbers exactly as they were stored", () => {
-    const carried = [{ contentUrl: `${POD}travel/media/old/web.jpg`, sortOrder: 7 }];
-    const out = photosFor(carried, [stored("new")]);
-    expect(out[0].sortOrder, "renumbering rewrites §7.3 data nobody touched").toBe(7);
-    expect(out[1].sortOrder).toBe(8);
-  });
 });
 
 describe("attachedOf", () => {
@@ -167,7 +143,7 @@ describe("usePhotoPipeline — one photo, in order", () => {
       }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("first.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("first.jpg")]);
     });
     expect(form.calls).toEqual([
       "add:photo-0:decoding",
@@ -187,7 +163,7 @@ describe("usePhotoPipeline — one photo, in order", () => {
         .pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
     expect(form.offerCoordinate).toHaveBeenCalledWith("a.jpg", "35.69381234", "139.7034");
   });
@@ -203,7 +179,7 @@ describe("usePhotoPipeline — one photo, in order", () => {
       }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("IMG_0001.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("IMG_0001.jpg")]);
     });
     expect(form.offerTimestamp).toHaveBeenCalledWith({
       key: "photo-0",
@@ -217,9 +193,9 @@ describe("usePhotoPipeline — one photo, in order", () => {
     const form = formSpy();
     const { result } = mount({ form });
     await act(async () => {
-      result.current.attachAll([jpeg("same.jpg"), jpeg("same.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("same.jpg"), jpeg("same.jpg")]);
     });
-    const added = form.addSlot.mock.calls.map(([slot]) => slot.key);
+    const added = form.addSlot.mock.calls.map(([, slot]) => slot.key);
     expect(new Set(added).size, "two files of one name are two slots").toBe(2);
     expect(added).toEqual(["photo-0", "photo-1"]);
   });
@@ -239,10 +215,10 @@ describe("usePhotoPipeline — what it refuses", () => {
       pipeline: fakePipeline({ result: derived({ gps: { lat: 1, long: 2 } }) }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
     expect(form.calls).toEqual(["add:photo-0:decoding", "settle:photo-0:uploading", "settle:photo-0:failed"]);
-    expect(form.settleSlot.mock.calls.at(-1)?.[1]).toMatchObject({
+    expect(form.settleSlot.mock.calls.at(-1)?.[2]).toMatchObject({
       state: "failed",
       message: expect.stringContaining("507"),
     });
@@ -255,9 +231,9 @@ describe("usePhotoPipeline — what it refuses", () => {
       pipeline: fakePipeline({ throws: new Error("the decoder gave up") }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
-    expect(form.settleSlot).toHaveBeenCalledWith("photo-0", {
+    expect(form.settleSlot).toHaveBeenCalledWith(SECTION, "photo-0", {
       key: "photo-0",
       name: "a.jpg",
       state: "failed",
@@ -275,7 +251,7 @@ describe("usePhotoPipeline — what it refuses", () => {
       }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
     expect(form.offerCoordinate, "§9 fails closed, and a photo is not an exception").not
       .toHaveBeenCalled();
@@ -288,7 +264,7 @@ describe("usePhotoPipeline — what it refuses", () => {
     const form = formSpy();
     const { result } = mount({ form, pipeline: fakePipeline({ result: derived({}) }).pipeline });
     await act(async () => {
-      result.current.attachAll([jpeg("scan.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("scan.jpg")]);
     });
     expect(form.offerCoordinate).not.toHaveBeenCalled();
     expect(form.offerTimestamp, "still asked, with both tags absent").toHaveBeenCalledWith({
@@ -297,6 +273,65 @@ describe("usePhotoPipeline — what it refuses", () => {
       wall: undefined,
       offset: undefined,
     });
+  });
+});
+
+describe("usePhotoPipeline — the per-section 2-photo cap", () => {
+  /** A section as the hook must see it to answer "how many does it already
+   *  hold" — the count `attachAll` cannot get from `form`, which only carries
+   *  action functions (Stage 3a Task 3: the cap needs a live read, not a
+   *  write). */
+  const sectionWith = (...slots: PhotoSlot[]): SectionDraft[] => [
+    { id: SECTION, text: "", slots },
+  ];
+  const ready = (key: string): PhotoSlot => ({
+    key,
+    name: `${key}.jpg`,
+    state: "ready",
+    photo: stored(key),
+  });
+
+  it("refuses a third pick for a section that already holds 2, and adds no slot for it", async () => {
+    const form = formSpy();
+    const { result } = mount({ form, sections: sectionWith(ready("existing-0"), ready("existing-1")) });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("third.jpg")]);
+    });
+    expect(form.addSlot, "the section is already at the 2-photo cap").not.toHaveBeenCalled();
+  });
+
+  it("takes only the first N of a pick that would exceed the cap from empty", async () => {
+    const form = formSpy();
+    const { result } = mount({ form, sections: sectionWith() });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("a.jpg"), jpeg("b.jpg"), jpeg("c.jpg")]);
+    });
+    const added = form.addSlot.mock.calls.map(([, slot]) => slot.name);
+    // THE ALLOW-CASE lives inside this same assertion: exactly two attach, not
+    // zero — a picker that refused every file would pass a test that only
+    // checked "the third was refused".
+    expect(added, "only the first two of the three fit the cap").toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("does not count a FAILED slot toward the cap, so a freed place still attaches", async () => {
+    const form = formSpy();
+    const { result } = mount({
+      form,
+      sections: sectionWith(ready("existing-0"), {
+        key: "existing-1",
+        name: "b.jpg",
+        state: "failed",
+        message: "boom",
+      }),
+    });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("c.jpg"), jpeg("d.jpg")]);
+    });
+    const added = form.addSlot.mock.calls.map(([, slot]) => slot.name);
+    // One place was free (1 ready + 1 failed = 1 counted), so of the two
+    // newly picked files exactly one fits — the failed row does not also
+    // block it, and the cap still holds at 2 total.
+    expect(added).toEqual(["c.jpg"]);
   });
 });
 
@@ -311,7 +346,7 @@ describe("usePhotoPipeline — the worker", () => {
     create.mockReturnValue(own.pipeline);
     const { result, unmount } = mount({ pipeline: undefined });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg"), jpeg("b.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg"), jpeg("b.jpg")]);
     });
     expect(create).toHaveBeenCalledTimes(1);
     unmount();
@@ -322,7 +357,7 @@ describe("usePhotoPipeline — the worker", () => {
     const theirs = fakePipeline();
     const { result, unmount } = mount({ pipeline: theirs.pipeline });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
     unmount();
     // `dispose()` is not a cancel: it terminates the worker and rejects
@@ -337,7 +372,7 @@ describe("usePhotoPipeline — the worker", () => {
       pipeline: fakePipeline({ result: derived({ gps: { lat: 1, long: 2 } }) }).pipeline,
     });
     await act(async () => {
-      result.current.attachAll([jpeg("a.jpg")]);
+      result.current.attachAll(SECTION, [jpeg("a.jpg")]);
     });
     const call = upload.mock.calls[0][0] as Record<string, unknown>;
     expect(Object.keys(call).sort()).toEqual(

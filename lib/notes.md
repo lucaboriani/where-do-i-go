@@ -27,11 +27,11 @@ deployer used their own namespace, two diaries could not be read by the same
 code and the interoperability premise collapses (§2 rule 4). It is a permanent
 identifier baked into every triple written.
 
-So it is also the one blocker in this repository that outranks a task: while it
-reads `https://example.org/ns/traveldiary#`, **nothing may be written to a live
-Pod**. Local Community Solid Server data is disposable — spike there freely.
-The warning stays shouted at the constant rather than only here, because a
-reader must not walk past it.
+**Resolved 2026-09-16.** `NS.dy` now reads `https://zeropara.me/ns/traveldiary#`,
+the maintainer's chosen domain. The example.org placeholder blocker that used to
+outrank every task here is cleared; live-Pod writes are no longer blocked on
+this account. The warning stays shouted at the constant rather than only here,
+because a reader must not walk past a change like this one.
 
 ## The privacy predicates, and the closed rename window
 

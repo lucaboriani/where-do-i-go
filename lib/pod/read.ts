@@ -167,6 +167,25 @@ export function photosOf(quads: Quad[], imageIris: string[], url: string) {
   );
 }
 
+/**
+ * §7.3's `<#section-n>` shape (spec §3): schema:text, nested schema:image
+ * photos, dy:sortOrder. Raw like photosOf — the whole Entry is validated in one
+ * pass. ./notes.md#sections-supersede-articlebody-and-photos
+ */
+export function sectionsOf(quads: Quad[], sectionIris: string[], url: string) {
+  return guard(() =>
+    sectionIris
+      .map((iri) => viewOf(quads, iri))
+      .filter((s) => s.exists)
+      .map((s) => ({
+        text: langText(s, SCHEMA.text),
+        photos: take(photosOf(quads, s.all(SCHEMA.image), url)),
+        sortOrder: take(integer(s, DY.sortOrder, url)),
+      }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+  );
+}
+
 /* -------------------------------------------------------------------- slugs */
 
 /** The container segment IS the slug — that is what makes /trips/[slug]
@@ -263,7 +282,7 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
 
-    const photos = take(photosOf(quads, v.all(SCHEMA.image), url));
+    const sections = take(sectionsOf(quads, v.all(SCHEMA.hasPart), url));
 
     if (!v.types().includes(DY_CLASS.Entry)) {
       throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });
@@ -279,13 +298,12 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
         status: statusOf(v, url),
         schemaVersion: schemaVersionOf(v, url),
         headline: langText(v, SCHEMA.headline),
-        articleBody: langText(v, SCHEMA.articleBody),
         trip: v.one(DY.trip),
         occurredAt: take(offsetDateTime(v, DY.occurredAt, url)),
         datePublished: take(offsetDateTime(v, SCHEMA.datePublished, url)),
         travelModeFrom: travelModeOf(v),
         place: placeOf(quads, v.one(SCHEMA.contentLocation), url),
-        photos,
+        sections,
         tags: v.all(DY.tag),
         // Read even though nothing renders them: an edit that rewrites this
         // resource without carrying them forward destroys them (§7.3, and the

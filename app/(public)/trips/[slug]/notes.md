@@ -26,6 +26,75 @@ The layout does not await `params` on its shell path, for the reason
 static shell, which is what makes a navigation feel slow. The frame is reserved
 synchronously and the index read happens inside `<Suspense>`.
 
+## Why the title is repeated for mobile
+
+The `@masthead` slot renders the trip name/dates full-width above `.trip-shell`.
+That works on desktop, but `<48rem` the shell collapses: `.trip-map-pane` and
+`.trip-sheet` are both `position: fixed; inset: 0` (see `app/globals.css`), so
+they occlude the in-flow slot and `.trip-shell` has ~0 height — the masthead is
+invisible on phones. The phase-7 final review caught this as a regression (the
+title used to live in the sheet).
+
+The fix keeps the slot masthead on desktop and hides it `<48rem`
+(`.masthead { display: none }`), and `TripContent` renders the title again
+in-sheet inside `.trip-title-mobile`, which is hidden `≥48rem`. Both toggles live
+in the one `@media (min-width: 48rem)` block, so the breakpoint stays spelled
+once. TripContent's draft/not-found `notFound()` runs before this markup, so a
+draft title cannot leak on mobile any more than in the slot. This is a small,
+deliberate duplication of two elements rather than a shared component — the
+render sites differ (the slot also carries the description and its own wrap), and
+a component folder for two tags is more machinery than the duplication it removes.
+
+## Why the masthead slot mirrors the entry route
+
+`@masthead/default.tsx` only covers a hard reload. On a client-side `<Link>`
+nav the slot needs a *matching* subpage, or Next keeps the slot's previously
+active subpage — its documented behaviour: "changing the subpage within the
+slot, while maintaining the other slot's active subpages, even if they don't
+match the current URL"
+(`node_modules/next/dist/docs/.../file-conventions/parallel-routes.md`). So a
+trip → entry soft nav that finds no `@masthead` match for `[entry]` leaves the
+trip banner mounted.
+
+The bundled parallel-routes guide reaches for a `[...catchAll]` to null a slot
+on soft nav (its modal example). That does **not** work here: measured on
+2026-09-16, a soft nav to `[slug]/[entry]` never resolved the catch-all —
+Next kept `@masthead/page.tsx` (the index banner) active and, because that
+page reads URL data (`params`, `getTrip`) while wrongly pulled into the entry
+route's tree, threw `instant-shell-url-data` at `TripMasthead`. The catch-all
+is a different segment *shape* than the real `[entry]` route, and the router's
+soft-nav tree diff would not match it.
+
+The fix is an explicit `@masthead/[entry]/page.tsx` returning `null` that
+mirrors the real `[slug]/[entry]` route segment one-for-one. An exact match
+resolves on soft nav where the catch-all did not, so the *current* route's
+masthead slot renders nothing on the entry route. Because the leaf matches the
+same concrete params the children route prerenders (no unknown-param fallback
+shell), it needs no `instant = false`: the static-shell validation the catch-all
+tripped never fires. `[entry]` is the only real route deeper than the index, so
+it supersedes the catch-all entirely; the catch-all was removed.
+
+The `instant-shell-url-data` error is separate, and `instant = false` on the
+leaf did **not** silence it (measured 2026-09-16). The masthead reads URL data
+(`params` → `getTrip`); Cache Components validates that access per *segment*, and
+the layout's `<Suspense>` around `{masthead}` does not count as this segment's
+own boundary. `@masthead/page.tsx` therefore wraps `TripMasthead` in its own
+`<Suspense fallback={null}>`, co-located with the read — the doc's first
+suggested fix (`.../route-segment-config/instant.md`), and it clears the error.
+
+### Why the e2e filters by visibility, and the banner can never reach count 0
+
+The explicit `[entry]` slot stops a *visible* banner on the entry route, but the
+previous route's masthead stays in the DOM, hidden with `display:none`. That is
+not the slot: it is Cache Components preserving up to 3 routes with React
+`<Activity>` for instant back-nav and state (the old timeline `<main>` lingers
+the same way). `node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md`
+— its "Testing" section is written for exactly this trap: a raw `.masthead`
+locator matches hidden `<Activity>` content, so `e2e/trip-masthead.spec.ts`
+asserts the banner is not *visible* (`.filter({ visible: true })`), not absent.
+A raw count is never 0 after a soft nav; no slot config changes that, because it
+is a router-cache property, not a routing one.
+
 ## The Suspense-child test, and what it does and does not prove
 
 `layout.test.tsx` renders `<Layout>` with a `params` promise that never

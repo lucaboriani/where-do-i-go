@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { allTripSlugs, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
+import { SiteFooter } from "@/components/public/site-footer";
 import TripTimeline from "@/components/public/trip-timeline";
+import { config } from "@/lib/config";
 
 export async function generateStaticParams() {
   return (await allTripSlugs()).map((slug) => ({ slug }));
@@ -40,22 +42,22 @@ export default function TripPage(props: { params: Promise<{ slug: string }> }) {
   );
 }
 
-/** Shaped like the real content so the page does not jump when it arrives. */
+/** Shaped like the real content so the page does not jump when it arrives.
+ *  The name/dates block is the @masthead slot's own fallback now, not this
+ *  one's — this only shapes the timeline TripContent still owns. */
 function TripSkeleton() {
   return (
-    <div aria-hidden className="animate-pulse">
-      <div className="h-8 w-2/3 rounded-sm bg-surface" />
-      <div className="mt-3 h-4 w-full rounded-sm bg-surface" />
-      <div className="mt-2 h-4 w-1/3 rounded-sm bg-surface" />
-      <div className="mt-8 space-y-3">
-        <div className="h-4 w-1/2 rounded-sm bg-surface" />
-        <div className="h-4 w-2/5 rounded-sm bg-surface" />
-      </div>
+    <div aria-hidden className="animate-pulse space-y-3">
+      <div className="h-4 w-1/2 rounded-sm bg-surface" />
+      <div className="h-4 w-2/5 rounded-sm bg-surface" />
     </div>
   );
 }
 
-async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
+// Exported for page.test.tsx: React's client renderer rejects an async
+// function component reached through JSX, so the resolved path is tested by
+// calling it directly — same reason EntryContent and DiaryContent are exported.
+export async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
   // Second line of defence only. proxy.ts is what sets the 404 status, because
@@ -79,21 +81,21 @@ async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
   // A draft trip that happens to be readable is still not published.
   if (trip.ok && trip.value.status !== "published") notFound();
 
+  // The @masthead slot carries the name/dates on desktop, but it is hidden
+  // <48rem (occluded by the fixed map + sheet), so the title is rendered
+  // in-sheet for mobile here. ./notes.md#why-the-title-is-repeated-for-mobile
   return (
     <>
-      {trip.ok ? (
-        <>
-          <h1 className="text-2xl">{trip.value.name.value}</h1>
-          {trip.value.description && (
-            <p className="mt-2 text-muted-foreground">{trip.value.description.value}</p>
-          )}
-          <p className="mt-1 text-sm text-muted-foreground">
+      {trip.ok && (
+        <header className="trip-title-mobile">
+          <h1 className="display trip-title">{trip.value.name.value}</h1>
+          <p className="data-lg">
             {[trip.value.startDate, trip.value.endDate].filter(Boolean).join(" – ")}
           </p>
-        </>
-      ) : (
-        <p className="text-muted-foreground">{describe(trip.error)}</p>
+        </header>
       )}
+
+      {!trip.ok && <p className="text-muted-foreground">{describe(trip.error)}</p>}
 
       {index.ok ? (
         <TripTimeline slug={slug} entries={index.value.entries} />
@@ -101,6 +103,8 @@ async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
         // The index is one resource. Losing it must not lose the trip page.
         <p className="mt-8 text-muted-foreground">{describe(index.error)}</p>
       )}
+
+      <SiteFooter siteName={config.siteName} />
     </>
   );
 }

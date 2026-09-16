@@ -8,8 +8,15 @@ import Field, { CONTROL } from "../../field";
 import type { PhotoSlot } from "../../state/actions";
 
 export interface PhotoFieldsProps {
+  /** This group's own id — unique per section, so `<label htmlFor>` and the
+   *  hint's `${id}-hint` do not collide once more than one group is on a page:
+   *  ./notes.md#id-is-a-prop-now */
+  id: string;
   /** One row each, in the order they were picked. */
   slots: readonly PhotoSlot[];
+  /** The visible half of the 2-photo cap (Stage 3a Task 3) — the reducer and
+   *  the pipeline are the other two, so this is UX rather than the guarantee. */
+  disabled?: boolean;
   /**
    * Every file from ONE pick, in the order the picker delivered them. The input
    * is `multiple`, so this is a list rather than a file: the editor starts them
@@ -18,25 +25,26 @@ export interface PhotoFieldsProps {
   onPicked: (files: readonly File[]) => void;
 }
 
-export default function PhotoFields({ slots, onPicked }: PhotoFieldsProps) {
+export default function PhotoFields({ id, slots, disabled = false, onPicked }: PhotoFieldsProps) {
   return (
     <>
       {/* THE PICKER, AND IT UPLOADS AS SOON AS SOMETHING IS PICKED — the bytes
           are on the Pod before Save is pressed. NO `aria-label` ANYWHERE IN THIS
           BLOCK: ./notes.md#the-picker-uploads-as-soon-as-something-is-picked */}
       <Field
-        id="entry-photos"
+        id={id}
         label="Photos"
         hint="Resized in this browser, stripped of their location and their camera metadata, and uploaded to your Pod as soon as you pick them."
       >
         <input
-          id="entry-photos"
-          name="entry-photos"
+          id={id}
+          name={id}
           type="file"
           accept="image/*"
           multiple
+          disabled={disabled}
           className={CONTROL}
-          aria-describedby="entry-photos-hint"
+          aria-describedby={`${id}-hint`}
           onChange={(event) => {
             const picked = [...(event.target.files ?? [])];
             // CLEARED, so picking the same file again is another `change` rather

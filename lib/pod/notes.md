@@ -4,6 +4,10 @@ Prose that outgrew a docblock, and findings recorded rather than acted on.
 Section numbers are `docs/data-model.md`; decision numbers are
 `docs/decisions.md`. Both stay the normative sources.
 
+## Sections supersede articleBody and photos
+
+Stage 1 of the sectioned-entry work (spec §2, `docs/superpowers/plans/2026-09-16-sectioned-entry-stage-1-data-layer.md`) added `Entry.sections` alongside the then-existing `articleBody`/`photos` fields rather than in place of them, as a deliberate shim. Stage 3a moved the studio editor onto sections; Stage 3b (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3b-remove-legacy-fields.md`) removed the two legacy fields from `Entry` entirely, so an entry's content is `sections` and nothing else.
+
 ## An unreadable ACL looks exactly like no ACL
 
 `resolveContainerAcl`'s three answers come from `hasResourceAcl` and

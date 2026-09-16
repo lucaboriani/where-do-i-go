@@ -8,12 +8,12 @@ import { applyRestore } from "./apply-restore";
 import type { EntryFormState, RestoreContext } from "./actions";
 import type { Draft } from "@/lib/studio/drafts";
 
-/** An untouched create, with this machine's offset in the control. */
+/** An untouched create, with this machine's offset in the control and the one
+ *  empty section a create opens with. */
 const opened: EntryFormState = {
   tripIri: "",
   slug: "",
   headline: "",
-  story: "",
   occurred: "",
   offset: "+02:00",
   tagsText: "",
@@ -25,7 +25,7 @@ const opened: EntryFormState = {
   placeName: "",
   locality: "",
   country: "",
-  slots: [],
+  sections: [{ id: "sec-0", text: "", slots: [] }],
   coordinateAuthor: { kind: "nobody" },
   occurredAuthor: { kind: "nobody" },
   offsetAuthor: { kind: "nobody" },
@@ -48,7 +48,6 @@ const full: Draft = {
   tripIri: "https://pod.example/travel/japan-2026/trip.ttl#it",
   slug: "2026-04-11-morning",
   headline: "Morning in Yanaka",
-  story: "Coffee, then the cemetery.",
   occurred: "2026-04-11T07:05",
   offset: "+09:00",
   tagsText: "walking, morning",
@@ -60,7 +59,7 @@ const full: Draft = {
   placeName: "Yanaka Ginza",
   locality: "Taito",
   country: "JP",
-  photos: [],
+  sections: [{ text: "Coffee, then the cemetery.", photos: [] }],
 };
 
 const context: RestoreContext = {
@@ -79,7 +78,6 @@ describe("applyRestore — the fields", () => {
       tripIri: full.tripIri,
       slug: full.slug,
       headline: full.headline,
-      story: full.story,
       occurred: full.occurred,
       offset: full.offset,
       tagsText: full.tagsText,
@@ -148,20 +146,72 @@ describe("applyRestore — the fields", () => {
       country: "",
     });
   });
+});
 
-  it("brings the photos back as ready slots, already on the Pod", () => {
-    const photos = [
-      { contentUrl: "https://pod.example/travel/media/abc/web.jpg" },
+/* ─── the sections, which are what a restore now rebuilds ─────────────────── */
+
+describe("applyRestore — the sections", () => {
+  const draftWithPhotos: Draft = {
+    ...full,
+    sections: [
       {
-        contentUrl: "https://pod.example/travel/media/def/web.jpg",
-        caption: { value: "The cat", language: "en" },
+        text: "Morning",
+        photos: [{ contentUrl: "https://pod.example/travel/media/abc/web.jpg" }],
       },
-    ];
-    const next = restore(opened, { ...full, photos });
-    expect(next.slots).toEqual([
-      { key: "restored-0", name: "Photo 1", state: "ready", photo: photos[0] },
-      { key: "restored-1", name: "The cat", state: "ready", photo: photos[1] },
-    ]);
+      {
+        text: "",
+        photos: [
+          { contentUrl: "https://pod.example/travel/media/def/web.jpg" },
+          {
+            contentUrl: "https://pod.example/travel/media/ghi/web.jpg",
+            caption: { value: "The cat", language: "en" },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("rebuilds one section per draft section, with its text", () => {
+    const next = restore(opened, draftWithPhotos);
+    expect(next.sections).toHaveLength(2);
+    expect(next.sections.map((s) => s.text)).toEqual(["Morning", ""]);
+  });
+
+  it("brings each section's photos back as ready slots, already on the Pod", () => {
+    const next = restore(opened, draftWithPhotos);
+    const [first, second] = next.sections;
+
+    expect(first.slots).toHaveLength(1);
+    expect(first.slots[0]).toMatchObject({
+      state: "ready",
+      photo: draftWithPhotos.sections[0].photos[0],
+      name: expect.stringMatching(/^Photo \d+$/),
+    });
+
+    expect(second.slots).toHaveLength(2);
+    expect(second.slots[0]).toMatchObject({ state: "ready" });
+    expect(second.slots[1].state).toBe("ready");
+    if (second.slots[1].state === "ready") {
+      expect(second.slots[1].photo).toEqual(draftWithPhotos.sections[1].photos[1]);
+    }
+    expect(second.slots[1].name, "a caption names the restored slot").toBe("The cat");
+  });
+
+  it("gives every restored slot a globally unique, non-empty key across sections", () => {
+    // §11.5's cross-half timestamp guard keys on the slot `key`; two sections
+    // each numbering from zero would collide and break it.
+    const next = restore(opened, draftWithPhotos);
+    const keys = next.sections.flatMap((s) => s.slots.map((slot) => slot.key));
+    expect(keys).toHaveLength(3);
+    for (const key of keys) expect(key.length, "a restored slot had an empty key").toBeGreaterThan(0);
+    expect(new Set(keys).size, "two restored slots shared a key").toBe(keys.length);
+  });
+
+  it("gives every rebuilt section a synthetic, unique id", () => {
+    const next = restore(opened, draftWithPhotos);
+    const ids = next.sections.map((s) => s.id);
+    for (const id of ids) expect(typeof id).toBe("string");
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

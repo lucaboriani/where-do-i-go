@@ -41,9 +41,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-syne), system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, monospace;
+  --font-heading: var(--font-syne), system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -124,6 +124,124 @@
   }
 }
 
+/* Phase-7 type scale: type classes from .mockups/_shared.css, .meta-row and
+   .precision from .mockups/entry.html. Plain classes, not @apply — Tailwind v4
+   is CSS-first and arbitrary values are banned outside className. Spec §3. */
+.wrap { max-width: 78rem; margin-inline: auto; padding-inline: clamp(1.25rem, 4vw, 3rem); }
+.prose { max-width: 66ch; }
+.prose p { margin: 0 0 1.6em; }
+
+/* The entry masthead: type is the entrance. Ported from .mockups/entry.html;
+   the horizontal inset comes from the enclosing .wrap, not from here. Named
+   `.entry-masthead`, not `.masthead` — Task 4's trip masthead needs its own
+   rule (a border, per .mockups/trip.html) and a shared name would collide. */
+.entry-masthead { padding-block: clamp(3rem, 9vh, 7rem) clamp(2rem, 5vh, 3.5rem); }
+
+/* The trip masthead: full-width, above .trip-shell, unlike .entry-masthead
+   which lives inside the 34rem sheet column. Ported from .mockups/trip.html.
+   Hidden <48rem: the fixed map pane + sheet (inset:0) occlude it there, so
+   TripContent repeats the title in-sheet via .trip-title-mobile. Shown again
+   in the 48rem block below — the breakpoint is spelled once. */
+.masthead {
+  display: none;
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block: clamp(3rem, 10vh, 7rem) clamp(2rem, 5vh, 3rem);
+}
+.trip-title { margin-bottom: 1rem; }
+
+/* The mobile-only in-sheet trip title. The @masthead slot owns desktop; this
+   is what a phone sees. Hidden ≥48rem in the breakpoint block below. */
+.trip-title-mobile {
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block: clamp(0.5rem, 2vh, 1rem) clamp(1.5rem, 4vh, 2.5rem);
+}
+
+.breadcrumb { margin: 0 0 clamp(1.5rem, 4vh, 2.5rem); }
+.breadcrumb a { color: var(--color-accent-bright); text-decoration: underline; }
+.breadcrumb a:hover { color: var(--color-accent); }
+
+.display {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(2.75rem, 9vw, 7rem);
+  line-height: 0.94;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+/* The entry masthead's `<h1>` sits in the 34rem sheet column (448px of content
+   at every desktop width, not the full viewport `.display` assumes elsewhere),
+   so it needs its own size — "First night in Shinjuku" overflowed .display's
+   9vw at 1002px in that 448px box. One clamp for both widths, no media query. */
+.entry-title { font-size: clamp(2.25rem, 7vw, 3rem); }
+.display-sm {
+  margin: 0;
+  font-weight: 700;
+  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.data {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  color: var(--color-text-muted);
+}
+.data-lg { font-family: var(--font-mono); font-size: 0.95rem; color: var(--color-text-muted); }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+}
+
+.aside { font-family: var(--font-mono); font-size: 0.78rem; color: var(--color-text-muted); opacity: 0.75; }
+.aside::before { content: "// "; color: var(--color-accent-deep); }
+
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin-top: 6rem;
+  padding: 1.25rem clamp(1.25rem, 4vw, 3rem) calc(3rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-hairline);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2.5rem;
+  margin-top: clamp(1.5rem, 4vh, 2.25rem);
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-hairline);
+}
+.meta-row dt { margin: 0 0 0.3rem; font-family: var(--font-mono); font-size: 0.68rem;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-deep); }
+.meta-row dd { margin: 0; font-family: var(--font-mono); font-size: 0.86rem; color: var(--color-text-muted); }
+
+/* A fuzzed coordinate is a soft circle, an exact one a square. The shape is the
+   claim the data makes. docs/design-brief.md; lib/place/precision.ts owns decimals. */
+.precision { display: inline-flex; align-items: center; gap: 0.45rem; }
+.precision::before {
+  content: ""; width: 9px; height: 9px; flex: none;
+  border: 1.5px solid var(--color-accent); border-radius: 50%; opacity: 0.85;
+}
+.precision.exact::before { border-radius: 2px; opacity: 1; }
+
+/* The timeline row's title: interface weight, accent only while the row is
+   active (TimelineRow's data-active). Distinct from `.entry-title`, which
+   sizes the entry PAGE's own <h1> — a shared name would collide. */
+.row-title { color: var(--color-text); font-weight: 500; }
+li[data-active] .row-title { color: var(--color-accent-bright); }
+
 /* The trip shell and its sheet. GEOMETRY, not tokens: calc() over viewport
    units, which the arbitrary-value ban keeps out of className, and the
    breakpoint is spelled ONCE here rather than half here and half in md:.
@@ -181,6 +299,14 @@
 }
 
 @media (min-width: 48rem) {
+  /* Desktop shows the full-width slot masthead and drops the in-sheet copy. */
+  .masthead {
+    display: block;
+  }
+  .trip-title-mobile {
+    display: none;
+  }
+
   .trip-shell {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
@@ -212,5 +338,55 @@
     min-height: 0;
     border-top: 0;
     background: transparent;
+  }
+}
+
+/* Entry markers. 26px has no Tailwind step and arbitrary className values are
+   banned, so the geometry lives here (like the sheet geometry above). The
+   photograph fills the box; arrival gets a soft halo, a fuzzed point a soft
+   circle. Spec §6, decision §36; the active ring is toggled in JS, not here. */
+.map-marker { width: 26px; height: 26px; overflow: hidden; background: var(--color-surface); }
+.map-marker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.map-marker--exact {
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px var(--color-accent-bright),
+    0 0 8px 2px color-mix(in oklab, var(--color-accent-bright) 14%, transparent);
+}
+.map-marker--fuzzed { border-radius: 50%; opacity: 0.8; box-shadow: 0 0 0 1px var(--color-accent); }
+
+.entry-prose { padding-block-start: clamp(1rem, 3vh, 2rem); }
+
+/* Entry photographs. Ported from .mockups/entry.html + _shared.css; the mockup
+   bleeds to 100vw, but the entry lives in the unpadded 34rem sheet column, so a
+   single photo already reaches the COLUMN edge at width:100% — NO negative
+   margin: `<main>` carries no ambient padding to cancel, and one spilled 48px
+   onto the map pane and past the viewport (measured, desktop; fixed here).
+   Spec §8; see components/public/entry-section/notes.md. */
+.entry-figure { margin-block: clamp(2rem, 7vh, 5rem); }
+.entry-figure--bleed .caption { padding-inline: clamp(1.25rem, 4vw, 3rem); }
+
+.plate { position: relative; width: 100%; overflow: hidden; background: var(--color-surface); background-size: cover; background-position: center; }
+.plate > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.plate::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05); pointer-events: none; }
+
+.caption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.5; margin: 0.85rem 0 0; }
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(0.75rem, 2vw, 1.5rem); }
+@media (max-width: 40rem) { .pair { grid-template-columns: 1fr; } }
+
+/* Cross-document view transitions, browser-native and CSS-only (spec §7). Next
+   needs no config flag for this; same-document (next/link) transitions would
+   need React's <ViewTransition> component instead, which is JS, not CSS, so
+   it does not ship here — see docs/decisions.md and the Task 9 report. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

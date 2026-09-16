@@ -12,7 +12,7 @@
  *   type StorageLike  = { getItem(k): string | null; setItem(k, v): void;
  *                         removeItem(k): void }
  *   type DraftAddress = { webId: string; scope: string }
- *   type Draft        = exactly seventeen fields — see FIELDS below
+ *   type Draft        = exactly sixteen fields — see FIELDS below
  *
  *   draftKey(at: DraftAddress): string
  *   readDraft(storage: StorageLike, at: DraftAddress): Draft | null
@@ -123,10 +123,11 @@ const AT_NEW: DraftAddress = { webId: OWNER, scope: NEW };
 const AT_ENTRY: DraftAddress = { webId: OWNER, scope: ENTRY_URL };
 
 /**
- * The seventeen fields, sorted. Asserted as a SET rather than field by field,
+ * The sixteen fields, sorted. Asserted as a SET rather than field by field,
  * because "exactly these" is the property that matters: a seventeenth field is
  * how the ETag gets in, and a missing one is a field the editor silently stops
- * restoring.
+ * restoring. `story`/`photos` gave way to `sections` in the section cutover
+ * (the `v2` → `v3` bump), which is why the count fell by one.
  *
  * NINE UNTIL 2026-09-06. `lat`, `long` and `precision` arrived with the
  * editor's coordinate controls, and they are why the key moved to `v2` — nine
@@ -177,13 +178,12 @@ const FIELDS = [
   "mode",
   "occurred",
   "offset",
-  "photos",
   "placeName",
   "precision",
   "savedAt",
+  "sections",
   "slug",
   "status",
-  "story",
   "tagsText",
   "tripIri",
 ];
@@ -195,7 +195,6 @@ const DRAFT: Draft = {
   tripIri: TRIP_IRI,
   slug: "2026-04-02-kyoto",
   headline: "Rain on the Philosopher's Path",
-  story: "Two hours of drizzle and nobody else on the path.",
   occurred: "2026-04-02T16:20",
   // The offset of the PLACE, chosen by the owner — not the zone the machine
   // editing this happens to be in. Kyoto in April is +09:00; the odd ones are
@@ -214,9 +213,10 @@ const DRAFT: Draft = {
   placeName: "Gion, Kyoto",
   locality: "Kyoto",
   country: "JP",
-  // The common draft: text typed, no photo attached yet. The photo-carrying
-  // cases are section 6's, where they are the subject rather than the setting.
-  photos: [],
+  // The ordered section list — the prose (and its photos) now live here rather
+  // than in a flat `story`/`photos` pair. The common draft is one section of
+  // text with no photo yet; section 6 is where photos are the subject.
+  sections: [{ text: "Two hours of drizzle and nobody else on the path.", photos: [] }],
   savedAt: "2026-04-02T19:00:00+09:00",
 };
 
@@ -267,10 +267,10 @@ const QUOTA = new DOMException("The quota has been exceeded.", "QuotaExceededErr
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe("draftKey", () => {
-  it("is wig.draft.v2.<webId>.<scope>", async () => {
+  it("is wig.draft.v3.<webId>.<scope>", async () => {
     const { draftKey } = await loadDrafts();
-    expect(draftKey(AT_NEW)).toBe(`wig.draft.v2.${OWNER}.${NEW}`);
-    expect(draftKey(AT_ENTRY)).toBe(`wig.draft.v2.${OWNER}.${ENTRY_URL}`);
+    expect(draftKey(AT_NEW)).toBe(`wig.draft.v3.${OWNER}.${NEW}`);
+    expect(draftKey(AT_ENTRY)).toBe(`wig.draft.v3.${OWNER}.${ENTRY_URL}`);
   });
 
   /**
@@ -289,15 +289,15 @@ describe("draftKey", () => {
     );
     // Two people are different drafts.
     expect(draftKey(AT_NEW)).not.toBe(draftKey({ webId: SOMEONE_ELSE, scope: NEW }));
-    // And the version is IN the key, which is how the coordinate fields could
-    // be added at all: v1's nine-field payloads became invisible rather than
-    // half-restorable the moment this became v2.
-    expect(draftKey(AT_NEW)).toContain(".v2.");
+    // And the version is IN the key, which is how the flat `story`/`photos`
+    // pair could become `sections` at all: v2's flat payloads became invisible
+    // rather than half-restorable the moment this became v3.
+    expect(draftKey(AT_NEW)).toContain(".v3.");
   });
 });
 
 describe("writeDraft / readDraft", () => {
-  it("round-trips exactly the seventeen fields, and stores them under the key", async () => {
+  it("round-trips exactly the sixteen fields, and stores them under the key", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items, calls } = fakeStorage();
 
@@ -314,14 +314,20 @@ describe("writeDraft / readDraft", () => {
     expect(Object.keys(back!).sort()).toEqual(FIELDS);
   });
 
-  it("keeps an empty travel mode, an empty story and a published status", async () => {
+  it("keeps an empty travel mode, an empty section and a published status", async () => {
     // `mode` is `TravelMode | ""` — the editor's "Not recorded" option — and an
     // empty string is not the same as an absent field. A schema that required a
     // TravelMode would refuse to store the most common state of a half-written
     // entry, which is the state this whole feature exists for.
     const { readDraft, writeDraft } = await loadDrafts();
     const { storage } = fakeStorage();
-    const sparse: Draft = { ...DRAFT, mode: "", story: "", tagsText: "", status: "published" };
+    const sparse: Draft = {
+      ...DRAFT,
+      mode: "",
+      sections: [{ text: "", photos: [] }],
+      tagsText: "",
+      status: "published",
+    };
 
     expect(writeDraft(storage, AT_NEW, sparse)).toBe(true);
     expect(readDraft(storage, AT_NEW)).toEqual(sparse);
@@ -362,15 +368,57 @@ describe("writeDraft / readDraft", () => {
   it("ignores a payload stored under a different version of the key", async () => {
     const { draftKey, readDraft } = await loadDrafts();
     const current = draftKey(AT_NEW);
-    // v1 is not hypothetical: it is what every build before 2026-09-06 wrote,
-    // and its payloads are nine-field ones that would half-fill today's form.
-    const previous = current.replace(".v2.", ".v1.");
+    // v2 is not hypothetical: it is what every build before the section cutover
+    // wrote, and its payloads are flat `story`/`photos` ones that would
+    // half-fill today's sectioned form.
+    const previous = current.replace(".v3.", ".v2.");
     // The mutation really happened: a replace that missed would leave two
     // identical keys and make the assertion below vacuous.
     expect(previous).not.toBe(current);
 
     expect(readDraft(fakeStorage({ [previous]: VALID_JSON }).storage, AT_NEW)).toBeNull();
     expect(readDraft(fakeStorage({ [current]: VALID_JSON }).storage, AT_NEW)).toEqual(DRAFT);
+  });
+
+  /**
+   * THE CUTOVER'S OWN VERSION TEST. A pre-cutover build wrote a FLAT draft —
+   * `story` + `photos`, no `sections` — under the `v2` key. The `v3` reader must
+   * never half-restore it: the key it lives under is not the key this reader
+   * looks at, so it is invisible, exactly as `v1` became when `v2` arrived.
+   */
+  it("does not restore a flat v2-shaped draft written before sections existed", async () => {
+    const { draftKey, readDraft } = await loadDrafts();
+    // What every build before the section cutover produced. No `sections` at all.
+    const flat = JSON.stringify({
+      tripIri: TRIP_IRI,
+      slug: "2026-04-02-kyoto",
+      headline: "Rain on the Philosopher's Path",
+      story: "Two hours of drizzle and nobody else on the path.",
+      occurred: "2026-04-02T16:20",
+      offset: "+09:00",
+      tagsText: "walking, rain",
+      mode: "Train",
+      status: "draft",
+      lat: "35.026345",
+      long: "135.794782",
+      precision: "500",
+      placeName: "Gion, Kyoto",
+      locality: "Kyoto",
+      country: "JP",
+      photos: [],
+      savedAt: "2026-04-02T19:00:00+09:00",
+    });
+    const v2Key = `wig.draft.v2.${OWNER}.${NEW}`;
+    // The mutation really happened: the flat payload carries no sections.
+    expect(flat).not.toContain("sections");
+
+    // Under the old key, the v3 reader never looks: the draft is invisible.
+    expect(readDraft(fakeStorage({ [v2Key]: flat }).storage, AT_NEW)).toBeNull();
+    // The allow-case: a v3 draft under the current key does read back, so this
+    // is not a reader that answers null for everything.
+    expect(readDraft(fakeStorage({ [draftKey(AT_NEW)]: VALID_JSON }).storage, AT_NEW)).toEqual(
+      DRAFT,
+    );
   });
 });
 
@@ -424,10 +472,10 @@ describe("what a draft must never carry", () => {
    * persisted shape, the schema starts keeping it and this fails. It also
    * settles the unknown-key question for the whole module — the schema STRIPS
    * what it does not know rather than rejecting the value, so a payload from a
-   * slightly different build still restores its seventeen fields instead of
+   * slightly different build still restores its sixteen fields instead of
    * being thrown away. components/studio/entry-editor/entry-editor.test.tsx leans on that choice.
    */
-  it("restores none of them, and still restores the seventeen that are legitimate", async () => {
+  it("restores none of them, and still restores the sixteen that are legitimate", async () => {
     const { draftKey, readDraft } = await loadDrafts();
     const payload = JSON.stringify({
       ...DRAFT,
@@ -441,7 +489,7 @@ describe("what a draft must never carry", () => {
     const { storage } = fakeStorage({ [draftKey(AT_NEW)]: payload });
     const back = readDraft(storage, AT_NEW);
 
-    // The allow-case: the legitimate twelve came back, so this is not a reader
+    // The allow-case: the legitimate sixteen came back, so this is not a reader
     // that refused the whole payload and passed by returning nothing.
     expect(back).toEqual(DRAFT);
     expect(Object.keys(back!).sort()).toEqual(FIELDS);
@@ -504,7 +552,8 @@ describe("a stored value the module cannot use", () => {
     ["a number", "42"],
     ["a string", '"a draft, honest"'],
     ["a missing field", JSON.stringify({ ...DRAFT, headline: undefined })],
-    ["a field of the wrong type", JSON.stringify({ ...DRAFT, story: { value: "nested" } })],
+    ["a field of the wrong type", JSON.stringify({ ...DRAFT, headline: { value: "nested" } })],
+    ["sections that are not an array", JSON.stringify({ ...DRAFT, sections: "nope" })],
     ["a null field", JSON.stringify({ ...DRAFT, slug: null })],
     ["a status this app does not have", JSON.stringify({ ...DRAFT, status: "archived" })],
     ["a travel mode this app does not have", JSON.stringify({ ...DRAFT, mode: "Teleport" })],
@@ -617,25 +666,18 @@ describe("a storage that fails", () => {
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 6. THE PHOTOS A DRAFT CARRIES — and the version segment left alone.
+ * 6. THE PHOTOS A SECTION CARRIES.
  *
- * The only field here that is not a string off a form control, because by the
- * time one is in this list it is not a file any more: the editor uploads on
- * pick and holds a `Photo`. That ordering is what makes the local copy possible
- * at all — a `File` or a `Blob` serialises to `{}` through JSON without
- * throwing, so the write would report success and the restore would hand back a
- * photo with no URL on it.
- *
- * THE VERSION TEST, ANSWERED "NO" FOR THE FIRST TIME. `v1` → `v2` happened
- * because a v1 payload restored nine controls and left three showing the
- * editor's own defaults. Nothing like that can happen here: no `v2` payload can
- * contain a photo, because there was no control to attach one with. An empty
- * list is the truth about such a draft rather than a default standing in for
- * something lost — and a bump would have thrown away real unsaved prose in
- * exchange for nothing. The first test below is what holds that decision.
+ * A photo is not a string off a form control: by the time one is in a section
+ * it is not a file any more, because the editor uploads on pick and holds a
+ * `Photo`. That ordering is what makes the local copy possible at all — a
+ * `File` or a `Blob` serialises to `{}` through JSON without throwing, so the
+ * write would report success and the restore would hand back a photo with no
+ * URL on it. Photos now hang off `sections[i].photos`, not a flat top-level
+ * list; the section cutover is the reason the key moved to `v3` (section 2).
  * ════════════════════════════════════════════════════════════════════════ */
 
-describe("the photos in a draft", () => {
+describe("the photos in a section", () => {
   /** Exactly what `uploadPhoto` returns: URLs on the Pod, the web derivative's
    *  dimensions, the blob's real media type, and a `data:` placeholder that
    *  rides in JSON precisely because it is a string and not bytes. */
@@ -648,10 +690,10 @@ describe("the photos in a draft", () => {
     blurDataUrl: "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
   };
 
-  it("round-trips a photo with everything the editor has to show again", async () => {
+  it("round-trips a section's photo with everything the editor has to show again", async () => {
     const { readDraft, writeDraft } = await loadDrafts();
     const { storage } = fakeStorage();
-    const withPhoto: Draft = { ...DRAFT, photos: [PHOTO] };
+    const withPhoto: Draft = { ...DRAFT, sections: [{ text: "Rain", photos: [PHOTO] }] };
 
     expect(writeDraft(storage, AT_NEW, withPhoto)).toBe(true);
     const back = readDraft(storage, AT_NEW);
@@ -659,33 +701,26 @@ describe("the photos in a draft", () => {
     // pass; the whole object is what the editor renders from.
     expect(back).toEqual(withPhoto);
     expect(Object.keys(back!).sort()).toEqual(FIELDS);
+    expect(back!.sections[0].photos).toEqual([PHOTO]);
   });
 
   /**
-   * THE DECISION THE KEY DID NOT MOVE FOR. A payload written before the picker
-   * existed is a v2 payload with no `photos`, and it must still restore its
-   * prose — that is the whole point of not bumping.
-   *
-   * WHAT WOULD BREAK IT: making the field required (the draft becomes invisible
-   * and the owner loses text the Pod never saw), or bumping the key to `v3`
-   * (the same loss by a different route).
+   * A SECTION MAY OMIT ITS PHOTOS, and it comes back with an empty list rather
+   * than being refused: `photos: z.array(Photo).default([])` on the section, so
+   * a text-only section written with no `photos` key still restores its prose.
    */
-  it("restores a draft written before photos existed, with an empty list", async () => {
+  it("defaults a section's photos to an empty list when the payload omits them", async () => {
     const { draftKey, readDraft } = await loadDrafts();
-    const before = { ...DRAFT } as Partial<Draft>;
-    delete before.photos;
-    // The fixture really is missing the field, or the rest of this test is
-    // about a payload that has one.
-    expect(Object.keys(before)).not.toContain("photos");
+    const payload = JSON.stringify({ ...DRAFT, sections: [{ text: "Prose, no photos" }] });
+    // The mutation really happened: the section carries no photos key.
+    expect(payload).not.toContain('"photos"');
 
-    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: JSON.stringify(before) });
+    const { storage } = fakeStorage({ [draftKey(AT_NEW)]: payload });
     const back = readDraft(storage, AT_NEW);
 
-    expect(back, "a draft written before the picker is no longer restorable").not.toBeNull();
-    expect(back!.photos, "the missing field did not default to an empty list").toEqual([]);
-    // The mutation half: the text the owner would lose really is in there.
-    expect(back!.headline).toBe(DRAFT.headline);
-    expect(back!.story).toBe(DRAFT.story);
+    expect(back, "a section written with no photos key is no longer restorable").not.toBeNull();
+    expect(back!.sections[0].photos, "the missing key did not default to an empty list").toEqual([]);
+    expect(back!.sections[0].text).toBe("Prose, no photos");
   });
 
   /**
@@ -694,11 +729,14 @@ describe("the photos in a draft", () => {
    * point: losing one local draft is recoverable, and a mangled
    * `schema:contentUrl` on a world-readable resource is not.
    */
-  it("refuses a draft whose photo is not a photo", async () => {
+  it("refuses a draft whose section photo is not a photo", async () => {
     const { draftKey, readDraft, writeDraft } = await loadDrafts();
     const { storage, items } = fakeStorage();
 
-    const mangled = { ...DRAFT, photos: [{ ...PHOTO, contentUrl: "not a url" }] } as Draft;
+    const mangled = {
+      ...DRAFT,
+      sections: [{ text: "Rain", photos: [{ ...PHOTO, contentUrl: "not a url" }] }],
+    } as Draft;
     expect(writeDraft(storage, AT_NEW, mangled)).toBe(false);
     expect(items.size, "an unreadable draft was stored anyway").toBe(0);
 
@@ -707,8 +745,10 @@ describe("the photos in a draft", () => {
     expect(readDraft(storage, AT_NEW)).toBeNull();
 
     // The allow-case, so this is not a reader that refuses everything.
-    expect(writeDraft(storage, AT_NEW, { ...DRAFT, photos: [PHOTO] })).toBe(true);
-    expect(readDraft(storage, AT_NEW)?.photos).toEqual([PHOTO]);
+    expect(writeDraft(storage, AT_NEW, { ...DRAFT, sections: [{ text: "Rain", photos: [PHOTO] }] })).toBe(
+      true,
+    );
+    expect(readDraft(storage, AT_NEW)?.sections[0].photos).toEqual([PHOTO]);
   });
 });
 
@@ -818,7 +858,7 @@ describe("the place fields in a draft", () => {
     }
     // The mutation half: the text the owner would lose really is in there.
     expect(back!.headline).toBe(DRAFT.headline);
-    expect(back!.story).toBe(DRAFT.story);
+    expect(back!.sections).toEqual(DRAFT.sections);
     // And the coordinate, which is the field the key DID move for: a v2 payload
     // carries it, so this is a restore of everything except the three new boxes.
     expect(back!.lat).toBe(DRAFT.lat);
@@ -963,7 +1003,7 @@ describe("the offset in a draft", () => {
     expect(back!.offset, "the missing field did not default to an empty string").toBe("");
     // The mutation half: the text the owner would lose really is in there.
     expect(back!.headline).toBe(DRAFT.headline);
-    expect(back!.story).toBe(DRAFT.story);
+    expect(back!.sections).toEqual(DRAFT.sections);
     // And the wall clock, which is the half of the timestamp such a payload DID
     // carry: the offset is the only thing missing from it.
     expect(back!.occurred).toBe(DRAFT.occurred);
@@ -1023,7 +1063,7 @@ describe("savedAt becoming optional (task 2.5)", () => {
     ).not.toBeNull();
     // The mutation half: the prose the owner would lose really is in there.
     expect(back!.headline).toBe(DRAFT.headline);
-    expect(back!.story).toBe(DRAFT.story);
+    expect(back!.sections).toEqual(DRAFT.sections);
     expect(back!.occurred).toBe(DRAFT.occurred);
     // And the field stays ABSENT rather than being invented: `.optional()`,
     // never `.default(...)`, because this module holds no clock. A schema
@@ -1034,7 +1074,7 @@ describe("savedAt becoming optional (task 2.5)", () => {
       "an absent savedAt came back with the key present anyway",
     ).not.toContain("savedAt");
     expect(back).not.toHaveProperty("savedAt");
-    // Sixteen of the seventeen: everything FIELDS names except the one this
+    // Fifteen of the sixteen: everything FIELDS names except the one this
     // payload has nothing to say about. Not FIELDS itself — that would assert
     // the opposite of what this task changes.
     expect(Object.keys(back!).sort()).toEqual(FIELDS.filter((field) => field !== "savedAt"));

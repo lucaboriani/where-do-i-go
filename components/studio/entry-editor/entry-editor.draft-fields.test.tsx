@@ -21,6 +21,7 @@ import {
   coordinateControls,
   datatypeOf,
   draftKeyFor,
+  draftStory,
   emptyLiteralsIn,
   fakeStorage,
   fakeStudioSession,
@@ -810,7 +811,7 @@ describe("entry editor — the offset in a local draft", () => {
     expect(payload.offset).toBe("+05:45");
     // The mutation half: this really is the offset alone, with nothing typed.
     expect(payload.headline).toBe("");
-    expect(payload.story).toBe("");
+    expect(draftStory(payload)).toBe("");
   });
 
   /**

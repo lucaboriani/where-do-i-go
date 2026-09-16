@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { Parser } from "n3";
 import { readDiary, readEntry, readTrip, readTripIndex } from "@/lib/pod/read";
+import { SCHEMA_VERSION } from "@/lib/vocab";
 // The §6.4 budget itself, so the probes below move with it rather than
 // hard-coding 1200 and quietly slipping under a raised budget. A test file is
 // under neither import fence, so it may reach into studio-only lib/media.
@@ -50,7 +51,7 @@ describe("readTrip", () => {
   });
 
   it("rejects a schemaVersion it does not understand", async () => {
-    servePod({ [URLS.trip]: TRIP.replace("dy:schemaVersion   1", "dy:schemaVersion   99") });
+    servePod({ [URLS.trip]: TRIP.replace("dy:schemaVersion   2", "dy:schemaVersion   99") });
     const r = await readTrip(URLS.trip);
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -95,8 +96,8 @@ describe("readEntry", () => {
     expect(r.value.occurredAt).toBe("2026-03-29T21:40:00+09:00");
     expect(r.value.travelModeFrom).toBe("Flight");
     expect(r.value.place?.locality).toBe("Tokyo");
-    expect(r.value.photos).toHaveLength(1);
-    expect(r.value.photos[0].width).toBe(1600);
+    expect(r.value.sections).toHaveLength(2);
+    expect(r.value.sections[1].photos[0].width).toBe(1600);
   });
 
   it("rejects a slug that does not match its own filename", async () => {
@@ -181,19 +182,21 @@ describe("readEntry", () => {
 
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    // The placeholder is gone...
-    expect(r.value.photos[0].blurDataUrl).toBeUndefined();
+    // The placeholder is gone. The photo lives on section-2, sortOrder 2, the
+    // second of the two sections once sorted.
+    const photo = r.value.sections[1].photos[0];
+    expect(photo.blurDataUrl).toBeUndefined();
     // ...and nothing else is. The rest of the photo:
-    expect(r.value.photos).toHaveLength(1);
-    expect(r.value.photos[0].contentUrl).toBe(`${POD}/travel/media/6f2a1c8e/web.webp`);
-    expect(r.value.photos[0].thumbnailUrl).toBe(`${POD}/travel/media/6f2a1c8e/thumb.webp`);
-    expect(r.value.photos[0].caption).toEqual({ value: "Counter seating, no menu.", language: "en" });
-    expect(r.value.photos[0].width).toBe(1600);
-    expect(r.value.photos[0].height).toBe(1067);
-    expect(r.value.photos[0].encodingFormat).toBe("image/webp");
+    expect(r.value.sections[1].photos).toHaveLength(1);
+    expect(photo.contentUrl).toBe(`${POD}/travel/media/6f2a1c8e/web.webp`);
+    expect(photo.thumbnailUrl).toBe(`${POD}/travel/media/6f2a1c8e/thumb.webp`);
+    expect(photo.caption).toEqual({ value: "Counter seating, no menu.", language: "en" });
+    expect(photo.width).toBe(1600);
+    expect(photo.height).toBe(1067);
+    expect(photo.encodingFormat).toBe("image/webp");
     // ...and the entry the reviewer watched disappear:
     expect(r.value.headline.value).toBe("First night in Shinjuku");
-    expect(r.value.articleBody?.value).toBeTruthy();
+    expect(r.value.sections[0].text?.value).toBeTruthy();
     expect(r.value.place?.locality).toBe("Tokyo");
     expect(r.value.place?.geo?.lat).toBeCloseTo(35.6938);
     expect(r.value.occurredAt).toBe("2026-03-29T21:40:00+09:00");
@@ -216,18 +219,22 @@ describe("readEntry", () => {
     const r = await readEntry(URLS.entry);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.photos[0].blurDataUrl).toBe(atBudget);
+    expect(r.value.sections[1].photos[0].blurDataUrl).toBe(atBudget);
   });
 });
 
 /**
- * The §7.3 `<#photo-n>` shape, parsed on its own. `<#it>` is not involved: the
- * image IRIs are the caller's, which is what lets these cases feed the parser an
- * order the document does not have and a subject the document never describes.
+ * The §7.3 `<#section-2-photo-1>` shape, parsed on its own. `<#it>` is not
+ * involved: the image IRIs are the caller's, which is what lets these cases
+ * feed the parser an order the document does not have and a subject the
+ * document never describes.
  */
 describe("photosOf", () => {
   const quadsOf = (ttl: string) => new Parser({ baseIRI: URLS.entry }).parse(ttl);
   const load = async () => (await import("@/lib/pod/read")).photosOf;
+  /** The one real photo in the normative fixture. */
+  const REAL_PHOTO = `${URLS.entry}#section-2-photo-1`;
+  /** Synthetic fragments not in the fixture, for the ordering/skip cases. */
   const photo = (n: number) => `${URLS.entry}#photo-${n}`;
 
   /** A second ImageObject, declared after the first and sorting before it. */
@@ -243,7 +250,7 @@ describe("photosOf", () => {
 
   it("parses the normative photo, plain literals and all", async () => {
     const photosOf = await load();
-    const r = photosOf(quadsOf(ENTRY), [photo(1)], URLS.entry);
+    const r = photosOf(quadsOf(ENTRY), [REAL_PHOTO], URLS.entry);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value).toHaveLength(1);
@@ -261,7 +268,7 @@ describe("photosOf", () => {
 
   it("orders by dy:sortOrder, not by the order it was handed the IRIs", async () => {
     const photosOf = await load();
-    const r = photosOf(quadsOf(TWO_PHOTOS), [photo(1), photo(2)], URLS.entry);
+    const r = photosOf(quadsOf(TWO_PHOTOS), [REAL_PHOTO, photo(2)], URLS.entry);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.map((p) => p.sortOrder)).toEqual([0, 1]);
@@ -272,7 +279,7 @@ describe("photosOf", () => {
    *  photo with every field missing — the same filter the §7.4 rows get. */
   it("skips an image IRI the document does not describe", async () => {
     const photosOf = await load();
-    const r = photosOf(quadsOf(ENTRY), [photo(1), photo(9)], URLS.entry);
+    const r = photosOf(quadsOf(ENTRY), [REAL_PHOTO, photo(9)], URLS.entry);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value).toHaveLength(1);
@@ -285,7 +292,7 @@ describe("photosOf", () => {
     expect(ttl).not.toBe(ENTRY);
     let threw: unknown;
     try {
-      const r = photosOf(quadsOf(ttl), [photo(1)], URLS.entry);
+      const r = photosOf(quadsOf(ttl), [REAL_PHOTO], URLS.entry);
       expect(r.ok).toBe(false);
       if (r.ok) return;
       expect(r.error.kind).toBe("datatype");
@@ -411,7 +418,7 @@ describe("parseTripIndex", () => {
    *  that gave this parser a name must not be where that check goes missing. */
   it("still rejects a schemaVersion it does not understand", async () => {
     const parseTripIndex = await load();
-    const ttl = INDEX.replace(/dy:schemaVersion\s+1/, "dy:schemaVersion 99");
+    const ttl = INDEX.replace(/dy:schemaVersion\s+2/, "dy:schemaVersion 99");
     expect(ttl).toContain("dy:schemaVersion 99");
     const r = parseTripIndex(quadsOf(ttl), URLS.index);
     expect(r.ok).toBe(false);
@@ -583,5 +590,94 @@ describe("readDiary", () => {
     if (!r.ok) return;
     expect(r.value.title?.value).toBe("Somewhere Else");
     expect(r.value.trips).toHaveLength(2);
+  });
+});
+
+describe("readEntry — sections", () => {
+  const sectioned = (body: string) => `
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix schema:  <https://schema.org/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
+<#it> a schema:BlogPosting, dy:Entry ;
+    schema:headline "T"@en ;
+    dcterms:creator <https://me.solidcommunity.net/profile/card#me> ;
+    dy:schemaVersion ${SCHEMA_VERSION} ;
+    dy:slug "2026-03-29-arrival" ;
+    dy:status dy:Published ;
+${body}
+`;
+
+  it("reads sections in dy:sortOrder, not document order", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-2>, <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 ; schema:text "first"@en .
+<#section-2> a dy:Section ; dy:sortOrder 2 ; schema:text "second"@en .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.sections.map((s) => s.text?.value)).toEqual(["first", "second"]);
+  });
+
+  it("reads a two-photo section, photos ordered by sortOrder", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 ;
+    schema:image <#section-1-photo-2>, <#section-1-photo-1> .
+<#section-1-photo-1> a schema:ImageObject ; dy:sortOrder 1 ;
+    schema:contentUrl <../../../media/a/web.webp> ; schema:width 1600 ; schema:height 1067 .
+<#section-1-photo-2> a schema:ImageObject ; dy:sortOrder 2 ;
+    schema:contentUrl <../../../media/b/web.webp> ; schema:width 1600 ; schema:height 1067 .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.sections).toHaveLength(1);
+    // Order by sortOrder (2 before 1 in document order); assert the filename
+    // tail rather than the resolved absolute URL, which depends on the base.
+    expect(r.value.sections[0].photos.map((p) => p.contentUrl.split("/").slice(-2).join("/"))).toEqual([
+      "a/web.webp",
+      "b/web.webp",
+    ]);
+  });
+
+  it("reports a structured shape error for a section with neither text nor a photo", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:hasPart <#section-1> .
+<#section-1> a dy:Section ; dy:sortOrder 1 .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.kind).toBe("shape");
+  });
+
+  /**
+   * `articleBody`/entry-level `photos` are gone from `Entry` (Stage 3b). A
+   * stray `<#it> schema:articleBody`/`schema:image` — a foreign writer, or
+   * this app's own pre-cutover output — must not resurrect fields the type no
+   * longer has; `readEntry` ignores them and reads only the sections.
+   */
+  it("ignores a legacy entry-level articleBody and schema:image, reading only sections", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:articleBody "Legacy prose."@en ;
+    schema:image <#photo-1> ;
+    schema:hasPart <#section-1> .
+<#photo-1> a schema:ImageObject ;
+    schema:contentUrl <../../../media/legacy/web.webp> ;
+    dy:sortOrder 1 .
+<#section-1> a dy:Section ; dy:sortOrder 1 ; schema:text "first"@en .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect("articleBody" in r.value).toBe(false);
+    expect("photos" in r.value).toBe(false);
+    expect(r.value.sections.map((s) => s.text?.value)).toEqual(["first"]);
   });
 });

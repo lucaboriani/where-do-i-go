@@ -32,7 +32,7 @@ Revision 6. See §14 for what changed and why.
 | `geo` | `http://www.w3.org/2003/01/geo/wgs84_pos#` |
 | `ldp` | `http://www.w3.org/ns/ldp#` |
 | `solid` | `http://www.w3.org/ns/solid/terms#` |
-| `dy` | `https://example.org/ns/traveldiary#` |
+| `dy` | `https://zeropara.me/ns/traveldiary#` |
 
 Declare only the prefixes a given resource actually uses. `rdf:` is never declared, because
 Turtle's `a` keyword covers `rdf:type` and nothing else in this model needs it.
@@ -79,8 +79,8 @@ an environment variable. If each deployer's Pod used its own namespace, two diar
 be read by the same code and the interoperability premise collapses.
 
 Use the project's canonical URL and publish a small RDFS document there describing each term.
-Replace `https://example.org/ns/traveldiary#` throughout once the domain is settled — it
-appears in §7 examples and in `vocab.ts`, nowhere else.
+The domain was settled 2026-09-16: `dy:` resolves to `https://zeropara.me/ns/traveldiary#`,
+in §7 examples and in `vocab.ts`, nowhere else.
 
 ---
 
@@ -91,6 +91,7 @@ appears in §7 examples and in `vocab.ts`, nowhere else.
 - `dy:Diary` — the root object, one per Pod
 - `dy:Trip` — a trip; co-typed with `schema:TouristTrip`
 - `dy:Entry` — a diary entry; co-typed with `schema:BlogPosting`
+- `dy:Section` — an ordered part of an entry; its own text and up to two photos
 - `dy:TripIndex` — the denormalised read model for one trip
 - `dy:IndexEntry` — one row in that read model
 - `dy:PublicationStatus` — the class of publication states
@@ -405,7 +406,7 @@ These are normative. Byte-level formatting is not (see §11).
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a dy:Diary ;
@@ -413,7 +414,7 @@ These are normative. Byte-level formatting is not (see §11).
     dcterms:description "Notes and photographs from the road."@en ;
     dcterms:creator     <https://me.solidcommunity.net/profile/card#me> ;
     dcterms:modified    "2026-04-20T18:02:11+02:00"^^xsd:dateTime ;
-    dy:schemaVersion    1 ;
+    dy:schemaVersion    2 ;
     dy:trip             <trips/2026-japan/trip.ttl#it> ,
                         <trips/2025-patagonia/trip.ttl#it> .
 ```
@@ -432,7 +433,7 @@ actually hurt, because it is another index to keep in sync.
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix geo:     <http://www.w3.org/2003/01/geo/wgs84_pos#> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a schema:TouristTrip, dy:Trip ;
@@ -442,7 +443,7 @@ actually hurt, because it is another index to keep in sync.
     dcterms:created    "2026-03-01T09:12:00+01:00"^^xsd:dateTime ;
     dcterms:modified   "2026-04-20T18:02:11+02:00"^^xsd:dateTime ;
     dcterms:creator    <https://me.solidcommunity.net/profile/card#me> ;
-    dy:schemaVersion   1 ;
+    dy:schemaVersion   2 ;
     dy:slug            "2026-japan" ;
     dy:status          dy:Published ;
     dy:startDate       "2026-03-28"^^xsd:date ;
@@ -484,26 +485,35 @@ No bounding box here. It lives on the index (§7.4) with the rest of the derived
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix geo:     <http://www.w3.org/2003/01/geo/wgs84_pos#> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a schema:BlogPosting, dy:Entry ;
     schema:headline      "First night in Shinjuku"@en ;
-    schema:articleBody   """Landed at 17:20 and took the Narita Express in, which
-was a mistake at rush hour. Ate standing up at a counter with six seats."""@en ;
+    schema:hasPart       <#section-1>, <#section-2> ;
     schema:datePublished "2026-03-30T08:15:00+09:00"^^xsd:dateTime ;
     schema:contentLocation <#place> ;
-    schema:image         <#photo-1> ;
     dcterms:created      "2026-03-29T22:03:44+09:00"^^xsd:dateTime ;
     dcterms:modified     "2026-03-30T08:15:00+09:00"^^xsd:dateTime ;
     dcterms:creator      <https://me.solidcommunity.net/profile/card#me> ;
-    dy:schemaVersion     1 ;
+    dy:schemaVersion     2 ;
     dy:slug              "2026-03-29-arrival" ;
     dy:status            dy:Published ;
     dy:trip              <../trip.ttl#it> ;
     dy:occurredAt        "2026-03-29T21:40:00+09:00"^^xsd:dateTime ;
     dy:travelModeFrom    dy:Flight ;
     dy:tag               "food", "trains" .
+
+<#section-1>
+    a dy:Section ;
+    dy:sortOrder 1 ;
+    schema:text "Landed at 17:20 and took the Narita Express in, which was a mistake at rush hour."@en .
+
+<#section-2>
+    a dy:Section ;
+    dy:sortOrder 2 ;
+    schema:text  "Ate standing up at a counter with six seats."@en ;
+    schema:image <#section-2-photo-1> .
 
 <#place>
     a schema:Place ;
@@ -524,7 +534,7 @@ was a mistake at rush hour. Ate standing up at a counter with six seats."""@en ;
     geo:long           139.7034 ;
     dy:precisionMeters 500 .
 
-<#photo-1>
+<#section-2-photo-1>
     a schema:ImageObject ;
     schema:contentUrl     <../../../media/6f2a1c8e/web.webp> ;
     schema:thumbnailUrl   <../../../media/6f2a1c8e/thumb.webp> ;
@@ -539,6 +549,13 @@ was a mistake at rush hour. Ate standing up at a counter with six seats."""@en ;
 
 Notes on this shape:
 
+- **The entry's text lives in `dy:Section`s, ordered by `dy:sortOrder`, not in a single
+  `schema:articleBody`.** Each section carries its own `schema:text` and, optionally,
+  `schema:image` — up to two photos, per §2–§3. A photo belongs to the section it illustrates
+  rather than to the entry as a whole, so the caption and the paragraph stay together as the
+  entry is edited.
+- **`schema:hasPart` is domain-clean here**: its domain is `CreativeWork`, and a `BlogPosting`
+  is one, so entry → `dy:Section` needs no borrowed vocabulary.
 - **`dy:occurredAt` carries the local UTC offset of the place.** "21:40+09:00" renders as
   9:40pm in Tokyo for every reader. Normalising to UTC destroys the fact that it was evening,
   which for a travel diary is most of the meaning.
@@ -575,12 +592,12 @@ Notes on this shape:
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a dy:TripIndex ;
     dy:indexOf       <trip.ttl#it> ;
-    dy:schemaVersion 1 ;
+    dy:schemaVersion 2 ;
     dcterms:modified "2026-04-20T18:02:11+02:00"^^xsd:dateTime ;
     dy:entryCount    14 ;
     dy:bboxWest      129.8721 ;
@@ -676,7 +693,7 @@ Registrations are appended to that document, never replacing it:
 
 ```turtle
 @prefix solid: <http://www.w3.org/ns/solid/terms#> .
-@prefix dy:    <https://example.org/ns/traveldiary#> .
+@prefix dy:    <https://zeropara.me/ns/traveldiary#> .
 
 <#traveldiary-diary>
     a solid:TypeRegistration ;
@@ -704,11 +721,11 @@ this document with that property.
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     dcterms:modified          "2026-09-06T11:20:04+02:00"^^xsd:dateTime ;
-    dy:schemaVersion          1 ;
+    dy:schemaVersion          2 ;
     dy:homeLat                45.4655 ;
     dy:homeLong               9.1866 ;
     dy:homeRadiusMeters       3000 ;

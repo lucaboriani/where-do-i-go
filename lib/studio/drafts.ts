@@ -7,7 +7,7 @@
 
 // WHAT MAY NEVER BE PERSISTED: the ETag, `dcterms:created` and
 // `schema:datePublished`. A restored ETag is a blind PUT wearing a helpful hat.
-// The schema below is the fence — seventeen fields, and the parse output is
+// The schema below is the fence — sixteen fields, and the parse output is
 // what reaches storage. ./notes.md#what-may-never-be-persisted
 import * as z from "zod";
 import { Photo, Status, TravelMode } from "@/lib/pod/schema";
@@ -41,7 +41,7 @@ export interface DraftAddress {
  * twice, and on two different arguments the second time.
  * ./notes.md#the-key-has-three-parts-and-the-version-segment-has-been-tested-three-times
  */
-export const draftKey = (at: DraftAddress): string => `wig.draft.v2.${at.webId}.${at.scope}`;
+export const draftKey = (at: DraftAddress): string => `wig.draft.v3.${at.webId}.${at.scope}`;
 
 /**
  * Exactly what the form holds mid-sentence, and nothing else. NOT `.strict()`,
@@ -53,7 +53,6 @@ const Draft = z.object({
   tripIri: z.string(),
   slug: z.string(),
   headline: z.string(),
-  story: z.string(),
   /** The wall clock `<input type="datetime-local">` hands back: no offset,
    *  because that control has none. It becomes `dy:occurredAt` only at save
    *  time, by concatenating the `offset` held beside it (§7.3). */
@@ -94,13 +93,10 @@ const Draft = z.object({
   placeName: z.string().optional(),
   locality: z.string().optional(),
   country: z.string().optional(),
-  /**
-   * THE PHOTOS ALREADY ON THE POD, and the only field here that is not a string
-   * off a form control. A `File` or `Blob` would serialise to `{}` silently, so
-   * `Photo` requiring a URL is where that is caught. `.default([])` is what
-   * lets the key stay at `v2`. ./notes.md#the-photo-list-is-what-the-pod-already-holds
-   */
-  photos: z.array(Photo).default([]),
+  /** THE ORDERED SECTION LIST — prose plus the photos already on the Pod,
+   *  replacing the flat `story`/`photos` pair (the `v2` → `v3` bump). A `File`
+   *  would serialise to `{}`, so `Photo` requiring a URL catches it. */
+  sections: z.array(z.object({ text: z.string(), photos: z.array(Photo).default([]) })),
   /**
    * WHEN THIS DRAFT WAS WRITTEN, and OPTIONAL since 2026-09-07 at the
    * maintainer's instruction, against this docblock's own argument. §6 still

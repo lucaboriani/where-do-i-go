@@ -5,10 +5,9 @@
 > **This is not finished software, and it is not ready to be pointed at a Pod you care
 > about.** It is being built in phases, in the open. Things work, then change shape.
 >
-> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is still
-> `https://example.org/ns/traveldiary#`, a placeholder. That URL is a permanent identifier
-> baked into every triple this app writes, and it has to be replaced with a real project
-> domain before anything is written anywhere that matters. Local development against
+> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is
+> `https://zeropara.me/ns/traveldiary#`, resolved 2026-09-16. That URL is a permanent
+> identifier baked into every triple this app writes. Local development against
 > Community Solid Server is fine — that data is disposable and meant to be thrown away.
 >
 > See `TODO.md` for the phase order and what is ticked, and the status note below for where
@@ -20,17 +19,18 @@ Trips, entries and photographs live in storage you control. The site reads them 
 them; it never holds a copy. Delete the app and every word and photograph is still yours,
 where it always was.
 
-> **Status, as of 2026-09-03.** Phase 0 (the platform spike, answered against two Solid
-> servers), phase 0.5 (installation and setup) and phase 1 (the public read path) are complete
-> and merged. The site reads a Pod and renders it: home, trip and entry pages, sitemap, RSS,
-> metadata, and a 404 that works.
+> **Status, as of 2026-09-16.** Phases 0–4 are complete and merged to `main`: the platform spike,
+> installation, the public read path (home, trip and entry pages, sitemap, RSS, metadata, a real
+> 404), the studio where the owner writes (Solid login, entry create/edit, index maintenance,
+> autosave), the media pipeline (client-side resize, EXIF strip, coordinate fuzzing), and the map
+> and timeline (an interactive MapLibre map, a mobile sheet, and an all-trips globe).
 >
-> Phase 2 — the studio, where the owner writes — is **in progress**: the access-control
-> interface, first-run container setup, Solid login and the owner check are in; entry
-> create/edit, index maintenance and autosave are not.
+> Phase 7 — the visual design — is **in progress on a branch, not yet merged**: the typefaces and
+> type scale are wired, and the entry content model has been reshaped into an ordered list of
+> sections (text + up to two photos each) at the data layer. Restyling the pages, the sectioned
+> entry page and editor, and the map's new look are still to come.
 >
-> Not started: media and photographs (phase 3), the map and timeline (phase 4), and the visual
-> design (phase 7 — the layout is deliberately plain until then). Start at `TODO.md`.
+> Not started: sharing and OG images (phase 5) and phase 6. Start at `TODO.md`.
 
 ## What makes it unusual
 

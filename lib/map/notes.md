@@ -156,3 +156,13 @@ So the constant lives here, in a module with no React in it, and both
 `trip-map.tsx` and `diary-map.tsx` import it from here too. `trip-map.tsx` does
 NOT re-export it: a re-export is a second route back to the client module, and
 the next page to reach for it would pay the 4 kB again in silence.
+
+## The leg is an arc, not a vector
+
+`legs.ts`'s `arcCoordinates` spherical-slerps the two endpoints (spec §6,
+decision §35) instead of drawing the two-point chord. Travel mode used to be
+legible as a dasharray (`dashes.ts`, removed); now it fades and widens instead
+— `line-gradient`/`line-opacity` over `line-progress`, `line-width` over
+feature-state — so the leg reads as a journey with a direction rather than a
+straight line between two pins, and the casing that used to frame it
+(decision §34) is gone because a cased arc read as a second competing route.

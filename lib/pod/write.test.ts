@@ -710,7 +710,7 @@ describe("rebuildIndex — the recovery path for every §10 partial failure", ()
     const pod = recoveryPod({
       [`${ENTRIES}2026-03-31-nara.ttl`]: mutate(
         entryFixture("2026-03-31-nara"),
-        "dy:schemaVersion     1",
+        "dy:schemaVersion     2",
         "dy:schemaVersion     99",
       ),
     });

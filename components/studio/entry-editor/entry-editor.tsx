@@ -7,18 +7,17 @@
  * exists. ./notes.md#what-the-editor-is-not-allowed-to-do
  */
 
-import { useMemo } from "react";
 import { BUTTON } from "./field";
 import DraftBanner, { HOLD_REASON_ID } from "./draft-banner";
 import { draftTextOf, useEntryDraft } from "@/hooks/studio/use-entry-draft";
 import { useEntryForm } from "@/hooks/studio/use-entry-form";
 import { useEntrySave } from "@/hooks/studio/use-entry-save";
-import { attachedOf, usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
+import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
 import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
 import WhereFields from "./fields/where-fields";
-import PhotoFields from "./fields/photo-fields";
+import SectionsField from "./fields/sections-field";
 import ClassificationFields from "./fields/classification-fields";
 import type { Pipeline } from "@/lib/media/pipeline";
 import type { Entry, Status as EntryStatus } from "@/lib/pod/schema";
@@ -79,11 +78,11 @@ export interface EntryEditorProps {
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-/** Composition, and the page's own frame. 164 code lines against the 200 bound,
+/** Composition, and the page's own frame. 167 code lines against the 200 bound,
  *  which is why the `max-lines-per-function` exemption is gone:
  *  ./notes.md#the-exemption-went-because-the-directive-became-unused
- *  What the 164 are, and why they stay over the 130 tendency rather than being
- *  forced under it: ./notes.md#what-the-164-are-and-why-they-stay */
+ *  What the 167 are, and why they stay over the 130 tendency rather than being
+ *  forced under it: ./notes.md#what-the-167-are-and-why-they-stay */
 export default function EntryEditor({
   session,
   trips,
@@ -95,7 +94,7 @@ export default function EntryEditor({
 }: EntryEditorProps) {
   const existing = initial?.entry;
 
-  /** THE TWENTY VALUES THE FORM IS, as one reducer, with every seeding decision
+  /** THE NINETEEN VALUES THE FORM IS, as one reducer, with every seeding decision
    *  in `initialEntryFormState`: ./state/notes.md#guard-inside-the-transition
    *  NOT DESTRUCTURED ANY MORE: hooks/studio/notes.md#the-seventeen-names-came-back-together */
   const tripIris = trips.map((choice) => choice.iri);
@@ -113,14 +112,10 @@ export default function EntryEditor({
     onDefaultPrecision: form.set.precision,
   });
 
-  /** The picked photos that have URLs on the Pod, in pick order — `ready` only,
-   *  and that filter is the fence. See `attachedOf`. */
-  const attached = useMemo(() => attachedOf(values.slots), [values.slots]);
-
-  /** The sixteen fields the FORM holds, projected out of the reducer's twenty.
+  /** The fifteen fields the FORM holds, projected out of the reducer's state.
    *  ONE construction, spent by both the draft and the save: two of them is how
    *  `settleDraft`'s two answers drift. */
-  const text = draftTextOf(form.values, attached);
+  const text = draftTextOf(form.values);
 
   /* ────────────────────────────────────────────────────────── §10's save ── */
 
@@ -133,7 +128,6 @@ export default function EntryEditor({
     initial,
     values: form.values,
     text,
-    attached,
     fuzzed: gate.fuzzed,
   });
 
@@ -159,6 +153,7 @@ export default function EntryEditor({
     pipeline,
     coordinatesLive: gate.coordinatesLive,
     markTouched,
+    sections: values.sections,
     form,
   });
 
@@ -218,8 +213,15 @@ export default function EntryEditor({
             onSlugChange={form.set.slug}
             headline={values.headline}
             onHeadlineChange={form.set.headline}
-            story={values.story}
-            onStoryChange={form.set.story}
+          />
+
+          <SectionsField
+            sections={values.sections}
+            onTextChange={form.setSectionText}
+            onAdd={form.addSection}
+            onRemove={form.removeSection}
+            onMove={form.moveSection}
+            onPicked={attachAll}
           />
 
           <WhenFields
@@ -253,8 +255,6 @@ export default function EntryEditor({
             coordinateSource={form.sources.coordinate}
             hasStoredCoordinate={existing?.place?.geo !== undefined}
           />
-
-          <PhotoFields slots={values.slots} onPicked={attachAll} />
 
           <ClassificationFields
             tagsText={values.tagsText}

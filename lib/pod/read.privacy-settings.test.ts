@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { http, HttpResponse } from "msw";
-import { DY, NS } from "@/lib/vocab";
+import { DY, NS, SCHEMA_VERSION } from "@/lib/vocab";
 // Aliased: `describe` is vitest's here. This is the one-line renderer a
 // fallback shows, so the error has to survive it.
 import { describe as podDescribe } from "@/lib/pod/result";
@@ -108,7 +108,7 @@ describe("readPrivacySettings", () => {
     if (!r.ok) return;
 
     expect(r.value.iri).toBe(`${URL_}#it`);
-    expect(r.value.schemaVersion).toBe(1);
+    expect(r.value.schemaVersion).toBe(SCHEMA_VERSION);
     expect(r.value.home).toEqual({ lat: 45.4655, long: 9.1866, radiusMeters: 3000 });
     expect(r.value.defaultPrecisionMeters).toBe(500);
     expect(r.value.modified).toBe("2026-09-06T11:20:04+02:00");
@@ -195,8 +195,8 @@ describe("readPrivacySettings subject resolution", () => {
 /* ------------------------------- difference 2: dy:schemaVersion IS checked */
 
 describe("readPrivacySettings and dy:schemaVersion", () => {
-  const WRONG = mutate("dy:schemaVersion          1 ;", "dy:schemaVersion          99 ;");
-  const ABSENT = mutate("    dy:schemaVersion          1 ;\n", "");
+  const WRONG = mutate("dy:schemaVersion          2 ;", "dy:schemaVersion          99 ;");
+  const ABSENT = mutate("    dy:schemaVersion          2 ;\n", "");
 
   it("rejects a version it does not understand", async () => {
     // readOwnerProfile reads straight past a 99 because the WebID document is
@@ -210,7 +210,12 @@ describe("readPrivacySettings and dy:schemaVersion", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error.kind).toBe("schemaVersion");
-    expect(r.error).toMatchObject({ kind: "schemaVersion", url: URL_, found: "99", expected: 1 });
+    expect(r.error).toMatchObject({
+      kind: "schemaVersion",
+      url: URL_,
+      found: "99",
+      expected: SCHEMA_VERSION,
+    });
   });
 
   it("rejects a document that declares no version at all", async () => {

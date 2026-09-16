@@ -30,17 +30,39 @@ export type PhotoSlot =
   | { key: string; name: string; state: "ready"; photo: Photo }
   | { key: string; name: string; state: "failed"; message: string };
 
+/** ONE SECTION: its prose and its 0–2 photos, under a synthetic `id` that is
+ *  stable across a reorder and is never a Pod IRI (§7 sections). */
+export interface SectionDraft {
+  id: string;
+  text: string;
+  slots: PhotoSlot[];
+}
+
+/** A fresh section id: monotonic within the process, and not a file name or an
+ *  IRI. The reducer, the initial state and a restore all mint through it. */
+let sectionSeq = 0;
+export const sid = (): string => `section-${sectionSeq++}`;
+
+/** 0–2 photos per section (§7; `lib/pod/schema.ts`'s `Section.photos.max(2)`),
+ *  enforced three times over: the reducer, the pipeline and the picker. */
+export const SECTION_PHOTO_CAP = 2;
+
+/** How many of a section's slots count toward that cap — every state except
+ *  `failed`, which freed its place back up. */
+export const cappedSlotCount = (slots: readonly PhotoSlot[]): number =>
+  slots.filter((slot) => slot.state !== "failed").length;
+
 /* ══════════════════════════════════════════════════════════════════ state ══ */
 
 /**
- * THE FIFTEEN FORM FIELDS, THE PHOTOS AND THE FOUR CREDITS, as one value.
+ * THE FIFTEEN FORM FIELDS AND THE FOUR CREDITS, as one value — `sections` is
+ * one of the fifteen now, so there is no separate photos group any more.
  * The field names are `Draft`'s, deliberately: ./notes.md#what-is-derived-and-what-had-to-stay-stored
  */
 export interface EntryFormState {
   tripIri: string;
   slug: string;
   headline: string;
-  story: string;
   occurred: string;
   offset: string;
   tagsText: string;
@@ -52,8 +74,9 @@ export interface EntryFormState {
   placeName: string;
   locality: string;
   country: string;
-  /** Richer than `Draft.photos`: a slot in flight has no `Photo` yet. */
-  slots: PhotoSlot[];
+  /** The ordered section list: prose plus 0–2 photos each. Richer than
+   *  `Draft.sections` — a slot in flight carries no `Photo` yet. */
+  sections: SectionDraft[];
   coordinateAuthor: CoordinateAuthor;
   occurredAuthor: TimeAuthor;
   offsetAuthor: TimeAuthor;
@@ -87,11 +110,11 @@ export function withTimeCredit(
 /* ════════════════════════════════════════════════════════════════ actions ══ */
 
 /**
- * The thirteen fields a keystroke carries a string into. `mode` and `status`
+ * The twelve fields a keystroke carries a string into. `mode` and `status`
  * are the two `Draft` fields whose values are not strings, and they get their
  * own kinds below: ./notes.md#three-deviations-from-the-plans-action-union-each-measured
  */
-export type TextField = Exclude<keyof Draft, "savedAt" | "photos" | "mode" | "status">;
+export type TextField = Exclude<keyof Draft, "savedAt" | "sections" | "mode" | "status">;
 
 /** What the settings gate answers, and the fallbacks a restore needs from
  *  outside the form. Passed in rather than read, so the transition stays pure. */
@@ -121,5 +144,13 @@ export type EntryFormAction =
    *  identity the cross-half guard compares; `name` is what the notes show. */
   | { kind: "photo-timestamp"; key: string; name: string; wall?: string; offset?: string }
   | { kind: "restore"; draft: Draft; context: RestoreContext }
-  | { kind: "slot-added"; slot: PhotoSlot }
-  | { kind: "slot-settled"; key: string; slot: PhotoSlot };
+  /** A section's prose, and the three list moves — the reducer mints the id on
+   *  add, so `section-added` carries none. `section-moved` is a no-op at the ends. */
+  | { kind: "section-text"; id: string; value: string }
+  | { kind: "section-added" }
+  | { kind: "section-removed"; id: string }
+  | { kind: "section-moved"; id: string; dir: "up" | "down" }
+  /** A row appended to a section, and a row replaced within it: `sectionId`
+   *  picks the section, `key` the row. Slot keys stay globally unique (§11.5). */
+  | { kind: "slot-added"; sectionId: string; slot: PhotoSlot }
+  | { kind: "slot-settled"; sectionId: string; key: string; slot: PhotoSlot };

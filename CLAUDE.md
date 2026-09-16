@@ -216,10 +216,9 @@ no server-side session anywhere in the system.
 
 ## Blocked until decided
 
-**The `dy:` namespace URL is still `https://example.org/ns/traveldiary#`.** It is a permanent
-identifier baked into every triple. Nothing may be written to a live Pod until the real
-project domain replaces it. Local dev against Community Solid Server is fine — that data is
-disposable. Ask before proceeding past this if it is still unset.
+**Resolved 2026-09-16.** The `dy:` namespace URL is `https://zeropara.me/ns/traveldiary#`,
+the maintainer's chosen domain. It is a permanent identifier baked into every triple. The
+example.org placeholder blocker that used to prevent writes to a live Pod is cleared.
 
 ## Architecture invariants
 

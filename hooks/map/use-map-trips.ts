@@ -124,14 +124,14 @@ function addTrips(map: MapLibreMap, points: ReturnType<typeof buildTripPoints>):
     type: "circle",
     source: TRIPS_SOURCE,
     paint: {
-      "circle-radius": 7,
+      "circle-radius": 6,
       "circle-color": [
         "case",
         ["boolean", ["feature-state", "active"], false],
         MAP_COLORS.accentBright,
         MAP_COLORS.accent,
       ],
-      "circle-stroke-width": 2,
+      "circle-stroke-width": 1,
       "circle-stroke-color": MAP_COLORS.accentDeep,
     },
   } satisfies LayerSpecification);

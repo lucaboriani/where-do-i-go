@@ -192,7 +192,7 @@ function tripFixture(
   if (opts.draft) t = mutate(t, "dy:Published", "dy:Draft");
   if (opts.noIndex) t = mutate(t, "dy:index           <entries.ttl#it> ;", "");
   if (opts.schemaVersion !== undefined) {
-    t = mutate(t, "dy:schemaVersion   1", `dy:schemaVersion   ${opts.schemaVersion}`);
+    t = mutate(t, "dy:schemaVersion   2", `dy:schemaVersion   ${opts.schemaVersion}`);
   }
   if (opts.slugSaying !== undefined) t = mutate(t, `"${slug}"`, `"${opts.slugSaying}"`);
   if (opts.floatCoordinate) {

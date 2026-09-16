@@ -34,9 +34,8 @@ See `docs/phase-0-spike.md` for the seven questions, how to test each, and the r
   a bare UUID on the consent screen and broke session restore. Phase 2 needs a deployed origin
   before the login flow can be validated end to end.
 
-**Blocker before any of this touches a live Pod:** the `dy:` namespace is still
-`https://example.org/ns/traveldiary#`. Local Community Solid Server data is disposable, so
-spiking against that is fine. See `CLAUDE.md`.
+**Resolved 2026-09-16:** the `dy:` namespace is `https://zeropara.me/ns/traveldiary#`. See
+`CLAUDE.md`.
 
 ---
 
@@ -1901,8 +1900,84 @@ branch once this stage merges.
 
 ## Phase 7 — look and feel
 
-Design plan first, per the process section of `docs/design-brief.md`. Typefaces are still
-open.
+**IN PROGRESS on branch `phase-7-look-and-feel`, UNMERGED.** Jumped the queue ahead of phases 5–6
+(decided 2026-09-15 — see the status memory / `docs/decisions.md`). Typefaces are **decided**:
+`--sans: Syne`, `--mono: DM Mono`, both self-hosted via `next/font/google`. Spec
+`docs/superpowers/specs/2026-09-15-look-and-feel-phase-7-design.md`; plan
+`docs/superpowers/plans/2026-09-15-look-and-feel-phase-7.md` (9 tasks).
+
+Done (committed on the branch):
+- [x] Task 1 — Syne + DM Mono loaded, the three font tokens wired
+- [x] Task 2 — the type-scale CSS and the deadpan `SiteFooter` status line
+
+### The sectioned entry — supersedes phase-7 Task 3
+
+A content-model change decided with the maintainer 2026-09-15: an entry becomes an **ordered list
+of `dy:Section`s** (each with optional text + 0–2 photos) instead of one `schema:articleBody` blob
++ flat photo list. Spec `docs/superpowers/specs/2026-09-15-sectioned-entry-design.md`. Built as its
+own spec → three staged plans → SDD/TDD loop; phase-7 Tasks 4–9 are independent and resume around
+it.
+
+- [x] **Stage 1 — the data layer** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-1-data-layer.md`,
+      six tasks). `dy:Section`/`schema:hasPart`/`schema:text` in vocab + data-model §3; the `Section`
+      Zod schema; `Entry` gains a required `sections` (legacy `articleBody`/`photos` KEPT as a shim,
+      removed in Stage 3); `readEntry` parses sections; the serialiser writes them (`sectionQuads`
+      sharing `imageObjectQuads` with `photoQuads`); index thumbnail from the first section's first
+      photo; `dy:schemaVersion` **1 → 2** with the §7.3 fixture + seed rewritten. Commits
+      `2046689..22116df`; all gates green; final review clean. **A data-loss bug was fixed in
+      passing:** the studio save hook now carries `existing?.sections ?? []` forward — a bare
+      `sections: []` would have wiped an edited entry's sections and blanked its index thumbnail.
+- [x] **Stage 2 — the public entry page** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-2-public-page.md`,
+      three tasks). `EntryContent` renders sections with the phase-7 look: `.display` masthead (sized
+      for the sheet column via `.entry-title`; global `.display` untouched for phase-7's full-width
+      mastheads), mono `.meta-row` with the precision shape, text sections as `.prose`, and photos via
+      a new `components/public/entry-section/` server component — a single column-bleed `<figure>`, a
+      two-photo stacking `.pair`, plain `<img>` for Pod URLs, box reserved by real aspect-ratio,
+      `blurDataUrl` background. `SiteFooter` at content end. The browser check caught + fixed two real
+      desktop overflows (bled photo onto the map; the `9vw` headline overflowing the 448px column) and
+      an unstyled breadcrumb. Commits `878f2b7..162fdca`; all gates green; `size:public` unchanged at
+      182.3–182.5 kB; e2e 23/23.
+- [x] **Stage 3a — the studio section editor** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3a-studio-editor.md`,
+      4 tasks, commits `9f55e65..5150733`). The editor authors an ordered `sections` list — each a text
+      field + 0–2 photos, with add / remove / move-up / move-down (up/down buttons, maintainer choice) —
+      replacing the single `story` textarea + flat photo pool. `EntryFormState`/reducer/`use-entry-form`,
+      the Draft (key `v2`→`v3`, `sections`), `use-entry-draft`, `use-entry-save` (`sectionsFor`, no more
+      `articleBody`/top-level `photos` write), `use-photo-pipeline` (per-section attach, 2-photo cap at
+      reducer+pipeline+UI), and the UI (new `sections-field`; `identity-fields` lost its story control)
+      all cut over. A ≥1-non-empty-section pre-flight was added. The photo GPS/EXIF-time still fills the
+      single entry-level coordinate/timestamp (unchanged). All gates green; `size:public` unchanged;
+      e2e 23/23. **Legacy `Entry.articleBody`/`photos` kept but UNWRITTEN — Stage 3b removes them.**
+- [x] **Stage 3b — remove the legacy fields** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3b-remove-legacy-fields.md`,
+      2 tasks, commit `bc5971d`). Dropped `articleBody` + entry-level `photos` from the `Entry` schema,
+      `readEntry` (stops parsing them), and the serialiser (deleted the dead `photoQuads`, repointed
+      `imageObjectQuads` at `Section["photos"]`); kept `photosOf`/`SCHEMA.image` (sections use them) and
+      `SCHEMA.articleBody` (regression assertions). Full DoD green: `npm test` 1866, integration 36/36,
+      build, `size:public` 182.5 kB (unchanged), e2e 23/23. **The sectioned-entry feature is now complete
+      end to end (data layer → public page → studio editor → legacy removal).** Deferred: `data-model.md`
+      §8's JSON-LD table still maps `schema:articleBody` for a not-yet-built serialiser (one-line edit when
+      that lands).
+- [ ] **Future (not Stage 3) — a studio EDIT surface.** The running studio can only CREATE: `studio-shell`
+      always mounts `EntryEditor` with no `initial`, and there is no entries list / `/studio/entries/[id]`
+      route. The edit-with-sections path is component-tested but unreachable in the app. Pre-existing,
+      predates the sectioned entry; needs its own task.
+
+### Phase-7 Tasks 4–9 (independent of the sectioned entry; order with the maintainer)
+
+- [x] Task 4 — restyle the trip page (full-width masthead, quiet numbered timeline)
+- [x] Task 5 — restyle the diary page; unnumber the trip list (a set, not a sequence)
+- [x] Task 6 — the route leg becomes a fading great-circle arc: no casing, no dash (decisions §34–35)
+- [x] Task 7 — restyle the markers: 26px, photograph fills them, arrival gets a soft halo (§36)
+- [x] Task 8 — bring the diary-globe trip points into the quieter language
+- [x] Task 9 — CSS-first page view transitions (reduced-motion opt-out); §34–36 recorded. Same-document
+      (`next/link`) transitions need React's `<ViewTransition>` component, not CSS, so they do not
+      ship (spec §8); only the cross-document `@view-transition` opt-in landed.
+
+**All 9 tasks done; the sectioned entry (Stages 1–3b) is also done.** Phase 7 is feature-complete
+on this branch, unmerged. The `dy:` namespace is still `example.org`, so nothing here reaches a
+live Pod.
+
+**Found while designing, still unfixed:** one seeded marker renders a broken-image icon
+(`dy:thumbnail` set to something that does not resolve in dev) — a data bug, not styling.
 
 ## Phase 8 — landing page
 

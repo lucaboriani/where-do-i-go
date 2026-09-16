@@ -145,4 +145,39 @@ describe("the diary page", () => {
       ["peru", undefined],
     ]);
   });
+
+  // Title fixture from docs/data-model.md §7.1 (dcterms:title on the diary root).
+  it("sets the diary title in the display face", async () => {
+    vi.mocked(getDiary).mockResolvedValue(
+      ok(diary({ title: { value: "Somewhere Else", language: "en" } })),
+    );
+
+    render(await DiaryContent());
+
+    expect(screen.getByRole("heading", { name: "Somewhere Else" })).toHaveClass("display");
+  });
+
+  it("closes the content with a status-line footer, after the trip list", async () => {
+    vi.mocked(publishedTripSlugs).mockResolvedValue(ok(["japan"]));
+    vi.mocked(getTrip).mockResolvedValue(
+      ok(aTrip("japan", { name: { value: "Japan, spring", language: "en" } })),
+    );
+    vi.mocked(getTripIndex).mockResolvedValue(ok(anIndex("japan")));
+
+    const { container } = render(await DiaryContent());
+
+    // NOT getByRole("contentinfo"): in production this <footer> is inside
+    // <main>, so it maps to generic. Assert the element and its tagline.
+    const footer = container.querySelector("footer.status-line");
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent(/solid pod/i);
+
+    const list = container.querySelector("ul, ol");
+    expect(list).not.toBeNull();
+    // The footer is content, not chrome — it closes the page after the list,
+    // not a layout-level element that could sit anywhere relative to it.
+    expect(!!(list!.compareDocumentPosition(footer!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+  });
 });

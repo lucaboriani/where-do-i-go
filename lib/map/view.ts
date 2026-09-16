@@ -12,10 +12,9 @@ export const PROJECTION = { type: "mercator" } as const;
  *  above z12. ./notes.md#why-the-globe-is-a-shorthand-not-vertical-perspective */
 export const GLOBE_PROJECTION = { type: "globe" } as const;
 
-export const ROUTE_WIDTH = 2.5;
-/** Casing is drawn at ROUTE_WIDTH + this, i.e. 1.75px each side — inside the
- *  design brief's 1.5–2px requirement. */
-export const CASING_EXTRA = 3.5;
+export const ROUTE_WIDTH = 1.5;
+export const ROUTE_WIDTH_ACTIVE = 2.5;
+// (CASING_EXTRA deleted — the route no longer has a casing. docs/decisions.md §34.)
 
 export function shouldCluster(count: number): boolean {
   return count > CLUSTER_THRESHOLD;

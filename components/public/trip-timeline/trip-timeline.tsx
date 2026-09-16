@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { orderEntries } from "@/lib/map/legs";
 import { wallClockOf } from "@/lib/time/offsets";
-import { precisionLabel } from "@/lib/place/precision";
 import type { IndexEntry } from "@/lib/pod/schema";
 import TimelineRow from "./timeline-row";
 
@@ -34,30 +33,39 @@ export default function TripTimeline({ slug, entries }: { slug: string; entries:
                 className="mr-2 inline-block size-10 rounded-sm bg-surface object-cover align-middle"
               />
             )}
-            <Link className="text-accent-bright underline" href={`/trips/${slug}/${entry.slug}`}>
+            <Link className="row-title" href={`/trips/${slug}/${entry.slug}`}>
               {entry.title.value}
             </Link>
             {wall !== "" && (
-              <time
-                dateTime={entry.occurredAt}
-                className="ml-2 font-mono text-sm text-muted-foreground"
-              >
+              <time dateTime={entry.occurredAt} className="data ml-2">
                 <span>{wall.slice(0, 10)}</span> <span>{wall.slice(11, 16)}</span>
               </time>
             )}
-            {entry.travelModeFrom !== undefined && (
-              <span className="ml-2 font-mono text-xs uppercase text-muted-foreground">
-                {entry.travelModeFrom}
+            {entry.lat !== undefined && entry.long !== undefined && (
+              <span
+                className={
+                  entry.precisionMeters === undefined ? "ml-2 precision exact" : "ml-2 precision"
+                }
+              >
+                {formatCoordinate(entry.lat, entry.long, entry.precisionMeters)}
               </span>
             )}
-            {entry.precisionMeters !== undefined && (
-              <span className="ml-2 font-mono text-xs text-muted-foreground">
-                {precisionLabel(entry.precisionMeters)}
-              </span>
+            {entry.travelModeFrom !== undefined && (
+              <span className="label ml-2">{entry.travelModeFrom}</span>
             )}
           </TimelineRow>
         );
       })}
     </ol>
   );
+}
+
+/** Fewer decimals when fuzzed, more when exact — the same rule EntryContent's
+ *  MetaRow applies, so an exact reading never implies precision a fuzzed one
+ *  does not. docs/design-brief.md. */
+function formatCoordinate(lat: number, long: number, precisionMeters?: number): string {
+  const decimals = precisionMeters === undefined ? 4 : 2;
+  const latAbs = Math.abs(lat).toFixed(decimals);
+  const longAbs = Math.abs(long).toFixed(decimals);
+  return `${latAbs}°${lat < 0 ? "S" : "N"} ${longAbs}°${long < 0 ? "W" : "E"}`;
 }
