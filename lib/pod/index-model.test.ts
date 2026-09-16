@@ -4,7 +4,7 @@ import {
   DCTERMS, DY, DY_CLASS, NS, RDF, SCHEMA_VERSION, TRAVEL_MODE, XSD,
 } from "@/lib/vocab";
 import {
-  computeIndex, derivedQuads, identityQuads, rowQuads, serialiseIndex,
+  computeIndex, derivedQuads, identityQuads, rowOfEntry, rowQuads, serialiseIndex,
 } from "@/lib/pod/index-model";
 import { readTripIndex } from "@/lib/pod/read";
 import { readFileSync } from "node:fs";
@@ -81,6 +81,31 @@ describe("computeIndex", () => {
   });
 });
 
+describe("rowOfEntry", () => {
+  it("derives the index thumbnail from the first section's first photo", () => {
+    const row = rowOfEntry(
+      entry({
+        slug: "a",
+        photos: [],
+        sections: [
+          { sortOrder: 1, text: { value: "lead", language: "en" }, photos: [] },
+          {
+            sortOrder: 2,
+            photos: [
+              {
+                contentUrl: "https://pod/media/x/web.webp",
+                thumbnailUrl: "https://pod/media/x/thumb.webp",
+                sortOrder: 1,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(row.thumbnail).toBe("https://pod/media/x/thumb.webp");
+  });
+});
+
 describe("serialiseIndex", () => {
   it("round-trips through the real reader", async () => {
     const computed = computeIndex([
@@ -122,10 +147,15 @@ describe("serialiseIndex", () => {
         occurredAt: "2026-03-29T21:40:00+09:00",
         travelModeFrom: "Flight",
         place: { geo: { lat: 35.6938, long: 139.7034, precisionMeters: 500 } },
-        photos: [
+        sections: [
           {
-            contentUrl: `${POD}/travel/media/6f2a1c8e/web.webp`,
-            thumbnailUrl: `${POD}/travel/media/6f2a1c8e/thumb.webp`,
+            sortOrder: 1,
+            photos: [
+              {
+                contentUrl: `${POD}/travel/media/6f2a1c8e/web.webp`,
+                thumbnailUrl: `${POD}/travel/media/6f2a1c8e/thumb.webp`,
+              },
+            ],
           },
         ],
       }),

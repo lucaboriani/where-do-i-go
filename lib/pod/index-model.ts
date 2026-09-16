@@ -49,7 +49,7 @@ export function rowOfEntry(entry: Entry): IndexRowInput {
     long: entry.place?.geo?.long,
     precisionMeters: entry.place?.geo?.precisionMeters,
     travelModeFrom: entry.travelModeFrom,
-    thumbnail: entry.photos[0]?.thumbnailUrl,
+    thumbnail: entry.sections.flatMap((s) => s.photos)[0]?.thumbnailUrl,
   };
 }
 
