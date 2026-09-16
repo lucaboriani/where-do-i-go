@@ -5,11 +5,10 @@ import type {
   GeoJSONSourceSpecification,
   LayerSpecification,
 } from "@maplibre/maplibre-gl-style-spec";
-import { DASH_BY_MODE } from "@/lib/map/dashes";
 import { buildLegs } from "@/lib/map/legs";
 import { buildPoints } from "@/lib/map/points";
 import { MAP_COLORS } from "@/lib/map/tokens";
-import { CASING_EXTRA, ROUTE_WIDTH, shouldCluster } from "@/lib/map/view";
+import { ROUTE_WIDTH, ROUTE_WIDTH_ACTIVE, shouldCluster } from "@/lib/map/view";
 import type { IndexEntry } from "@/lib/pod/schema";
 
 type MapLibreMap = import("maplibre-gl").Map;
@@ -19,7 +18,6 @@ export const POINTS_SOURCE = "trip-points";
 export const LEGS_SOURCE = "trip-legs";
 
 export const LAYERS = {
-  casing: "trip-route-casing",
   line: "trip-route-line",
   clusters: "trip-clusters",
   clusterCount: "trip-cluster-count",
@@ -57,10 +55,12 @@ function addAll(
 ): void {
   // promoteId, or setFeatureState has no id to key on: the leg features carry
   // only properties. ./notes.md#why-the-legs-source-promotes-toslug
+  // lineMetrics, or line-gradient/line-progress below have nothing to key on.
   map.addSource(LEGS_SOURCE, {
     type: "geojson",
     data: legs,
     promoteId: "toSlug",
+    lineMetrics: true,
   } satisfies GeoJSONSourceSpecification);
   map.addSource(POINTS_SOURCE, {
     type: "geojson",
@@ -70,24 +70,28 @@ function addAll(
   } satisfies GeoJSONSourceSpecification);
 
   map.addLayer({
-    id: LAYERS.casing,
-    type: "line",
-    source: LEGS_SOURCE,
-    paint: { "line-color": MAP_COLORS.accentDeep, "line-width": ROUTE_WIDTH + CASING_EXTRA },
-  } satisfies LayerSpecification);
-  map.addLayer({
     id: LAYERS.line,
     type: "line",
     source: LEGS_SOURCE,
     paint: {
-      "line-color": [
+      "line-gradient": [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        ["to-color", MAP_COLORS.accent],
+        0.5,
+        ["to-color", MAP_COLORS.accent],
+        1,
+        ["to-color", MAP_COLORS.accentBright],
+      ],
+      "line-opacity": ["interpolate", ["linear"], ["line-progress"], 0, 0.25, 1, 0.95],
+      "line-width": [
         "case",
         ["boolean", ["feature-state", "active"], false],
-        MAP_COLORS.accentBright,
-        MAP_COLORS.accent,
+        ROUTE_WIDTH_ACTIVE,
+        ROUTE_WIDTH,
       ],
-      "line-width": ROUTE_WIDTH,
-      "line-dasharray": DASH_BY_MODE,
     },
   } satisfies LayerSpecification);
   map.addLayer({

@@ -59,16 +59,16 @@ describe("buildLegs", () => {
     expect(fc.features[0].properties.mode).toBe("Train");
   });
 
-  it("joins two placed entries into one line", () => {
+  it("joins two placed entries into one arc, from the first endpoint to the second", () => {
     const fc = buildLegs([
       entry("a", { sortOrder: 1, lat: 1, long: 2 }),
       entry("b", { sortOrder: 2, lat: 3, long: 4 }),
     ]);
     expect(fc.features).toHaveLength(1);
-    expect(fc.features[0].geometry.coordinates).toEqual([
-      [2, 1],
-      [4, 3],
-    ]);
+    const coords = fc.features[0].geometry.coordinates;
+    expect(coords[0]).toEqual([2, 1]);
+    expect(coords[coords.length - 1]).toEqual([4, 3]);
+    expect(coords.length).toBeGreaterThan(2);
   });
 
   it("takes the mode from the DESTINATION, because travelModeFrom is the leg arriving there", () => {
