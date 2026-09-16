@@ -26,6 +26,21 @@ The layout does not await `params` on its shell path, for the reason
 static shell, which is what makes a navigation feel slow. The frame is reserved
 synchronously and the index read happens inside `<Suspense>`.
 
+## Why the masthead catch-all needs instant false
+
+`@masthead/default.tsx` only covers a hard reload — the bundled parallel-routes
+guide's own modal example needed a catch-all to null a slot on client-side
+`<Link>` navigation too, because `default.tsx` is a load-time fallback, not a
+per-navigation one. But this catch-all matches no real params, so Next tries
+to prerender its OWN static fallback shell, and that render passes through the
+`[slug]` layout, which puts `TripHighlightProvider` (a Client Component
+calling `useSelectedLayoutSegment()`) outside any `<Suspense>` — a hard build
+failure under Cache Components' static-shell validation, not a warning.
+Wrapping `TripHighlightProvider` itself in `<Suspense>` would touch a shared
+component every real route already builds fine with; `instant = false` scopes
+the exemption to the one leaf that is never real content.
+`node_modules/next/dist/docs/.../route-segment-config/instant.md#disabling-static-shell-validation`.
+
 ## The Suspense-child test, and what it does and does not prove
 
 `layout.test.tsx` renders `<Layout>` with a `params` promise that never

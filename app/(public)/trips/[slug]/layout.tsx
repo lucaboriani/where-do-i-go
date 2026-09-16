@@ -22,7 +22,9 @@ export default function TripLayout({
 }) {
   return (
     <TripHighlightProvider>
-      {masthead}
+      {/* A slow getTrip() in TripMasthead must not block the whole layout's
+          stream on a non-SSG slug — same reasoning as the map pane below. */}
+      <Suspense fallback={null}>{masthead}</Suspense>
       <div className="trip-shell">
         <div className="trip-map-pane">
           <Suspense fallback={<div aria-hidden className={MAP_FRAME_CLASS} />}>
