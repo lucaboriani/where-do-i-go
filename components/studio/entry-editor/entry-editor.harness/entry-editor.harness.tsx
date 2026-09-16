@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { StrictMode } from "react";
 import { afterAll, afterEach, beforeEach, expect, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { Parser, type Quad, type Term } from "n3";
 import { DY, SCHEMA } from "@/lib/vocab";
@@ -871,15 +871,15 @@ export function setChoice(label: RegExp, wanted: RegExp) {
 export const saveButton = () => screen.getByRole("button", { name: /save|publish|update/i });
 
 /**
- * What the owner is told, read from the roles that ANNOUNCE it.
- *
- * Scoped to `alert` / `status` / `aria-live` deliberately: the result of a save
- * arrives asynchronously, after focus has moved on, and text dropped into a
- * plain <div> is text a screen-reader user never hears. This is also what keeps
- * the message assertions from matching the form's own labels.
+ * What the owner is told, read from the roles that ANNOUNCE it. `alert` /
+ * `status` / `aria-live`, never the form's own labels, and OUTSIDE any
+ * `<form>` — inside one lives a per-section photo's own status ("X is
+ * attached…"), which would otherwise collide with the save outcome these
+ * roles are for (Stage 3a Task 2: an EDIT can now render more than one).
  */
 export const outcomeText = () =>
   [...document.querySelectorAll('[role="alert"],[role="status"],[aria-live]')]
+    .filter((n) => n.closest("form") === null)
     .map((n) => n.textContent ?? "")
     .join(" ")
     .replace(/\s+/g, " ")
@@ -1227,33 +1227,33 @@ export type StoredDraft = {
 export const seededDraft = (over: Partial<StoredDraft> & { story?: string } = {}): StoredDraft => {
   const { story, ...rest } = over;
   return {
-  tripIri: JAPAN.iri,
-  slug: "2026-04-02-kyoto",
-  headline: "Rain on the Philosopher's Path",
-  occurred: "2026-04-02T16:20",
-  // This machine's zone, which is what a create starts at — the interesting
-  // values are 8j's, where the offset is the subject rather than the setting.
-  offset: "+09:00",
-  tagsText: "walking, rain",
-  mode: "Train",
-  status: "published",
-  // Empty by default: most of this section is about text, and a draft with no
-  // coordinate in it is the common one — the owner types the story first.
-  lat: "",
-  long: "",
-  precision: "500",
-  // Empty by default, like the coordinate above: a draft that names no place is
-  // the ordinary one. Present rather than absent because `DRAFT_FIELDS` is
-  // asserted against whichever copy is at the key, and a seed a field short
-  // would make that assertion a race between two shapes.
-  placeName: "",
-  locality: "",
-  country: "",
-  // One section of prose, no photo — the common draft. The flat `story`/`photos`
-  // pair became this in the section cutover (the `v2` → `v3` key bump).
-  sections: [{ text: story ?? "Two hours of drizzle and nobody else on the path.", photos: [] }],
-  savedAt: "2026-04-02T19:00:00+09:00",
-  ...rest,
+    tripIri: JAPAN.iri,
+    slug: "2026-04-02-kyoto",
+    headline: "Rain on the Philosopher's Path",
+    occurred: "2026-04-02T16:20",
+    // This machine's zone, which is what a create starts at — the interesting
+    // values are 8j's, where the offset is the subject rather than the setting.
+    offset: "+09:00",
+    tagsText: "walking, rain",
+    mode: "Train",
+    status: "published",
+    // Empty by default: most of this section is about text, and a draft with no
+    // coordinate in it is the common one — the owner types the story first.
+    lat: "",
+    long: "",
+    precision: "500",
+    // Empty by default, like the coordinate above: a draft that names no place is
+    // the ordinary one. Present rather than absent because `DRAFT_FIELDS` is
+    // asserted against whichever copy is at the key, and a seed a field short
+    // would make that assertion a race between two shapes.
+    placeName: "",
+    locality: "",
+    country: "",
+    // One section of prose, no photo — the common draft. The flat `story`/`photos`
+    // pair became this in the section cutover (the `v2` → `v3` key bump).
+    sections: [{ text: story ?? "Two hours of drizzle and nobody else on the path.", photos: [] }],
+    savedAt: "2026-04-02T19:00:00+09:00",
+    ...rest,
   };
 };
 
@@ -1384,11 +1384,17 @@ export const parseDraft = (value: string) => JSON.parse(value) as Record<string,
  * unlocked control, where it must return `true` and the write must appear.
  */
 export function typeAsUser(label: RegExp, value: string): boolean {
-  const el = screen.getByLabelText(label);
+  const el = (label === LABEL.articleBody ? within(sectionOne()) : screen).getByLabelText(label);
   if (el.matches(":disabled")) return false;
   fireEvent.change(el, { target: { value } });
   return true;
 }
+
+/** Section 1's own accessible group. `specEntry()` carries more than one
+ *  section, so the story text and the photo picker each gained siblings once
+ *  the editor stopped rendering only the first — scoping to the first card is
+ *  what every caller here meant before that was even a question. */
+const sectionOne = () => screen.getByRole("group", { name: "Section 1" });
 
 /**
  * The photo control's accessible name.
@@ -1502,7 +1508,7 @@ export function mediaFake(script: { status?: number } = {}) {
 }
 
 export const pickPhoto = (file: File) => {
-  const input = screen.getByLabelText(PHOTOS_LABEL);
+  const input = within(sectionOne()).getByLabelText(PHOTOS_LABEL);
   fireEvent.change(input, { target: { files: [file] } });
 };
 

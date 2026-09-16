@@ -30,7 +30,7 @@ const ready = (name: string, thumbnail = true): PhotoSlot => ({
 });
 
 function props(over: Partial<PhotoFieldsProps> = {}): PhotoFieldsProps {
-  return { slots: [], onPicked: vi.fn(), ...over };
+  return { id: "entry-photos", slots: [], onPicked: vi.fn(), ...over };
 }
 
 describe("the photo group's picker", () => {

@@ -7,7 +7,7 @@
  * exists. ./notes.md#what-the-editor-is-not-allowed-to-do
  */
 
-import Field, { BUTTON, CONTROL } from "./field";
+import { BUTTON } from "./field";
 import DraftBanner, { HOLD_REASON_ID } from "./draft-banner";
 import { draftTextOf, useEntryDraft } from "@/hooks/studio/use-entry-draft";
 import { useEntryForm } from "@/hooks/studio/use-entry-form";
@@ -17,7 +17,7 @@ import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
 import WhereFields from "./fields/where-fields";
-import PhotoFields from "./fields/photo-fields";
+import SectionsField from "./fields/sections-field";
 import ClassificationFields from "./fields/classification-fields";
 import type { Pipeline } from "@/lib/media/pipeline";
 import type { Entry, Status as EntryStatus } from "@/lib/pod/schema";
@@ -78,11 +78,11 @@ export interface EntryEditorProps {
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-/** Composition, and the page's own frame. 164 code lines against the 200 bound,
+/** Composition, and the page's own frame. 167 code lines against the 200 bound,
  *  which is why the `max-lines-per-function` exemption is gone:
  *  ./notes.md#the-exemption-went-because-the-directive-became-unused
- *  What the 164 are, and why they stay over the 130 tendency rather than being
- *  forced under it: ./notes.md#what-the-164-are-and-why-they-stay */
+ *  What the 167 are, and why they stay over the 130 tendency rather than being
+ *  forced under it: ./notes.md#what-the-167-are-and-why-they-stay */
 export default function EntryEditor({
   session,
   trips,
@@ -111,10 +111,6 @@ export default function EntryEditor({
     precision: values.precision,
     onDefaultPrecision: form.set.precision,
   });
-
-  /** Task 1 renders exactly ONE section (its text and its photos); Task 2 adds
-   *  the multi-section UI. `initialEntryFormState` guarantees at least one. */
-  const section = values.sections[0];
 
   /** The fifteen fields the FORM holds, projected out of the reducer's state.
    *  ONE construction, spent by both the draft and the save: two of them is how
@@ -218,21 +214,14 @@ export default function EntryEditor({
             onHeadlineChange={form.set.headline}
           />
 
-          {/* THE SINGLE SECTION'S PROSE (Task 2 adds the multi-section list). Its
-              id is `entry-section-0-text`, unique per section so a future list
-              of them does not collide on the shared `<label htmlFor>`. */}
-          {section !== undefined && (
-            <Field id="entry-section-0-text" label="Story">
-              <textarea
-                id="entry-section-0-text"
-                name="entry-section-0-text"
-                rows={8}
-                className={CONTROL}
-                value={section.text}
-                onChange={(event) => form.setSectionText(section.id, event.target.value)}
-              />
-            </Field>
-          )}
+          <SectionsField
+            sections={values.sections}
+            onTextChange={form.setSectionText}
+            onAdd={form.addSection}
+            onRemove={form.removeSection}
+            onMove={form.moveSection}
+            onPicked={attachAll}
+          />
 
           <WhenFields
             occurred={values.occurred}
@@ -265,13 +254,6 @@ export default function EntryEditor({
             coordinateSource={form.sources.coordinate}
             hasStoredCoordinate={existing?.place?.geo !== undefined}
           />
-
-          {section !== undefined && (
-            <PhotoFields
-              slots={section.slots}
-              onPicked={(files) => attachAll(section.id, files)}
-            />
-          )}
 
           <ClassificationFields
             tagsText={values.tagsText}

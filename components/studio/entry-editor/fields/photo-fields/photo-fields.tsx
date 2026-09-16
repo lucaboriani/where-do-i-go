@@ -8,6 +8,10 @@ import Field, { CONTROL } from "../../field";
 import type { PhotoSlot } from "../../state/actions";
 
 export interface PhotoFieldsProps {
+  /** This group's own id — unique per section, so `<label htmlFor>` and the
+   *  hint's `${id}-hint` do not collide once more than one group is on a page:
+   *  ./notes.md#id-is-a-prop-now */
+  id: string;
   /** One row each, in the order they were picked. */
   slots: readonly PhotoSlot[];
   /**
@@ -18,25 +22,25 @@ export interface PhotoFieldsProps {
   onPicked: (files: readonly File[]) => void;
 }
 
-export default function PhotoFields({ slots, onPicked }: PhotoFieldsProps) {
+export default function PhotoFields({ id, slots, onPicked }: PhotoFieldsProps) {
   return (
     <>
       {/* THE PICKER, AND IT UPLOADS AS SOON AS SOMETHING IS PICKED — the bytes
           are on the Pod before Save is pressed. NO `aria-label` ANYWHERE IN THIS
           BLOCK: ./notes.md#the-picker-uploads-as-soon-as-something-is-picked */}
       <Field
-        id="entry-photos"
+        id={id}
         label="Photos"
         hint="Resized in this browser, stripped of their location and their camera metadata, and uploaded to your Pod as soon as you pick them."
       >
         <input
-          id="entry-photos"
-          name="entry-photos"
+          id={id}
+          name={id}
           type="file"
           accept="image/*"
           multiple
           className={CONTROL}
-          aria-describedby="entry-photos-hint"
+          aria-describedby={`${id}-hint`}
           onChange={(event) => {
             const picked = [...(event.target.files ?? [])];
             // CLEARED, so picking the same file again is another `change` rather

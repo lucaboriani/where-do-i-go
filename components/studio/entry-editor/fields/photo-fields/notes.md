@@ -6,9 +6,18 @@ are all still the editor's.
 
 ## Props only
 
-Two props, and that is the whole interface: `slots` and `onPicked`. No
-`useState`, no `useRef`, no effect, and no `"use client"` directive — it inherits
-the boundary from `entry-editor.tsx` for the reason `field/notes.md` gives.
+Three props: `id`, `slots` and `onPicked`. No `useState`, no `useRef`, no
+effect, and no `"use client"` directive — it inherits the boundary from
+`entry-editor.tsx` for the reason `field/notes.md` gives.
+
+## id is a prop now
+
+Stage 3a Task 2: `entry-photos` was hardcoded until the section list made it
+collide — a second card's picker sharing the id breaks `<label htmlFor>` and
+the hint's `${id}-hint` both. `sections-field` passes
+`entry-section-${index}-photos`; this file's own test passes `"entry-photos"`,
+which keeps every existing assertion (`aria-describedby`,
+`getElementById("entry-photos-hint")`) reading the same id as before.
 
 **`onPicked` takes a LIST, not a file.** The input is `multiple` and the editor
 starts every file at once — `for (const file of picked) void attach(file)`, now a
