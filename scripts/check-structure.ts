@@ -80,9 +80,9 @@ function commentRuns(file: string): Array<[string, number]> {
  * ./notes.md#the-comment-ratchet
  */
 const PROD_COMMENT_BASELINE = 0;
-/** 544 → 546: `bootstrap.test.ts` (Task 1.4) added two oversized, exempt
- *  test docblocks. See task-1b-report.md. */
-const TEST_COMMENT_BASELINE = 546;
+/** 546 → 547: `save-trip.test.ts` (Task 1.5) added one more oversized,
+ *  exempt test docblock, atop bootstrap.test.ts's two (Task 1.4). */
+const TEST_COMMENT_BASELINE = 547;
 
 /** The test side: the placement rule's own predicate, plus the editor rig (54
  *  blocks, no `*.test.tsx`) and all of `e2e/`, which is Playwright's suite and

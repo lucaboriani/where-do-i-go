@@ -82,9 +82,10 @@ const nowIso = () => new Date().toISOString().replace("Z", "+00:00");
 /**
  * A failed write, classified. 412 is the precondition doing its job and the one
  * status where retrying the identical request is guaranteed to fail again.
+ * Exported so `save-trip.ts` reuses it verbatim rather than a second copy.
  * ./notes.md#why-saveentry-is-its-own-module-and-why-its-return-value-is-not-a-result
  */
-const recoveryForWrite = (error: PodError): SaveRecovery =>
+export const recoveryForWrite = (error: PodError): SaveRecovery =>
   error.kind === "http" && error.status === 412 ? "refetch" : "retry";
 
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));

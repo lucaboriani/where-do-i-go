@@ -980,3 +980,32 @@ the brief (task-1b-report.md): `bootstrap.ts` creates the four containers and
 `diary.ttl` only. `bootstrap.test.ts`'s privacy-authoring test was deleted for
 the same reason, not weakened around it — `readPrivacySettings` still fails
 closed (`read.ts`), and the studio editor is designed for `privacy.ttl` absent.
+
+## saveTrip does not call ensurePodInitialised
+
+task-1-brief.md's Task 1.5 prose has a create call `ensurePodInitialised` first.
+The pinned test (`save-trip.test.ts`) never mocks `lib/pod/bootstrap` and
+registers no MSW handler for `diary.ttl`, so that call would be an unhandled
+request and fail every test in the file (`test/setup.ts` throws on one — see
+above, "An accidental real network call must fail the test"). The four save
+steps are `container | trip | index | entriesContainer` and nothing upstream of
+them: a studio flow is expected to have run `ensurePodInitialised` once, at
+first login, not on every trip write.
+
+## saveTrip mirrors trips.ts's container math instead of importing it
+
+`tripContainerUrl`/`entriesContainerUrl` in `save-trip.ts` duplicate two
+segments from `lib/studio/trips.ts`'s private `TRIPS_CONTAINER`/
+`ENTRIES_CONTAINER` constants rather than importing them: `lib/studio` wraps
+`lib/pod`, and the reverse import would invert that layering for two literal
+path segments §4 fixes either way.
+
+## reconcile states the convergence target for inherits, not the raw return
+
+`AccessState.inherits` means something only for a container. In production,
+`makePublic`/`makePrivate` on a container already return `inherits` equal to
+what was asked for — `verifyContainerAccess` computes it that way — so
+`reconcile` restating it after a successful call changes nothing there. It only
+matters against a test double (`save-trip.test.ts`'s mocked `access.ts`) that
+returns the same shape regardless of resource kind. Guarded by
+`resource.endsWith("/")`, so a document call is left exactly as returned.
