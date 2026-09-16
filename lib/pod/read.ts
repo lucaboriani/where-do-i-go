@@ -267,6 +267,7 @@ export async function readTrip(url: string, opts?: ReadOptions): Promise<Result<
         origin: placeOf(quads, v.one(SCHEMA.tripOrigin), url),
         created: take(offsetDateTime(v, DCTERMS.created, url)),
         modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+        creator: v.one(DCTERMS.creator),
       },
       url,
     );

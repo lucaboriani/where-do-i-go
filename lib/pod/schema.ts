@@ -107,6 +107,7 @@ export const Trip = z.object({
   origin: Place.optional(),
   created: z.iso.datetime({ offset: true }).optional(),
   modified: z.iso.datetime({ offset: true }).optional(),
+  creator: z.url().optional(),
 });
 export type Trip = z.infer<typeof Trip>;
 

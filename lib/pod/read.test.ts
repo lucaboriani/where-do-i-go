@@ -42,6 +42,16 @@ describe("readTrip", () => {
     expect(r.value.origin?.geo?.lat).toBeCloseTo(45.4642);
   });
 
+  it("reads dcterms:creator as the trip's WebID", async () => {
+    // The §7.2 fixture already carries dcterms:creator — provenance parity
+    // with readEntry, which reads the same predicate off an entry (§7.3).
+    servePod({ [URLS.trip]: TRIP });
+    const r = await readTrip(URLS.trip);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.creator).toBe("https://me.solidcommunity.net/profile/card#me");
+  });
+
   it("reports a structured error, not a throw, for a missing resource", async () => {
     servePod({ [URLS.trip]: 404 });
     const r = await readTrip(URLS.trip);
