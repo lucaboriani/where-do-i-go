@@ -94,7 +94,7 @@ export async function EntryContent({
           <p className="breadcrumb">
             <a href={`/trips/${slug}`}>{"← Back to the trip"}</a>
           </p>
-          <h1 className="display">{e.value.headline.value}</h1>
+          <h1 className="display entry-title">{e.value.headline.value}</h1>
           <MetaRow entry={e.value} />
         </header>
       </div>

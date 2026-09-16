@@ -131,6 +131,10 @@
 .prose { max-width: 66ch; }
 .prose p { margin: 0 0 1.6em; }
 
+/* The masthead: type is the entrance. Ported from .mockups/entry.html; the
+   horizontal inset comes from the enclosing .wrap, not from here. */
+.masthead { padding-block: clamp(3rem, 9vh, 7rem) clamp(2rem, 5vh, 3.5rem); }
+
 .display {
   margin: 0;
   font-weight: 800;
@@ -140,13 +144,11 @@
   text-transform: uppercase;
   overflow-wrap: break-word;
 }
-/* .display only renders in the entry masthead, inside the 34rem sheet column
-   (measured 448px of content) — fixed regardless of viewport past the
-   trip-shell breakpoint below, so its 9vw term overflowed there (measured:
-   "First night in Shinjuku" at 1002px in a 448px box). Pinned, not clamped. */
-@media (min-width: 48rem) {
-  .display { font-size: 3rem; }
-}
+/* The entry masthead's `<h1>` sits in the 34rem sheet column (448px of content
+   at every desktop width, not the full viewport `.display` assumes elsewhere),
+   so it needs its own size — "First night in Shinjuku" overflowed .display's
+   9vw at 1002px in that 448px box. One clamp for both widths, no media query. */
+.entry-title { font-size: clamp(2.25rem, 7vw, 3rem); }
 .display-sm {
   margin: 0;
   font-weight: 700;
