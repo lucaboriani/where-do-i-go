@@ -34,7 +34,9 @@ function serialiseDiary(diary: Diary): Promise<string> {
     quad(it, namedNode(RDF.type), namedNode(DY_CLASS.Diary)),
     quad(it, namedNode(DY.schemaVersion), int(diary.schemaVersion)),
     ...(diary.title ? [quad(it, namedNode(DCTERMS.title), text(diary.title))] : []),
-    ...(diary.description ? [quad(it, namedNode(DCTERMS.description), text(diary.description))] : []),
+    ...(diary.description
+      ? [quad(it, namedNode(DCTERMS.description), text(diary.description))]
+      : []),
     ...(diary.creator ? [quad(it, namedNode(DCTERMS.creator), namedNode(diary.creator))] : []),
     ...(diary.modified ? [quad(it, namedNode(DCTERMS.modified), dt(diary.modified))] : []),
     ...diary.trips.map((iri) => quad(it, namedNode(DY.trip), namedNode(iri))),

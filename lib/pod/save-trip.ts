@@ -259,7 +259,9 @@ async function reconcileIndexedEntries(
   opts: PublishTripOptions,
   status: Status,
 ): Promise<Result<null>> {
-  const index = await readTripIndex(tripIndexUrl(opts.podRoot, opts.trip.slug), { fetch: opts.fetch });
+  const index = await readTripIndex(tripIndexUrl(opts.podRoot, opts.trip.slug), {
+    fetch: opts.fetch,
+  });
   if (!index.ok) return index;
 
   const accessOptions = { fetch: opts.fetch, webId: opts.webId };
@@ -313,7 +315,11 @@ async function publishStatus(opts: PublishTripOptions, status: Status): Promise<
           podRoot: opts.podRoot,
           trip: { iri: stamped.iri, status },
         })
-      : await removeTripFromDiary({ fetch: opts.fetch, podRoot: opts.podRoot, tripIri: stamped.iri });
+      : await removeTripFromDiary({
+          fetch: opts.fetch,
+          podRoot: opts.podRoot,
+          tripIri: stamped.iri,
+        });
   // The trip and its container ACL already changed — reported, not swallowed
   // into a bare failure (§10's partial-failure design, applied to trips).
   if (!diary.ok) return stoppedAt("diary", diary.error, "retry", etag);
@@ -353,9 +359,7 @@ export type RunTripRevalidationOptions = {
  * changes only this trip's own resource, so `TAGS.trip(slug)` alone — stamping
  * the diary on every edit would drop every trip's cache on every unrelated save.
  */
-export async function runTripRevalidation(
-  opts: RunTripRevalidationOptions,
-): Promise<Result<null>> {
+export async function runTripRevalidation(opts: RunTripRevalidationOptions): Promise<Result<null>> {
   const tags = opts.kind === "edit" ? [TAGS.trip(opts.tripSlug)] : [TAGS.diary];
   try {
     await opts.revalidate(tags);
