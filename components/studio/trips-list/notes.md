@@ -37,7 +37,28 @@ would only be paid once and is not on the profiling path.
 would also match a button literally labelled "Unpublish", and the status
 words ("Published"/"Draft") are found the same loose way.
 
-## entryCount and the published-only count
+## entryCount is every entry
 
 Inherited from `useStudioTrips`; see
-`hooks/studio/notes.md#entrycount-is-published-only-and-that-is-a-known-gap`.
+`hooks/studio/notes.md#entrycount-is-every-entry-draft-included`.
+
+## a null ETag blocks publishing, and is never coerced
+
+Fix round 1, finding E1: `readTripWithEtag`'s `etag` is `string | null` — a
+Pod GET that answers with no `ETag` header at all, which is the reason the
+type is not just `string`. The first cut here coerced that `null` into `""`,
+which then flowed into `usePublish` → `publishTrip` → `putGuarded` as
+`If-Match: ""`, a malformed precondition header. `hooks/studio/
+use-entry-save.ts`'s own `preconditionFor` already states the rule this
+should have followed: `etag === null` means "no precondition to be had", not
+a precondition invented from nothing.
+
+`FullTrip.etag` is therefore `string | null`, carried through unmodified from
+`readTripWithEtag`. `TripRow` branches on it BEFORE `PublishAction` mounts:
+a null etag renders a message ("reload to publish") and never mounts
+`PublishAction` at all, so `usePublish` — which is pinned to take a `string`
+etag on its trip target — is never called with anything invented. Branching
+in the parent, rather than inside `PublishAction` on a value that could flip
+between renders, is what keeps this a Rules-of-Hooks-clean conditional: which
+component gets rendered may vary; which hooks one particular component calls
+may not.

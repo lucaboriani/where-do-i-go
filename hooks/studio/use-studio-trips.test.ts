@@ -2,14 +2,14 @@
 
 /**
  * `use-studio-trips` — Task 3.2, RED: use-studio-trips.ts does not exist.
- * Its three deps (`@/lib/studio/trips`, `@/lib/pod/read`,
+ * Its three deps (`@/lib/studio/trips`, `@/lib/pod/write`,
  * `@/lib/pod/bootstrap`) already exist and are module-mocked; the hook
  * loads through a non-literal specifier, as `use-publish.test.ts` does.
  */
 
 /**
- * TWO CHOICES PINNED HERE: entryCount comes from
- * `readTripIndex(trip.indexUrl).entryCount` (§7.4), one read per trip; and
+ * TWO CHOICES PINNED HERE: entryCount is EVERY entry, drafts included (fix
+ * round 1, E2) via `listContainer(trip.entriesContainer)`; and
  * `ensurePodInitialised` runs from HERE, once, before `listStudioTrips` —
  * FINDING #3: `saveTrip` skips it, so a blank Pod needs it done first.
  */
@@ -19,13 +19,12 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import type { PodError, Result } from "@/lib/pod/result";
 import type { StudioTrip, StudioTripListing } from "@/lib/studio/trips";
-import type { TripIndex } from "@/lib/pod/schema";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
 /* ══════════════════════════════════ mock: the three existing dependencies ══ */
 
 const listStudioTripsMock = vi.hoisted(() => vi.fn());
-const readTripIndexMock = vi.hoisted(() => vi.fn());
+const listContainerMock = vi.hoisted(() => vi.fn());
 const ensurePodInitialisedMock = vi.hoisted(() => vi.fn());
 /** Call order across the three mocks — what pins "bootstrap before listing"
  *  without a timing-sensitive assertion. */
@@ -37,10 +36,10 @@ vi.mock("@/lib/studio/trips", () => ({
     return listStudioTripsMock(...args);
   },
 }));
-vi.mock("@/lib/pod/read", () => ({
-  readTripIndex: (...args: unknown[]) => {
-    order.push("readTripIndex");
-    return readTripIndexMock(...args);
+vi.mock("@/lib/pod/write", () => ({
+  listContainer: (...args: unknown[]) => {
+    order.push("listContainer");
+    return listContainerMock(...args);
   },
 }));
 vi.mock("@/lib/pod/bootstrap", () => ({
@@ -112,8 +111,11 @@ function studioTrip(slug: string, status: "draft" | "published"): StudioTrip {
 const JAPAN = studioTrip("japan", "published");
 const PATAGONIA = studioTrip("patagonia", "draft");
 
-function tripIndex(url: string, entryCount: number): TripIndex {
-  return { iri: `${url}#it`, schemaVersion: 2, entryCount, entries: [] };
+/** A container listing of N `.ttl` members, mirroring what `listContainer`
+ *  returns for `entriesContainer` — status-agnostic, so this is exactly as
+ *  valid for an all-drafts container as for an all-published one. */
+function ttlMembers(container: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `${container}e${i}.ttl`);
 }
 
 /** `ensurePodInitialised` succeeds unless a test overrides it. */
@@ -133,15 +135,15 @@ describe("useStudioTrips", () => {
     });
   });
 
-  it("resolves to ready with each trip's status carried through and its entryCount read from its own index", async () => {
+  it("resolves to ready with each trip's status carried through and its entryCount read from its own entries container", async () => {
     okBootstrap();
     listStudioTripsMock.mockResolvedValue({
       ok: true,
       value: { trips: [JAPAN, PATAGONIA], skipped: [] },
     } satisfies Result<StudioTripListing>);
-    readTripIndexMock.mockImplementation(async (url: string) => {
-      const count = url === JAPAN.indexUrl ? 3 : 0;
-      return { ok: true, value: tripIndex(url, count) };
+    listContainerMock.mockImplementation(async (_fetch: unknown, container: string) => {
+      const count = container === JAPAN.entriesContainer ? 3 : 0;
+      return { ok: true, value: ttlMembers(container, count) };
     });
 
     const useStudioTrips = await loadUseStudioTrips();
@@ -156,6 +158,29 @@ describe("useStudioTrips", () => {
     expect(patagonia).toMatchObject({ status: "draft", entryCount: 0 });
   });
 
+  // Fix round 1, finding E2's own covering test: the source is the ENTRIES
+  // CONTAINER, not the published-only index, so a trip whose every entry is
+  // a draft counts them anyway — a resource this test does not even mock.
+  it("counts every entry a trip has, even when none of them are published", async () => {
+    okBootstrap();
+    listStudioTripsMock.mockResolvedValue({
+      ok: true,
+      value: { trips: [JAPAN], skipped: [] },
+    } satisfies Result<StudioTripListing>);
+    // All-drafts: a published-only index would report 0 for this trip.
+    listContainerMock.mockResolvedValue({
+      ok: true,
+      value: ttlMembers(JAPAN.entriesContainer, 4),
+    } satisfies Result<string[]>);
+
+    const useStudioTrips = await loadUseStudioTrips();
+    const { result } = renderHook(() => useStudioTrips({ session, podRoot: POD }));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    if (result.current.status !== "ready") return;
+    expect(result.current.trips[0]?.entryCount).toBe(4);
+  });
+
   it("surfaces a listStudioTrips failure as a structured error, never a throw", async () => {
     okBootstrap();
     const error: PodError = { kind: "http", url: TRIPS_URL, status: 403 };
@@ -167,21 +192,22 @@ describe("useStudioTrips", () => {
     await waitFor(() => expect(result.current.status).toBe("failed"));
     if (result.current.status !== "failed") return;
     expect(result.current.error).toEqual(error);
-    expect(readTripIndexMock).not.toHaveBeenCalled();
+    expect(listContainerMock).not.toHaveBeenCalled();
   });
 
-  // One trip's own index is unreadable; the whole list must not go red for it.
-  it("still lists a trip whose own index could not be read, with entryCount 0 rather than failing the list", async () => {
+  // One trip's own entries container is unreadable; the whole list must not
+  // go red for it.
+  it("still lists a trip whose own entries container could not be read, with entryCount 0 rather than failing the list", async () => {
     okBootstrap();
     listStudioTripsMock.mockResolvedValue({
       ok: true,
       value: { trips: [JAPAN, PATAGONIA], skipped: [] },
     } satisfies Result<StudioTripListing>);
-    readTripIndexMock.mockImplementation(async (url: string) => {
-      if (url === JAPAN.indexUrl) {
-        return { ok: false, error: { kind: "http", url, status: 404 } };
+    listContainerMock.mockImplementation(async (_fetch: unknown, container: string) => {
+      if (container === JAPAN.entriesContainer) {
+        return { ok: false, error: { kind: "http", url: container, status: 404 } };
       }
-      return { ok: true, value: tripIndex(url, 0) };
+      return { ok: true, value: ttlMembers(container, 0) };
     });
 
     const useStudioTrips = await loadUseStudioTrips();

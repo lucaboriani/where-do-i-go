@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ensurePodInitialised } from "@/lib/pod/bootstrap";
-import { readTripIndex } from "@/lib/pod/read";
+import { listContainer } from "@/lib/pod/write";
 import { listStudioTrips } from "@/lib/studio/trips";
 import type { PodError } from "@/lib/pod/result";
 import type { StudioTrip, StudioTripListing } from "@/lib/studio/trips";
@@ -24,14 +24,18 @@ export interface StudioTripsSeed {
   podRoot: string;
 }
 
-/** One read per trip (§7.4); a trip whose own index cannot be read still
- *  lists, with entryCount 0 — see ./notes.md#entrycount-is-published-only-and-that-is-a-known-gap. */
+/** ALL entries, drafts included — §4's own rationale for the studio: it
+ *  enumerates `entries/` via `ldp:contains` rather than the published-only
+ *  index, "and sees drafts and published entries alike". A trip whose own
+ *  container cannot be listed still lists, with entryCount 0.
+ *  ./notes.md#entrycount-is-every-entry-draft-included */
 async function countedTrip(
   fetch: StudioSessionLike["fetch"],
   trip: StudioTrip,
 ): Promise<StudioTripRow> {
-  const index = await readTripIndex(trip.indexUrl, { fetch });
-  return { ...trip, entryCount: index.ok ? (index.value.entryCount ?? 0) : 0 };
+  const listed = await listContainer(fetch, trip.entriesContainer);
+  const entryCount = listed.ok ? listed.value.filter((url) => url.endsWith(".ttl")).length : 0;
+  return { ...trip, entryCount };
 }
 
 /** The whole load, as a value: bootstrap, list, then each trip's own count. */

@@ -23,8 +23,9 @@ export interface TripsListProps {
 }
 
 /** What a row needs to publish: the full trip (not the list summary) and the
- *  ETag it was read at — see ./notes.md#the-two-phase-load-and-why-it-is-not-one. */
-type FullTrip = { trip: Trip; etag: string };
+ *  ETag it was read at. `null` means the Pod answered with no ETag header —
+ *  see ./notes.md#a-null-etag-blocks-publishing-and-is-never-coerced. */
+type FullTrip = { trip: Trip; etag: string | null };
 
 export default function TripsList({ session, podRoot }: TripsListProps) {
   const listing = useStudioTrips({ session, podRoot });
@@ -48,7 +49,9 @@ export default function TripsList({ session, podRoot }: TripsListProps) {
       if (!live) return;
       const map = new Map<string, FullTrip>();
       for (const [slug, read] of entries) {
-        if (read.ok) map.set(slug, { trip: read.value.trip, etag: read.value.etag ?? "" });
+        // Never coerced: a null ETag stays null, and PublishAction below
+        // refuses to mount on one rather than sending `If-Match: ""`.
+        if (read.ok) map.set(slug, { trip: read.value.trip, etag: read.value.etag });
       }
       setFull(map);
     });
@@ -116,13 +119,27 @@ function TripRow({
         {" — "}
         <span>{`${row.entryCount} ${row.entryCount === 1 ? "entry" : "entries"}`}</span>
       </p>
-      {full !== undefined && <PublishAction session={session} podRoot={podRoot} full={full} />}
+      {full !== undefined &&
+        (full.etag === null ? (
+          // Never a manufactured "" precondition — see
+          // ./notes.md#a-null-etag-blocks-publishing-and-is-never-coerced.
+          <p className="mt-1 text-muted-foreground">
+            {"This trip's version could not be confirmed. Reload to publish."}
+          </p>
+        ) : (
+          <PublishAction
+            session={session}
+            podRoot={podRoot}
+            full={{ trip: full.trip, etag: full.etag }}
+          />
+        ))}
     </li>
   );
 }
 
 /** The one control that goes through `usePublish` — the wiring this stage
- *  exists to prove, not a fresh call to `publishTrip` of its own. */
+ *  exists to prove, not a fresh call to `publishTrip` of its own. Only ever
+ *  mounted with a CONFIRMED etag — see ./notes.md#a-null-etag-blocks-publishing-and-is-never-coerced. */
 function PublishAction({
   session,
   podRoot,
@@ -130,7 +147,7 @@ function PublishAction({
 }: {
   session: StudioSessionLike;
   podRoot: string;
-  full: FullTrip;
+  full: { trip: Trip; etag: string };
 }) {
   const isPublished = full.trip.status === "published";
   const { pending, error, publish, unpublish } = usePublish({

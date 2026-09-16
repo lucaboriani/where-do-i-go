@@ -1458,20 +1458,22 @@ BEFORE `listStudioTrips`, memoised by `podRoot` in a ref exactly as
 second effect invocation attaches to the first's in-flight promise rather than
 starting a second bootstrap.
 
-## entryCount is published-only, and that is a known gap
+## entryCount is every entry, draft included
 
-`readTripIndex(trip.indexUrl).entryCount` is `entries.ttl`'s own count, which
-§4 scopes to PUBLISHED entries. A trip with drafts only, or a trip mid-way
-through its first few unpublished entries, shows `0` here — correct against
-what the index actually holds, understating what the owner has written. A
-draft-inclusive count would read `entriesContainer` instead (one more
-`listContainer` call per trip); left as a future refinement rather than done
-here, because the two are equally testable and the choice is a product one,
-not a technical one.
+Fix round 1, finding E2: this used to read `readTripIndex(trip.indexUrl)
+.entryCount`, `entries.ttl`'s own count — which §4 scopes to PUBLISHED
+entries only, so a trip with drafts only showed `0` on the OWNER'S OWN
+management screen. §4 says the studio itself enumerates `entries/` via
+`ldp:contains` for exactly this reason: "sees drafts and published entries
+alike." `countedTrip` now does the same thing this screen's own trip listing
+already does one level up (`lib/studio/trips.ts` lists `travel/trips/` the
+same way, never the public diary) — `listContainer` on `entriesContainer`,
+counting every member whose name ends `.ttl`.
 
-## one bad trip's index does not fail the list
+## one bad trip's container does not fail the list
 
 Mirrors `listStudioTrips`'s own "skip and report" rule one layer up: a trip
-whose `entries.ttl` cannot be read still appears, with `entryCount: 0`, rather
-than taking every other trip down with it. The trip itself was already proven
-readable by `listStudioTrips`; only its count is uncertain.
+whose `entries/` container cannot be listed still appears, with
+`entryCount: 0`, rather than taking every other trip down with it. The trip
+itself was already proven readable by `listStudioTrips`; only its count is
+uncertain.

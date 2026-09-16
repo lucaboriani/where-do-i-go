@@ -116,6 +116,8 @@ const PATAGONIA_SLUG = "2025-patagonia";
 const JAPAN_NAME = "Japan, spring";
 const PATAGONIA_NAME = "Patagonia, unfinished";
 const PATAGONIA_CONTAINER = `${TRIPS_URL}${PATAGONIA_SLUG}/`;
+const JAPAN_ENTRIES = `${TRIPS_URL}${JAPAN_SLUG}/entries/`;
+const PATAGONIA_ENTRIES = `${TRIPS_URL}${PATAGONIA_SLUG}/entries/`;
 const JAPAN_TTL = tripFixture(JAPAN_SLUG, JAPAN_NAME, false);
 const PATAGONIA_TTL = tripFixture(PATAGONIA_SLUG, PATAGONIA_NAME, true);
 
@@ -213,8 +215,12 @@ function fakeSession(): StudioSessionLike {
   return session as unknown as StudioSessionLike;
 }
 
-/** The usual scenario: one published trip (2 entries), one draft (0 entries),
- *  a diary that already omits the draft, and both containers/indexes served. */
+/**
+ * The usual scenario: one published trip (2 entries), one draft (0 entries),
+ * a diary that already omits the draft, and both containers/indexes served.
+ * The entries.ttl INDEX is served too but is no longer what entryCount reads
+ * from (fix round 1, finding E2) — the entries/ CONTAINER listing below is.
+ */
 async function twoTripPod() {
   return fakePod({
     open: {
@@ -225,6 +231,7 @@ async function twoTripPod() {
         `${tripUrl(POD, JAPAN_SLUG)}#it`,
         2,
       ),
+      [JAPAN_ENTRIES]: containerTurtle(["e0.ttl", "e1.ttl"]),
     },
     ownerOnly: {
       [TRIPS_URL]: containerTurtle([`${JAPAN_SLUG}/`, `${PATAGONIA_SLUG}/`]),
@@ -234,6 +241,7 @@ async function twoTripPod() {
         `${tripUrl(POD, PATAGONIA_SLUG)}#it`,
         0,
       ),
+      [PATAGONIA_ENTRIES]: containerTurtle([]),
     },
   });
 }
@@ -305,5 +313,64 @@ describe("TripsList", () => {
         true,
       ),
     );
+  });
+
+  // Fix round 1, finding E1's own covering test: a Pod that answers with no
+  // ETag must never turn into `If-Match: ""`. Overrides only Japan's GET;
+  // Patagonia's own (etag-bearing) button is the "not just no buttons" control.
+  it("blocks publishing a trip whose Pod answered with no ETag, and never sends If-Match: \"\"", async () => {
+    const pod = await twoTripPod();
+    server.use(
+      http.get(tripUrl(POD, JAPAN_SLUG), () =>
+        HttpResponse.text(JAPAN_TTL, { headers: { "content-type": "text/turtle" } }),
+      ),
+    );
+    const TripsList = await loadTripsList();
+
+    render(
+      <StrictMode>
+        <TripsList session={fakeSession()} podRoot={POD} />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByText(new RegExp(JAPAN_NAME))).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/reload to publish/i)).toBeInTheDocument());
+    // The control: Patagonia's own button, from a trip whose ETag DID arrive,
+    // still renders — so this is "one trip blocked", not "no buttons at all".
+    expect(screen.getAllByRole("button", { name: /publish/i })).toHaveLength(1);
+
+    const empty = pod.requests.filter(
+      (r) => r.method === "PUT" && r.url === tripUrl(POD, JAPAN_SLUG) && r.headers["if-match"] === "",
+    );
+    expect(empty).toEqual([]);
+  });
+
+  /**
+   * FIX ROUND 1, FINDING E2's own covering test, one layer up from
+   * `use-studio-trips.test.ts`'s: the published-only index says 0 for a
+   * trip whose entries are all drafts, and the rendered count must be the
+   * entries/ CONTAINER's 2, not the index's 0.
+   */
+  it("counts a trip's entries including drafts, not just what the published-only index reports", async () => {
+    fakePod({
+      open: {
+        [diaryUrl(POD)]: DIARY_PUBLISHED_ONLY,
+        [tripUrl(POD, JAPAN_SLUG)]: JAPAN_TTL,
+        [tripIndexUrl(POD, JAPAN_SLUG)]: await entriesTtl(
+          tripIndexUrl(POD, JAPAN_SLUG),
+          `${tripUrl(POD, JAPAN_SLUG)}#it`,
+          0,
+        ),
+        [JAPAN_ENTRIES]: containerTurtle(["draft-1.ttl", "draft-2.ttl"]),
+      },
+      ownerOnly: { [TRIPS_URL]: containerTurtle([`${JAPAN_SLUG}/`]) },
+    });
+    const TripsList = await loadTripsList();
+
+    render(<TripsList session={fakeSession()} podRoot={POD} />);
+
+    await waitFor(() => expect(screen.getByText(new RegExp(JAPAN_NAME))).toBeInTheDocument());
+    expect(screen.getByText(/\b2\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/\b0\b/)).not.toBeInTheDocument();
   });
 });
