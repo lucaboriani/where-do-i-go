@@ -80,7 +80,7 @@ function commentRuns(file: string): Array<[string, number]> {
  * ./notes.md#the-comment-ratchet
  */
 const PROD_COMMENT_BASELINE = 0;
-const TEST_COMMENT_BASELINE = 545;
+const TEST_COMMENT_BASELINE = 544;
 
 /** The test side: the placement rule's own predicate, plus the editor rig (54
  *  blocks, no `*.test.tsx`) and all of `e2e/`, which is Playwright's suite and

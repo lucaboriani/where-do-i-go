@@ -371,6 +371,14 @@ export const datatypeOf = (t: Term | undefined) =>
 export const languageOf = (t: Term | undefined) =>
   t && t.termType === "Literal" ? t.language : undefined;
 
+/** A section's prose, reached the way a reader does: `<#it>` → schema:hasPart →
+ *  `<#section-n>` → schema:text. Section 1 by default — the single-section
+ *  editor writes all prose there. Replaces the flat `schema:articleBody` read. */
+export function sectionTextNode(quads: Quad[], url: string, section = 1): Term | undefined {
+  const node = objectsOf(quads, `${url}#it`, SCHEMA.hasPart).map((t) => t.value)[section - 1];
+  return node === undefined ? undefined : oneObject(quads, node, SCHEMA.text);
+}
+
 /** The §7.3 entry as the app reads it — obtained by running the normative
  *  fixture through the real reader, so edit mode starts from the spec. */
 export async function specEntry(): Promise<Entry> {
@@ -1112,10 +1120,11 @@ export const SCENARIOS = {
  * become invisible rather than half-restorable". Section 8h pins it, with the
  * allow-case: the same bytes under the current key ARE offered.
  */
-export const draftKeyFor = (webId: string, scope: string) => `wig.draft.v2.${webId}.${scope}`;
+export const draftKeyFor = (webId: string, scope: string) => `wig.draft.v3.${webId}.${scope}`;
 
-/** The key a build before 2026-09-06 wrote. Used only to prove it is ignored. */
-export const legacyDraftKeyFor = (webId: string, scope: string) => `wig.draft.v1.${webId}.${scope}`;
+/** The key a build before the section cutover wrote (flat `story`/`photos`).
+ *  Used only to prove the v3 reader ignores it. */
+export const legacyDraftKeyFor = (webId: string, scope: string) => `wig.draft.v2.${webId}.${scope}`;
 
 /** The scope of a create — there is no resource yet to name. */
 export const NEW_SCOPE = "new";
@@ -1164,13 +1173,12 @@ export const DRAFT_FIELDS = [
   "mode",
   "occurred",
   "offset",
-  "photos",
   "placeName",
   "precision",
   "savedAt",
+  "sections",
   "slug",
   "status",
-  "story",
   "tagsText",
   "tripIri",
 ];
@@ -1180,7 +1188,6 @@ export type StoredDraft = {
   tripIri: string;
   slug: string;
   headline: string;
-  story: string;
   occurred: string;
   /** The offset of the PLACE, as the owner chose it — section 1c. Held beside
    *  the wall clock rather than folded into it, because the control the owner
@@ -1203,24 +1210,26 @@ export type StoredDraft = {
   locality: string;
   country: string;
   /**
-   * The photos already on the Pod — section 10's picker uploads on pick, so a
-   * draft holds URLs and JSON and never a Blob.
+   * The ordered section list — prose plus the photos already on the Pod
+   * (section 10's picker uploads on pick, so a draft holds URLs and never a
+   * Blob). It replaced the flat `story`/`photos` pair in the section cutover.
    *
-   * SEEDED EMPTY EVERYWHERE IN THIS SECTION, AND SEEDED AT ALL FOR A REASON:
-   * the failed-save pair below asserts `Object.keys` against `DRAFT_FIELDS` on
-   * "whichever copy is at the key, the seeded one or one the live window
-   * wrote". A seed that was a field short would make that assertion a race
-   * between two shapes rather than a statement about a restorable draft.
+   * SEEDED AT ALL FOR A REASON: the failed-save pair asserts `Object.keys`
+   * against `DRAFT_FIELDS` on whichever copy is at the key, so a seed a field
+   * short would make that a race between two shapes.
    */
-  photos: Photo[];
+  sections: { text: string; photos: Photo[] }[];
   savedAt: string;
 };
 
-export const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
+/** `story` is a convenience shorthand for a single-section draft, kept so the
+ *  many `seededDraft({ story })` callers read unchanged after the cutover. */
+export const seededDraft = (over: Partial<StoredDraft> & { story?: string } = {}): StoredDraft => {
+  const { story, ...rest } = over;
+  return {
   tripIri: JAPAN.iri,
   slug: "2026-04-02-kyoto",
   headline: "Rain on the Philosopher's Path",
-  story: "Two hours of drizzle and nobody else on the path.",
   occurred: "2026-04-02T16:20",
   // This machine's zone, which is what a create starts at — the interesting
   // values are 8j's, where the offset is the subject rather than the setting.
@@ -1240,10 +1249,18 @@ export const seededDraft = (over: Partial<StoredDraft> = {}): StoredDraft => ({
   placeName: "",
   locality: "",
   country: "",
-  photos: [],
+  // One section of prose, no photo — the common draft. The flat `story`/`photos`
+  // pair became this in the section cutover (the `v2` → `v3` key bump).
+  sections: [{ text: story ?? "Two hours of drizzle and nobody else on the path.", photos: [] }],
   savedAt: "2026-04-02T19:00:00+09:00",
-  ...over,
-});
+  ...rest,
+  };
+};
+
+/** The prose a stored draft carries — in its first section now, not a flat
+ *  `story`. Reads a parsed draft whatever its declared shape. */
+export const draftStory = (parsed: unknown): string | undefined =>
+  (parsed as { sections?: { text?: string }[] }).sections?.[0]?.text;
 
 /** A storage whose contents are inspectable and whose failures are scripted. */
 export function fakeStorage(initial: Record<string, string> = {}) {

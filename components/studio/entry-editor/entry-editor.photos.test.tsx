@@ -109,6 +109,21 @@ const DECODE_FAILURE = "the decoder could not read this file";
  *  asked for — `convertToBlob` returns PNG when it cannot encode WebP). */
 const MEDIA_PATH = /^\/travel\/media\/[0-9a-f]{16}\/(web|thumb)\.webp$/;
 
+/** The image nodes hung off a section, reached the way a reader does:
+ *  `<#it>` → schema:hasPart → `<#section-n>` → schema:image. Section 1 by
+ *  default — the single-section editor attaches every pick to it. */
+function sectionImages(quads: ReturnType<typeof quadsOf>, url: string, section = 1): string[] {
+  const node = objectsOf(quads, `${url}#it`, SCHEMA.hasPart).map((t) => t.value)[section - 1];
+  return node === undefined ? [] : objectsOf(quads, node, SCHEMA.image).map((t) => t.value);
+}
+
+/** One section carrying a photo, as an editable entry: the single-section UI
+ *  renders section 1, so a carried photo has to live there to be seen. */
+const oneSection = (entry: Entry, photo: Photo): Entry => ({
+  ...entry,
+  sections: [{ text: entry.sections[0]?.text, photos: [photo], sortOrder: 1 }],
+});
+
 /* ─────────────────────────────────────────────── 10a. a photo that works ── */
 
 describe("entry editor — a picked photo", () => {
@@ -241,7 +256,7 @@ describe("entry editor — a photo that fails", () => {
     );
 
     expect(
-      objectsOf(quads, subject, SCHEMA.image).map((t) => t.value),
+      sectionImages(quads, put.url),
       "a photo that failed reached the saved entry",
     ).toEqual([]);
     expect(put.body, "the failed file's name was written into the entry").not.toContain(
@@ -290,15 +305,15 @@ describe("entry editor — a photo in the autosaved draft", () => {
       () => {
         const stored = store.items.get(key);
         expect(stored, "no draft was autosaved at all").toBeDefined();
-        const held = JSON.parse(stored!) as { photos?: unknown[] };
-        expect(held.photos, "the autosaved draft carries no photos").toHaveLength(1);
+        const held = JSON.parse(stored!) as { sections?: { photos: unknown[] }[] };
+        expect(held.sections?.[0]?.photos, "the autosaved draft carries no section photo").toHaveLength(1);
         raw = stored!;
       },
       { timeout: DEBOUNCE * 6, interval: 25 },
     );
 
-    const draft = JSON.parse(raw) as { photos: unknown[] };
-    const held = draft.photos[0] as Record<string, unknown>;
+    const draft = JSON.parse(raw) as { sections: { photos: unknown[] }[] };
+    const held = draft.sections[0].photos[0] as Record<string, unknown>;
 
     /* A BLOB SERIALISES TO `{}`, so this is the assertion that catches it. */
     expect(
@@ -348,14 +363,13 @@ describe("entry editor — photos an edit did not touch", () => {
     const fake = fakeStudioSession();
     const entry = await specEntry();
 
-    // NON-VACUOUS: the fixture really does carry a photo to preserve. It now
-    // lives on section-2 rather than the legacy `photos` shim (§7.3, Stage 1);
-    // moved into the shim slot here, which is the shape this pre-sections
-    // editor still reads — Stage 3 migrates it to sections.
+    // NON-VACUOUS: the fixture really does carry a photo to preserve. The
+    // single-section editor renders section 1, so it is moved there to be seen
+    // and left otherwise untouched (§7.3, Stage 1).
     const kept = entry.sections[1]?.photos[0];
     expect(kept, "the §7.3 fixture carries no photo to preserve").toBeDefined();
     expect(kept!.dateCreated, "the fixture's photo carries no dateCreated").toBeDefined();
-    const withPhoto: Entry = { ...entry, photos: [kept!] };
+    const withPhoto = oneSection(entry, kept!);
 
     await renderEditor(fake.session, {
       initial: { entry: withPhoto, etag: '"entry-7"' },
@@ -385,9 +399,9 @@ describe("entry editor — photos an edit did not touch", () => {
       "First night in Shinjuku, revisited",
     );
 
-    const images = objectsOf(quads, subject, SCHEMA.image).map((t) => t.value);
+    const images = sectionImages(quads, put.url);
     expect(images, "the edit dropped the photo the entry arrived with").toEqual([
-      `${put.url}#photo-1`,
+      `${put.url}#section-1-photo-1`,
     ]);
     const node = images[0]!;
 
@@ -459,13 +473,12 @@ describe("entry editor — a photo added to an entry that already has one", () =
     const entry = await specEntry();
 
     // NON-VACUOUS, both halves: there is a photo to preserve, and it carries
-    // the number the new one has to be placed after. It now lives on
-    // section-2 rather than the legacy `photos` shim (§7.3, Stage 1); moved
-    // into the shim slot here, the shape this pre-sections editor still reads.
+    // the number the new one has to be placed after. Moved onto section 1, which
+    // the single-section editor renders, so a pick lands beside it (§7.3, Stage 1).
     const kept = entry.sections[1]?.photos[0];
     expect(kept, "the §7.3 fixture carries no photo to preserve").toBeDefined();
     expect(kept!.sortOrder, "the fixture's photo carries no sortOrder").toBe(1);
-    const withPhoto: Entry = { ...entry, photos: [kept!] };
+    const withPhoto = oneSection(entry, kept!);
 
     await renderEditor(fake.session, {
       initial: { entry: withPhoto, etag: '"entry-7"' },
@@ -486,13 +499,12 @@ describe("entry editor — a photo added to an entry that already has one", () =
 
     const put = pod.entryPut()!;
     const quads = quadsOf(put.body, put.url);
-    const subject = `${put.url}#it`;
 
-    const images = objectsOf(quads, subject, SCHEMA.image).map((t) => t.value);
+    const images = sectionImages(quads, put.url);
     expect(
       images,
       "the entry does not carry both photos: adding one destroyed the one it arrived with",
-    ).toEqual([`${put.url}#photo-1`, `${put.url}#photo-2`]);
+    ).toEqual([`${put.url}#section-1-photo-1`, `${put.url}#section-1-photo-2`]);
 
     /* THE CARRIED ONE, UNTOUCHED — the same URL and the same number. Renumbering
        it would rewrite §7.3 data the owner never touched. */
@@ -549,16 +561,15 @@ describe("entry editor — a photo added to an entry that already has one", () =
     );
 
     const entry = await specEntry();
-    // The fixture's one real photo now lives on section-2, not the legacy
-    // `photos` shim this pre-sections editor still reads (§7.3, Stage 1).
+    // The fixture's one real photo, moved onto section 1 (which the single-section
+    // editor renders) at the container the picked file really hashes to.
     const seedPhoto = entry.sections[1]?.photos[0];
     expect(seedPhoto, "the §7.3 fixture carries no photo to preserve").toBeDefined();
-    const already: Entry = {
-      ...entry,
-      photos: [
-        { ...seedPhoto!, contentUrl: `${container}web.webp`, thumbnailUrl: `${container}thumb.webp` },
-      ],
-    };
+    const already = oneSection(entry, {
+      ...seedPhoto!,
+      contentUrl: `${container}web.webp`,
+      thumbnailUrl: `${container}thumb.webp`,
+    });
 
     await renderEditor(fake.session, {
       initial: { entry: already, etag: '"entry-7"' },
@@ -578,12 +589,14 @@ describe("entry editor — a photo added to an entry that already has one", () =
 
     const put = pod.entryPut()!;
     const quads = quadsOf(put.body, put.url);
-    const images = objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value);
+    const images = sectionImages(quads, put.url);
 
-    expect(images, "the same photo was attached twice").toEqual([`${put.url}#photo-1`]);
+    expect(images, "the same photo was attached twice").toEqual([`${put.url}#section-1-photo-1`]);
     expect(oneObject(quads, images[0]!, SCHEMA.contentUrl)?.value).toBe(`${container}web.webp`);
     // And the carried photo kept everything else it had.
-    expect(oneObject(quads, images[0]!, SCHEMA.caption)?.value).toBe(already.photos[0]!.caption?.value);
+    expect(oneObject(quads, images[0]!, SCHEMA.caption)?.value).toBe(
+      already.sections[0].photos[0]!.caption?.value,
+    );
   });
 
   /** The same defect on a CREATE, where there is nothing carried to compare
@@ -613,9 +626,9 @@ describe("entry editor — a photo added to an entry that already has one", () =
     const put = pod.entryPut()!;
     const quads = quadsOf(put.body, put.url);
     expect(
-      objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value),
+      sectionImages(quads, put.url),
       "one file picked twice was written as two photos",
-    ).toEqual([`${put.url}#photo-1`]);
+    ).toEqual([`${put.url}#section-1-photo-1`]);
   });
 
   /**
@@ -639,15 +652,15 @@ describe("entry editor — a photo added to an entry that already has one", () =
     const fake = fakeStudioSession();
 
     const entry = await specEntry();
-    // The fixture's one real photo now lives on section-2, not the legacy
-    // `photos` shim this pre-sections editor still reads (§7.3, Stage 1).
+    // The fixture's one real photo, moved onto section 1 and stripped of its
+    // number so the pick beside it has to take the next position (§7.3, Stage 1).
     const seedPhoto = entry.sections[1]?.photos[0];
     expect(seedPhoto, "the §7.3 fixture carries no photo to preserve").toBeDefined();
-    const unnumbered: Entry = {
-      ...entry,
-      photos: [{ ...seedPhoto!, sortOrder: undefined }],
-    };
-    expect(unnumbered.photos[0]!.sortOrder, "the carried photo still has a number").toBeUndefined();
+    const unnumbered = oneSection(entry, { ...seedPhoto!, sortOrder: undefined });
+    expect(
+      unnumbered.sections[0].photos[0]!.sortOrder,
+      "the carried photo still has a number",
+    ).toBeUndefined();
 
     await renderEditor(fake.session, {
       initial: { entry: unnumbered, etag: '"entry-7"' },
@@ -665,7 +678,7 @@ describe("entry editor — a photo added to an entry that already has one", () =
 
     const put = pod.entryPut()!;
     const quads = quadsOf(put.body, put.url);
-    const images = objectsOf(quads, `${put.url}#it`, SCHEMA.image).map((t) => t.value);
+    const images = sectionImages(quads, put.url);
     expect(images).toHaveLength(2);
 
     // What the serialiser gave the carried photo, which is the number that is
@@ -811,9 +824,12 @@ describe("entry editor — a photo that settles after the save", () => {
       "the settled photo is in neither the entry nor the draft: close the tab and it is orphaned",
     ).toEqual([CREATED_KEY]);
 
-    const kept = parseDraft(store.items.get(CREATED_KEY)!) as { photos?: unknown[] };
-    expect(kept.photos, "the draft was written without the photo that settled").toHaveLength(1);
-    const photo = kept.photos![0] as Record<string, unknown>;
+    const kept = parseDraft(store.items.get(CREATED_KEY)!) as { sections?: { photos: unknown[] }[] };
+    expect(
+      kept.sections?.[0]?.photos,
+      "the draft was written without the photo that settled",
+    ).toHaveLength(1);
+    const photo = kept.sections![0].photos[0] as Record<string, unknown>;
     expect(
       Photo.safeParse(photo).success,
       "what was kept does not round-trip into a Photo",

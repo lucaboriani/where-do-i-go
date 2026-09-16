@@ -12,7 +12,6 @@ const marked: EntryFormState = {
   tripIri: "",
   slug: "",
   headline: "",
-  story: "",
   occurred: "2026-04-11T07:05",
   offset: "+02:00",
   tagsText: "",
@@ -24,7 +23,7 @@ const marked: EntryFormState = {
   placeName: "",
   locality: "",
   country: "",
-  slots: [],
+  sections: [{ id: "sec-0", text: "", slots: [] }],
   coordinateAuthor: { kind: "nobody" },
   occurredAuthor: { kind: "photo", key: "photo-0", name: "first.jpg" },
   offsetAuthor: { kind: "nobody" },
@@ -46,9 +45,9 @@ describe("applyFieldEdit — the plain fields", () => {
     expect(applyFieldEdit(marked, { kind: "status", value: "published" }).status).toBe("published");
   });
 
-  it("never touches the photos", () => {
+  it("never touches the sections", () => {
     const next = applyFieldEdit(marked, { kind: "field", field: "slug", value: "s" });
-    expect(next.slots).toBe(marked.slots);
+    expect(next.sections).toBe(marked.sections);
   });
 });
 

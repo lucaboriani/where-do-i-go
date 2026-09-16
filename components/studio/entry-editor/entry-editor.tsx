@@ -7,13 +7,12 @@
  * exists. ./notes.md#what-the-editor-is-not-allowed-to-do
  */
 
-import { useMemo } from "react";
-import { BUTTON } from "./field";
+import Field, { BUTTON, CONTROL } from "./field";
 import DraftBanner, { HOLD_REASON_ID } from "./draft-banner";
 import { draftTextOf, useEntryDraft } from "@/hooks/studio/use-entry-draft";
 import { useEntryForm } from "@/hooks/studio/use-entry-form";
 import { useEntrySave } from "@/hooks/studio/use-entry-save";
-import { attachedOf, usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
+import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
 import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
@@ -113,14 +112,14 @@ export default function EntryEditor({
     onDefaultPrecision: form.set.precision,
   });
 
-  /** The picked photos that have URLs on the Pod, in pick order — `ready` only,
-   *  and that filter is the fence. See `attachedOf`. */
-  const attached = useMemo(() => attachedOf(values.slots), [values.slots]);
+  /** Task 1 renders exactly ONE section (its text and its photos); Task 2 adds
+   *  the multi-section UI. `initialEntryFormState` guarantees at least one. */
+  const section = values.sections[0];
 
-  /** The sixteen fields the FORM holds, projected out of the reducer's twenty.
+  /** The fifteen fields the FORM holds, projected out of the reducer's state.
    *  ONE construction, spent by both the draft and the save: two of them is how
    *  `settleDraft`'s two answers drift. */
-  const text = draftTextOf(form.values, attached);
+  const text = draftTextOf(form.values);
 
   /* ────────────────────────────────────────────────────────── §10's save ── */
 
@@ -133,7 +132,6 @@ export default function EntryEditor({
     initial,
     values: form.values,
     text,
-    attached,
     fuzzed: gate.fuzzed,
   });
 
@@ -218,9 +216,23 @@ export default function EntryEditor({
             onSlugChange={form.set.slug}
             headline={values.headline}
             onHeadlineChange={form.set.headline}
-            story={values.story}
-            onStoryChange={form.set.story}
           />
+
+          {/* THE SINGLE SECTION'S PROSE (Task 2 adds the multi-section list). Its
+              id is `entry-section-0-text`, unique per section so a future list
+              of them does not collide on the shared `<label htmlFor>`. */}
+          {section !== undefined && (
+            <Field id="entry-section-0-text" label="Story">
+              <textarea
+                id="entry-section-0-text"
+                name="entry-section-0-text"
+                rows={8}
+                className={CONTROL}
+                value={section.text}
+                onChange={(event) => form.setSectionText(section.id, event.target.value)}
+              />
+            </Field>
+          )}
 
           <WhenFields
             occurred={values.occurred}
@@ -254,7 +266,12 @@ export default function EntryEditor({
             hasStoredCoordinate={existing?.place?.geo !== undefined}
           />
 
-          <PhotoFields slots={values.slots} onPicked={attachAll} />
+          {section !== undefined && (
+            <PhotoFields
+              slots={section.slots}
+              onPicked={(files) => attachAll(section.id, files)}
+            />
+          )}
 
           <ClassificationFields
             tagsText={values.tagsText}

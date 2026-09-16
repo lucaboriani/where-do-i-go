@@ -36,6 +36,15 @@ describe("initialEntryFormState — a create", () => {
     expect(state.offsetGuess, "the create opens marked, before any photo has spoken").toBe(false);
   });
 
+  it("opens with exactly one empty section, ready to type into", () => {
+    const state = initialEntryFormState({ existing: undefined, tripIris: [TRIP] });
+    expect(state.sections).toHaveLength(1);
+    expect(state.sections[0].text).toBe("");
+    expect(state.sections[0].slots).toEqual([]);
+    expect(typeof state.sections[0].id, "a section needs a stable synthetic id").toBe("string");
+    expect(state.sections[0].id.length).toBeGreaterThan(0);
+  });
+
   it("shows THIS MACHINE'S offset rather than `+00:00`", () => {
     // `offsetHere("")` is `+00:00`, so the chain has to ask about `wallClockNow()`
     // and not about `occurred`, which is empty on a create.
@@ -81,12 +90,53 @@ describe("initialEntryFormState — an edit", () => {
     ]);
   });
 
-  it("does not seed the slots from the entry's photos", () => {
+  it("builds one section per existing section, with its text and its restored photos", () => {
     const state = initialEntryFormState({
-      existing: entry({ photos: [{ contentUrl: "https://pod.example/travel/media/a/web.jpg" }] }),
+      existing: entry({
+        sections: [
+          { text: { value: "Morning in Yanaka", language: "en" }, photos: [], sortOrder: 1 },
+          {
+            text: { value: "Then the cemetery", language: "en" },
+            photos: [{ contentUrl: "https://pod.example/travel/media/a/web.jpg" }],
+            sortOrder: 2,
+          },
+        ],
+      }),
       tripIris: [TRIP],
     });
-    expect(state.slots, "a seeded row would renumber sortOrder and announce at mount").toEqual([]);
+    expect(state.sections).toHaveLength(2);
+    expect(state.sections.map((s) => s.text)).toEqual(["Morning in Yanaka", "Then the cemetery"]);
+    expect(state.sections[0].slots).toEqual([]);
+    expect(state.sections[1].slots).toHaveLength(1);
+    expect(state.sections[1].slots[0]).toMatchObject({
+      state: "ready",
+      photo: { contentUrl: "https://pod.example/travel/media/a/web.jpg" },
+    });
+    // A section with no text comes back as `""`, never `undefined`, so the
+    // controlled textarea has a string to render.
+    const noText = initialEntryFormState({
+      existing: entry({
+        sections: [
+          { photos: [{ contentUrl: "https://pod.example/travel/media/z/web.jpg" }], sortOrder: 1 },
+        ],
+      }),
+      tripIris: [TRIP],
+    });
+    expect(noText.sections[0].text).toBe("");
+  });
+
+  it("does NOT seed sections from the entry's legacy top-level photos", () => {
+    // The entry-level `photos` are Stage-3b legacy; a section owns its own
+    // photos, and a top-level pool leaking into one would double-count them.
+    const state = initialEntryFormState({
+      existing: entry({
+        photos: [{ contentUrl: "https://pod.example/travel/media/legacy/web.jpg" }],
+        sections: [{ text: { value: "Text only", language: "en" }, photos: [], sortOrder: 1 }],
+      }),
+      tripIris: [TRIP],
+    });
+    expect(state.sections).toHaveLength(1);
+    expect(state.sections[0].slots, "a legacy top-level photo became a section slot").toEqual([]);
   });
 
   it("leaves the trip picker unchosen for a trip that is not on offer", () => {
@@ -138,6 +188,57 @@ describe("initialEntryFormState — the credits are seeded from the ENTRY", () =
     const state = initialEntryFormState({ existing: entry(), tripIris: [TRIP] });
     expect(state.occurredAuthor).toEqual({ kind: "nobody" });
     expect(state.offsetAuthor).toEqual({ kind: "nobody" });
+  });
+});
+
+/* ─── the section setters replace the single story control ───────────────── */
+
+describe("useEntryForm — the section setters", () => {
+  it("no longer offers a `story` control", () => {
+    const { result } = renderHook(() => useEntryForm({ existing: undefined, tripIris: [TRIP] }));
+    expect(result.current.set, "the flat story setter outlived the flat story field").not.toHaveProperty(
+      "story",
+    );
+  });
+
+  it("sets a section's text by id", () => {
+    const { result } = renderHook(() => useEntryForm({ existing: undefined, tripIris: [TRIP] }));
+    const id = result.current.values.sections[0].id;
+    act(() => {
+      result.current.setSectionText(id, "First light on the path");
+    });
+    expect(result.current.values.sections[0].text).toBe("First light on the path");
+  });
+
+  it("adds, removes and moves sections", () => {
+    const { result } = renderHook(() => useEntryForm({ existing: undefined, tripIris: [TRIP] }));
+    const first = result.current.values.sections[0].id;
+
+    act(() => {
+      result.current.addSection();
+    });
+    expect(result.current.values.sections).toHaveLength(2);
+    const second = result.current.values.sections[1].id;
+    expect(second, "the added section got a fresh id").not.toBe(first);
+
+    act(() => {
+      result.current.moveSection(second, "up");
+    });
+    expect(result.current.values.sections.map((s) => s.id)).toEqual([second, first]);
+
+    act(() => {
+      result.current.removeSection(first);
+    });
+    expect(result.current.values.sections.map((s) => s.id)).toEqual([second]);
+  });
+
+  it("attaches a slot to the named section", () => {
+    const { result } = renderHook(() => useEntryForm({ existing: undefined, tripIris: [TRIP] }));
+    const id = result.current.values.sections[0].id;
+    act(() => {
+      result.current.addSlot(id, { key: "photo-0", name: "a.jpg", state: "decoding" });
+    });
+    expect(result.current.values.sections[0].slots.map((s) => s.key)).toEqual(["photo-0"]);
   });
 });
 

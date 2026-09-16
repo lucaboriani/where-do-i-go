@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clearDraft, readDraft, writeDraft } from "@/lib/studio/drafts";
 import { nowWithOffset } from "@/lib/time/offsets";
+import { attachedOf } from "./use-photo-pipeline";
 import type { EntryFormState } from "@/components/studio/entry-editor/state/actions";
 import type { Photo } from "@/lib/pod/schema";
 import type { Draft, StorageLike } from "@/lib/studio/drafts";
@@ -20,9 +21,9 @@ export const DRAFT_DEBOUNCE_MS = 800;
  *  name, so every create in this browser shares one draft. */
 const NEW_DRAFT_SCOPE = "new";
 
-/** The sixteen fields the FORM holds — `Draft` minus the stamp, which is put on
- *  at the moment of the write and never earlier (§6). It read "twelve" until
- *  2026-09-07, having missed `photos`, the three place fields and `offset`. */
+/** The fifteen fields the FORM holds — `Draft` minus the stamp, which is put on
+ *  at the moment of the write and never earlier (§6). `sections` replaced the
+ *  flat `story`/`photos` pair in the section cutover. */
 export type DraftText = Omit<Draft, "savedAt">;
 
 /** Two photo lists, by the only identity a photo has — where it lives on the
@@ -30,13 +31,17 @@ export type DraftText = Omit<Draft, "savedAt">;
 const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
   a.length === b.length && a.every((photo, at) => photo.contentUrl === b[at]?.contentUrl);
 
-/** Have the sixteen fields moved between two snapshots? Field by field, and
- *  all sixteen: ./notes.md#photos-compare-by-contenturl-text-compares-field-by-field */
+/** The section list, per section: same text and the same photos in order. */
+const sameSections = (a: DraftText["sections"], b: DraftText["sections"]) =>
+  a.length === b.length &&
+  a.every((section, at) => section.text === b[at]?.text && samePhotos(section.photos, b[at]?.photos ?? []));
+
+/** Have the fifteen fields moved between two snapshots? Field by field, and
+ *  all fifteen: ./notes.md#photos-compare-by-contenturl-text-compares-field-by-field */
 const sameText = (a: DraftText, b: DraftText) =>
   a.tripIri === b.tripIri &&
   a.slug === b.slug &&
   a.headline === b.headline &&
-  a.story === b.story &&
   a.occurred === b.occurred &&
   a.offset === b.offset &&
   a.tagsText === b.tagsText &&
@@ -48,7 +53,7 @@ const sameText = (a: DraftText, b: DraftText) =>
   a.placeName === b.placeName &&
   a.locality === b.locality &&
   a.country === b.country &&
-  samePhotos(a.photos, b.photos);
+  sameSections(a.sections, b.sections);
 
 /** The browser's own storage, or `null` where there is none to be had —
  *  WRAPPED, because the property read itself can throw a SecurityError:
@@ -65,17 +70,15 @@ export function browserStorage(): StorageLike | null {
   }
 }
 
-/** `EntryFormState` → the sixteen fields a draft is, with the READY photos.
- *  SPELLED OUT RATHER THAN SPREAD: `slots`, the three credits and `offsetGuess`
- *  are the reducer's, and a slot holds no `Photo` until it settles. `Draft`
- *  requires all sixteen, so an omission here is a type error rather than a
- *  field silently absent from every local copy. */
-export function draftTextOf(values: EntryFormState, photos: readonly Photo[]): DraftText {
+/** `EntryFormState` → the fifteen fields a draft is. SPELLED OUT RATHER THAN
+ *  SPREAD: the three credits, `offsetGuess` and a slot's transient state are the
+ *  reducer's; each section keeps its text and its READY photos only. `Draft`
+ *  requires all fifteen, so an omission here is a type error. */
+export function draftTextOf(values: EntryFormState): DraftText {
   return {
     tripIri: values.tripIri,
     slug: values.slug,
     headline: values.headline,
-    story: values.story,
     occurred: values.occurred,
     // The offset the owner chose, beside the wall clock rather than folded into
     // it: the control they type the time into has none, and a draft that kept
@@ -93,12 +96,13 @@ export function draftTextOf(values: EntryFormState, photos: readonly Photo[]): D
     placeName: values.placeName,
     locality: values.locality,
     country: values.country,
-    /**
-     * THE PHOTOS, AS `Photo` OBJECTS — which is only possible because the pick
-     * uploaded them. A `File` here would serialise to `{}` without throwing,
-     * and the draft would report success while restoring a photo with no URL.
-     */
-    photos: [...photos],
+    /* THE SECTIONS, each with its READY photos as `Photo` objects — possible
+       only because the pick uploaded them. A `File` would serialise to `{}`
+       without throwing and restore a photo with no URL. */
+    sections: values.sections.map((section) => ({
+      text: section.text,
+      photos: attachedOf(section.slots),
+    })),
   };
 }
 
@@ -188,7 +192,6 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
     tripIri,
     slug,
     headline,
-    story,
     occurred,
     offset,
     tagsText,
@@ -200,7 +203,7 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
     placeName,
     locality,
     country,
-    photos,
+    sections,
   } = text;
 
   /** ON MOUNT, IN AN EFFECT, NEVER DURING RENDER — and a one-shot read rather
@@ -230,7 +233,6 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
           tripIri,
           slug,
           headline,
-          story,
           occurred,
           offset,
           tagsText,
@@ -242,7 +244,7 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
           placeName,
           locality,
           country,
-          photos,
+          sections,
           savedAt: nowWithOffset(),
         },
       );
@@ -265,7 +267,6 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
     tripIri,
     slug,
     headline,
-    story,
     occurred,
     // Changing the offset alone has to arm a window: it is not typing, and this
     // is the dependency that makes the state change reach the debounce.
@@ -279,10 +280,10 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
     placeName,
     locality,
     country,
-    // The ready photos, so attaching one arms a window like any other change.
-    // Its identity moves on every slot transition, not only on a settle, so a
-    // photo in flight restarts the window — which is what a debounce is for.
-    photos,
+    // The section list, rebuilt on every render, so any edit to a section's
+    // text or its photos arms a window like any other change — which is what a
+    // debounce is for.
+    sections,
   ]);
 
   /** AN UNMOUNT IS NOT A REASON TO THROW THE LAST 800ms AWAY — and not in the

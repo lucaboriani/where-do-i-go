@@ -29,6 +29,7 @@ import {
   registerEditorLifecycle,
   renderEditor,
   saveButton,
+  sectionTextNode,
   setChoice,
   setText,
   specEntry,
@@ -355,7 +356,8 @@ describe("entry editor — the entry it hands to saveEntry", () => {
     const subject = `${put.url}#it`;
 
     expect(languageOf(oneObject(quads, subject, SCHEMA.headline))).not.toBe("");
-    expect(languageOf(oneObject(quads, subject, SCHEMA.articleBody))).not.toBe("");
+    // The prose is a section's `schema:text` now, not a flat `schema:articleBody`.
+    expect(languageOf(sectionTextNode(quads, put.url))).not.toBe("");
     // dy:tag is xsd:string by §3 — a token, not prose. Tagging it would be as
     // wrong as leaving the headline untagged.
     expect(languageOf(oneObject(quads, subject, DY.tag))).toBe("");

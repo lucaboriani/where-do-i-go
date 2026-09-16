@@ -14,24 +14,8 @@ import type { Photo } from "@/lib/pod/schema";
 import type { PhotoSlot } from "@/components/studio/entry-editor/state/actions";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
-/** The photos the entry will carry. PICKING APPENDS AND NEVER REPLACES, once
- *  each, and the free `sortOrder` is NOT `carried.length` — measured:
- *  ./notes.md#picking-appends-once-each-and-sortorder-is-measured */
-export function photosFor(carried: readonly Photo[], attached: readonly Photo[]): Photo[] {
-  const already = new Set(carried.map((photo) => photo.contentUrl));
-  const fresh: Photo[] = [];
-  for (const photo of attached) {
-    if (already.has(photo.contentUrl)) continue;
-    already.add(photo.contentUrl);
-    fresh.push(photo);
-  }
-
-  const highest = carried.reduce((best, photo, at) => Math.max(best, photo.sortOrder ?? at + 1), 0);
-  return [...carried, ...fresh.map((photo, at) => ({ ...photo, sortOrder: highest + 1 + at }))];
-}
-
-/** The picked photos that have URLs on the Pod, in pick order. `ready` ONLY,
- *  and that filter is the fence:
+/** A section's picked photos that have URLs on the Pod, in pick order. `ready`
+ *  ONLY, and that filter is the fence:
  *  ./notes.md#attachedof-is-the-fence-between-a-slot-and-a-photo */
 export const attachedOf = (slots: readonly PhotoSlot[]): Photo[] =>
   slots.flatMap((slot) => (slot.state === "ready" ? [slot.photo] : []));
@@ -66,7 +50,7 @@ export function usePhotoPipeline({
   coordinatesLive,
   markTouched,
   form,
-}: PhotoPipelineSeed): { attachAll: (picked: readonly File[]) => void } {
+}: PhotoPipelineSeed): { attachAll: (sectionId: string, picked: readonly File[]) => void } {
   /** Slot identity, monotonic per editor. Not the file name, and not an index:
    *  see `PhotoSlot`. */
   const nextSlotKey = useRef(0);
@@ -137,7 +121,7 @@ export function usePhotoPipeline({
 
   /** PROCESS, UPLOAD, THEN HOLD A `Photo` — never the `File` — and NOTHING
    *  THROWS OUT OF HERE: ./notes.md#process-upload-then-hold-a-photo */
-  async function attach(file: File) {
+  async function attach(sectionId: string, file: File) {
     const key = `photo-${nextSlotKey.current++}`;
     const name = file.name;
     const move = (next: PhotoSlot) => {
@@ -145,10 +129,10 @@ export function usePhotoPipeline({
        *  landing between pick and settle orphans the photo silently. `ready`
        *  ONLY: ./notes.md#a-settle-must-arm-the-autosave */
       if (next.state === "ready") markTouched();
-      form.settleSlot(key, next);
+      form.settleSlot(sectionId, key, next);
     };
 
-    form.addSlot({ key, name, state: "decoding" });
+    form.addSlot(sectionId, { key, name, state: "decoding" });
     try {
       const source = await file.arrayBuffer();
       const derived = await pipelineFor().process(file);
@@ -193,10 +177,10 @@ export function usePhotoPipeline({
     }
   }
 
-  /** Every file from one pick, all started at once — the picker is `multiple`
-   *  and lib/media/pipeline.ts serialises the decodes. */
-  const attachAll = (picked: readonly File[]) => {
-    for (const file of picked) void attach(file);
+  /** Every file from one pick, into one section, all started at once — the
+   *  picker is `multiple` and lib/media/pipeline.ts serialises the decodes. */
+  const attachAll = (sectionId: string, picked: readonly File[]) => {
+    for (const file of picked) void attach(sectionId, file);
   };
   return { attachAll };
 }

@@ -12,11 +12,11 @@ import { placeFor, placeTextOf } from "@/lib/studio/place/place";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import { nowWithOffset, toOffsetDateTime } from "@/lib/time/offsets";
 import { SCHEMA_VERSION } from "@/lib/vocab";
-import { photosFor } from "./use-photo-pipeline";
+import { attachedOf } from "./use-photo-pipeline";
 import type { DraftText, SettleDraft } from "./use-entry-draft";
 import type { EditorTrip } from "@/components/studio/entry-editor/entry-editor";
-import type { EntryFormState } from "@/components/studio/entry-editor/state/actions";
-import type { Entry, Photo, Status as EntryStatus } from "@/lib/pod/schema";
+import type { EntryFormState, SectionDraft } from "@/components/studio/entry-editor/state/actions";
+import type { Entry, Section, Status as EntryStatus } from "@/lib/pod/schema";
 import type { SaveEntryReport } from "@/lib/pod/save-entry";
 import type { Precondition } from "@/lib/pod/write";
 import type { EntryPlace } from "@/lib/studio/place/place";
@@ -27,6 +27,38 @@ import type { StudioSessionLike } from "@/lib/studio/session";
 /** Every human-readable literal is language-tagged (§6); an edit keeps the tag
  *  it had. A fixed default, not a control: ./notes.md#the-language-tag-is-a-fixed-default */
 const LANGUAGE = "en";
+
+/** A section's ready photos, deduped by `contentUrl` and numbered by position.
+ *  The media path is content-addressed, so a re-pick returns the SAME URL, and
+ *  two fragments at one binary would render it twice with no way to remove one. */
+function sectionPhotos(section: SectionDraft): Section["photos"] {
+  const photos: Section["photos"] = [];
+  const seen = new Set<string>();
+  for (const photo of attachedOf(section.slots)) {
+    if (seen.has(photo.contentUrl)) continue;
+    seen.add(photo.contentUrl);
+    photos.push({ ...photo, sortOrder: photos.length + 1 });
+  }
+  return photos;
+}
+
+/** The entry's `sections` from the form's: each non-empty section (text after
+ *  trim OR ≥1 ready photo) becomes one `Section`; empties drop and survivors
+ *  renumber from 1. */
+function sectionsFor(sections: readonly SectionDraft[], language: string): Section[] {
+  const out: Section[] = [];
+  for (const section of sections) {
+    const trimmed = section.text.trim();
+    const photos = sectionPhotos(section);
+    if (trimmed === "" && photos.length === 0) continue;
+    out.push({
+      text: trimmed === "" ? undefined : { value: trimmed, language },
+      photos,
+      sortOrder: out.length + 1,
+    });
+  }
+  return out;
+}
 
 /** `dy:tag` is a token, not prose (§3): comma-separated in, trimmed, untagged. */
 const parseTags = (text: string) =>
@@ -173,8 +205,6 @@ export interface EntrySaveSeed {
   /** The sixteen the draft is — the SAME object `useEntryDraft` was given, so
    *  that what `settle` is told was sent is what the entry was built from. */
   text: DraftText;
-  /** The `ready` picks, from `attachedOf`. */
-  attached: readonly Photo[];
   /** §9 steps 1–3, delegated whole: ./use-settings-gate.ts */
   fuzzed: (point: { lat: number; long: number }) => EntryPlace["geo"];
 }
@@ -203,7 +233,6 @@ export function useEntrySave({
   initial,
   values,
   text,
-  attached,
   fuzzed,
 }: EntrySaveSeed): EntrySave {
   const existing = initial?.entry;
@@ -211,7 +240,6 @@ export function useEntrySave({
     tripIri,
     slug,
     headline,
-    story,
     occurred,
     offset,
     tagsText,
@@ -271,7 +299,6 @@ export function useEntrySave({
 
     const url = target?.url ?? entryUrlIn(trip, slug.trim());
     const language = existing?.headline.language ?? LANGUAGE;
-    const body = story.trim();
 
     /** ONE INSTANT for this whole save, handed to `saveEntry` so the value this
      *  form remembers is the one that reaches the Pod:
@@ -316,7 +343,6 @@ export function useEntrySave({
       status,
       schemaVersion: SCHEMA_VERSION,
       headline: { value: headline.trim(), language },
-      articleBody: body === "" ? undefined : { value: body, language },
       trip: trip.iri,
       // WHAT THE TWO CONTROLS HOLD, concatenated and never converted, and what
       // this line must not become is a THIRD source:
@@ -325,12 +351,10 @@ export function useEntrySave({
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
       place,
-      /** WHAT THE ENTRY ARRIVED WITH, THEN WHAT WAS PICKED HERE — and only the
-       *  `ready` picks: ./notes.md#the-photos-and-why-a-failed-slot-reaches-nothing */
-      photos: photosFor(existing?.photos ?? [], attached),
-      // Carried through, not built — this form has no section UI yet.
-      // ./notes.md#what-the-entry-carries-through-untouched
-      sections: existing?.sections ?? [],
+      // Legacy top-level photos are no longer written (Stage 3b removes the
+      // field); a section owns its own photos, built by `sectionsFor`.
+      photos: [],
+      sections: sectionsFor(values.sections, language),
       tags: parseTags(tagsText),
       created,
       creator: existing?.creator ?? session.info.webId,

@@ -37,8 +37,6 @@ function props(over: Partial<IdentityFieldsProps> = {}): IdentityFieldsProps {
     onSlugChange: vi.fn(),
     headline: "",
     onHeadlineChange: vi.fn(),
-    story: "",
-    onStoryChange: vi.fn(),
     ...over,
   };
 }
@@ -52,12 +50,10 @@ function describedTextOf(el: Element): string {
   return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ").trim();
 }
 
-describe("the identity group renders the four controls that name an entry", () => {
+describe("the identity group renders the three controls that name an entry", () => {
   it("names each one, and the label query resolves to the control itself", () => {
     render(
-      <IdentityFields
-        {...props({ tripIri: PERU.iri, slug: "arrival", headline: "Arrival", story: "It rained." })}
-      />,
+      <IdentityFields {...props({ tripIri: PERU.iri, slug: "arrival", headline: "Arrival" })} />,
     );
 
     const trip = screen.getByLabelText("Trip") as HTMLSelectElement;
@@ -65,9 +61,6 @@ describe("the identity group renders the four controls that name an entry", () =
     expect(trip.value).toBe(PERU.iri);
     expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe("arrival");
     expect((screen.getByLabelText("Headline") as HTMLInputElement).value).toBe("Arrival");
-    const story = screen.getByLabelText("Story") as HTMLTextAreaElement;
-    expect(story.tagName).toBe("TEXTAREA");
-    expect(story.value).toBe("It rained.");
   });
 
   it("offers 'Choose a trip' plus one option per trip, in the order given", () => {
@@ -98,40 +91,36 @@ describe("the identity group reports every edit to the callback for that field",
     expect(wired.onTripChange).toHaveBeenCalledWith(PERU.iri);
     expect(wired.onSlugChange).not.toHaveBeenCalled();
     expect(wired.onHeadlineChange).not.toHaveBeenCalled();
-    expect(wired.onStoryChange).not.toHaveBeenCalled();
   });
 
-  it("reports the slug, the headline and the story each to their own callback", () => {
+  it("reports the slug and the headline each to their own callback", () => {
     const wired = props();
     render(<IdentityFields {...wired} />);
 
     fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "2026-03-29-arrival" } });
     fireEvent.change(screen.getByLabelText("Headline"), { target: { value: "Arrival" } });
-    fireEvent.change(screen.getByLabelText("Story"), { target: { value: "It rained." } });
 
     expect(wired.onSlugChange).toHaveBeenCalledWith("2026-03-29-arrival");
     expect(wired.onHeadlineChange).toHaveBeenCalledWith("Arrival");
-    expect(wired.onStoryChange).toHaveBeenCalledWith("It rained.");
     expect(wired.onTripChange).not.toHaveBeenCalled();
   });
 });
 
 describe("the identity group holds the address once it is fixed", () => {
-  it("holds the trip and the slug, and leaves the headline and the story live", () => {
+  it("holds the trip and the slug, and leaves the headline live", () => {
     // §10: the entry's URL is built from the trip and the slug, so an edit may
-    // not move it. The other two are prose and stay editable for ever.
+    // not move it. The headline is prose and stays editable for ever.
     render(<IdentityFields {...props({ addressFixed: true })} />);
 
     expect(screen.getByLabelText("Trip")).toBeDisabled();
     expect(screen.getByLabelText("Slug")).toBeDisabled();
     expect(screen.getByLabelText("Headline")).not.toBeDisabled();
-    expect(screen.getByLabelText("Story")).not.toBeDisabled();
   });
 
-  it("leaves all four live on a create", () => {
+  it("leaves all three live on a create", () => {
     render(<IdentityFields {...props()} />);
 
-    for (const label of ["Trip", "Slug", "Headline", "Story"])
+    for (const label of ["Trip", "Slug", "Headline"])
       expect(screen.getByLabelText(label)).not.toBeDisabled();
   });
 });
@@ -145,10 +134,10 @@ describe("the identity group's one hint is reachable", () => {
     );
   });
 
-  it("gives the other three no description at all", () => {
+  it("gives the other two no description at all", () => {
     render(<IdentityFields {...props()} />);
 
-    for (const label of ["Trip", "Headline", "Story"])
+    for (const label of ["Trip", "Headline"])
       expect(screen.getByLabelText(label)).not.toHaveAttribute("aria-describedby");
   });
 });
