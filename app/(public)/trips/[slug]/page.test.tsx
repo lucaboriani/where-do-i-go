@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 /**
- * The trip page's restyle (phase 7 task 4): the trip name is a display
- * heading and the trip dates render in mono, not the plain text-2xl/text-sm
- * treatment. Calls the exported async `TripContent` directly, never
- * `<TripPage>` — see page.tsx's own comment on the export.
+ * The trip page's restyle (phase 7 task 4): TripContent owns the restyled
+ * timeline column and the footer. The trip name/dates masthead moved OUT,
+ * into the `@masthead` parallel-route slot rendered by layout.tsx above
+ * `.trip-shell` — see `@masthead/page.test.tsx` for those assertions. Calls
+ * the exported async `TripContent` directly, never `<TripPage>` — see
+ * page.tsx's own comment on the export.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { ok } from "@/lib/pod/result";
-import type { Trip, TripIndex } from "@/lib/pod/schema";
+import type { IndexEntry, Trip, TripIndex } from "@/lib/pod/schema";
 import { TripContent } from "./page";
 
 vi.mock("@/lib/pod/cached", () => ({
@@ -37,10 +39,19 @@ const aTrip = (over: Partial<Trip> = {}): Trip => ({
   ...over,
 });
 
+const anEntry = (over: Partial<IndexEntry> = {}): IndexEntry => ({
+  iri: "https://pod.example/travel/trips/2026-japan/entries.ttl#e1",
+  entryResource: "https://pod.example/travel/trips/2026-japan/e1.ttl",
+  title: { value: "First night in Shinjuku", language: "en" },
+  slug: "shinjuku",
+  sortOrder: 1,
+  ...over,
+});
+
 const anIndex = (over: Partial<TripIndex> = {}): TripIndex => ({
   iri: "https://pod.example/travel/trips/2026-japan/entries.ttl",
   schemaVersion: 2,
-  entries: [],
+  entries: [anEntry()],
   ...over,
 });
 
@@ -51,16 +62,18 @@ beforeEach(() => {
 });
 
 describe("TripContent", () => {
-  it("sets the trip name in the display cut", async () => {
+  it("no longer renders the trip name — it moved to the @masthead slot", async () => {
     render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("display");
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
-  it("renders the trip's date range in mono", async () => {
+  it("still renders the timeline", async () => {
     render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
-    // The current markup joins both dates into one text node ("start – end"),
-    // so a text match on the start date finds the whole range.
-    const dates = screen.getByText(/2026-03-28/);
-    expect(dates).toHaveClass("data-lg");
+    expect(screen.getByRole("link", { name: "First night in Shinjuku" })).toBeInTheDocument();
+  });
+
+  it("renders the site footer at the end of the column", async () => {
+    render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
+    expect(screen.getByRole("contentinfo")).toHaveClass("status-line");
   });
 });
