@@ -1,11 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The @masthead parallel-route slot (phase 7 task 4): the full-width trip
- * name/dates/description that used to live inside TripContent, now rendered
- * by app/(public)/trips/[slug]/layout.tsx above `.trip-shell`. Calls the
- * exported async `TripMasthead` directly, never `<TripMastheadPage>` — same
- * reason TripContent is exported: React's client renderer rejects an async
- * function component reached through JSX.
+ * Phase 7 task 4: `@masthead` renders the trip name/dates/description above
+ * `.trip-shell`. Calls exported `TripMasthead` directly, not
+ * `<TripMastheadPage>` — same reason as TripContent, see page.tsx.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

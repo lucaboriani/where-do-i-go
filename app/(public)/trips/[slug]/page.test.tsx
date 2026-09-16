@@ -1,11 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The trip page's restyle (phase 7 task 4): TripContent owns the restyled
- * timeline column and the footer. The trip name/dates masthead moved OUT,
- * into the `@masthead` parallel-route slot rendered by layout.tsx above
- * `.trip-shell` — see `@masthead/page.test.tsx` for those assertions. Calls
- * the exported async `TripContent` directly, never `<TripPage>` — see
- * page.tsx's own comment on the export.
+ * Phase 7 task 4: TripContent owns the timeline column and footer; the
+ * masthead moved to the `@masthead` slot — see its own page.test.tsx.
+ * Calls exported `TripContent` directly, not `<TripPage>` — see page.tsx.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
