@@ -1,5 +1,5 @@
 /**
- * The twenty values the form IS, as one `useReducer`, plus the named callbacks
+ * The nineteen values the form IS, as one `useReducer`, plus the named callbacks
  * the five field groups get instead of `dispatch`.
  * components/studio/entry-editor/state/notes.md#guard-inside-the-transition
  */
@@ -92,7 +92,7 @@ export function initialEntryFormState({ existing, tripIris }: EntryFormSeed): En
 }
 
 /** One callback per control, so a group never holds `dispatch` and cannot
- *  invent a transition. Spelled by hand: fifteen names is the interface. */
+ *  invent a transition. Spelled by hand: fourteen names is the interface. */
 export interface EntryFormSetters {
   tripIri: (value: string) => void;
   slug: (value: string) => void;
