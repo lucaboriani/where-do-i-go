@@ -8,7 +8,7 @@ import {
 import { readEntry, readTripIndex } from "@/lib/pod/read";
 import { graphEquals, triples } from "@/test/graph";
 import { server, servePod } from "@/test/msw";
-import type { Entry } from "@/lib/pod/schema";
+import type { Entry, Status } from "@/lib/pod/schema";
 import type { PodError } from "@/lib/pod/result";
 import type { Precondition } from "@/lib/pod/write";
 
@@ -213,6 +213,10 @@ type SaveEntryOptions = {
   revalidate: (tags: string[]) => void | Promise<void>;
   webId?: string;
   now?: () => string;
+  /** Task 2.2 — threaded from the trip so a publish can be refused without a
+   *  second read. OPTIONAL, defaulting to "published": every test above this
+   *  point predates the guard and passes none of it. */
+  tripStatus?: Status;
 };
 
 /**
@@ -1473,5 +1477,91 @@ describe("the §10 steps, one at a time", () => {
     expect(stamped.modified).toBe("2026-04-20T18:02:11+02:00");
     expect(stamped.created).toBe(spec.created);
     expect(spec).toEqual(before);
+  });
+});
+
+/* ==================================== Task 2.2: the trip-status guard, §5 */
+
+/** §5's "flip dy:status, relax the ACL" assumed the resource was allowed to
+ *  be public. A still-draft trip never got its container's ACL relaxed, so
+ *  an entry published underneath it is published-but-unreachable unless
+ *  this refuses before the write. */
+describe("saveEntry — the trip-status guard", () => {
+  it("refuses to publish an entry under a DRAFT trip, writing nothing at all", async () => {
+    const saveEntry = await loadSave();
+    const spec = await specEntry();
+    const pod = podFake();
+    const revalidated: string[][] = [];
+
+    const report = await saveEntry({
+      fetch: recordingFetch([]),
+      entry: naraEntry(spec), // status: "published", inherited from the §7.3 fixture
+      precondition: { create: true },
+      indexUrl: INDEX_URL,
+      tripIri: TRIP_IRI,
+      tripSlug: TRIP_SLUG,
+      revalidate: (tags) => void revalidated.push(tags),
+      tripStatus: "draft",
+      now: () => "2026-04-20T18:02:11+02:00",
+    });
+
+    // A structured refusal, not a throw and not a silent success. A dedicated
+    // kind, not "precondition" — that collides with write.ts's Precondition type.
+    expect(report.failed).toBeDefined();
+    expect(report.failed?.error.kind).toBe("tripNotPublished");
+    expect(report.completed).toEqual([]);
+
+    // Nothing reached the Pod, and no later step ran either.
+    expect(pod.puts()).toEqual([]);
+    expect(accessCalls).toEqual([]);
+    expect(revalidated).toEqual([]);
+  });
+
+  it("still publishes an entry under a PUBLISHED trip — the guard does not block the existing path", async () => {
+    const saveEntry = await loadSave();
+    const spec = await specEntry();
+    const pod = podFake();
+
+    const report = await saveEntry({
+      fetch: recordingFetch([]),
+      entry: naraEntry(spec),
+      precondition: { create: true },
+      indexUrl: INDEX_URL,
+      tripIri: TRIP_IRI,
+      tripSlug: TRIP_SLUG,
+      revalidate: () => {},
+      tripStatus: "published",
+      now: () => "2026-04-20T18:02:11+02:00",
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(report.completed).toEqual(["entry", "access", "index", "revalidate"]);
+    expect(pod.of("PUT", NARA_URL)).toHaveLength(1);
+    expect(accessCalls).toEqual([{ op: "makePublic", url: NARA_URL }]);
+  });
+
+  it("saving a DRAFT entry under a draft trip is unaffected — the guard is about publishing", async () => {
+    // The guard is "an entry may not become PUBLISHED under a draft trip", not
+    // "a draft trip accepts no writes at all" — an owner drafting entries for
+    // a not-yet-published trip is the ordinary case Stage 3's editor exists for.
+    const saveEntry = await loadSave();
+    const spec = await specEntry();
+    const pod = podFake();
+
+    const report = await saveEntry({
+      fetch: recordingFetch([]),
+      entry: { ...naraEntry(spec), status: "draft" },
+      precondition: { create: true },
+      indexUrl: INDEX_URL,
+      tripIri: TRIP_IRI,
+      tripSlug: TRIP_SLUG,
+      revalidate: () => {},
+      tripStatus: "draft",
+      now: () => "2026-04-20T18:02:11+02:00",
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(pod.of("PUT", NARA_URL)).toHaveLength(1);
+    expect(accessCalls).toEqual([{ op: "makePrivate", url: NARA_URL }]);
   });
 });

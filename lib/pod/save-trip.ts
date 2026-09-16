@@ -5,6 +5,7 @@
  * convergent ACL step, routed around `rebuildIndex`.
  */
 import { createContainer, makePublic, makePrivate, type AccessState } from "./access";
+import { addTripToDiary, removeTripFromDiary } from "./diary";
 import { computeIndexFromRows, serialiseIndex } from "./index-model";
 import { tripIndexUrl, tripUrl } from "./read";
 import { recoveryForWrite, type SaveRecovery } from "./save-entry";
@@ -204,3 +205,77 @@ export async function reconcile(opts: ReconcileOptions): Promise<Result<AccessSt
   const inherits = opts.resource.endsWith("/") ? publish : result.value.inherits;
   return ok({ ...result.value, inherits });
 }
+
+/* ------------------------------------------------------ publish / unpublish */
+
+export type PublishStep = "trip" | "acl" | "diary";
+
+export type PublishTripReport = {
+  tripUrl: string;
+  completed: PublishStep[];
+  failed?: { step: PublishStep; error: PodError };
+  recovery: string;
+  etag?: string | null;
+};
+
+export type PublishTripOptions = {
+  fetch: PodFetch;
+  trip: Trip;
+  podRoot: string;
+  /** Always required — publish/unpublish are updates to an existing trip.ttl,
+   *  never a create (§10: never a blind PUT). */
+  etag: string;
+  webId?: string;
+  now?: () => string;
+};
+
+/**
+ * §5's transaction: flip `dy:status`, reconcile the trip's CONTAINER ACL, and
+ * add/remove the diary row — all three, in order. A step that fails reports
+ * what already completed; a retry converges, since every step is idempotent.
+ */
+async function publishStatus(opts: PublishTripOptions, status: Status): Promise<PublishTripReport> {
+  const stamp = (opts.now ?? nowIso)();
+  const url = tripUrl(opts.podRoot, opts.trip.slug);
+  const completed: PublishStep[] = [];
+  const stamped: Trip = { ...opts.trip, status, modified: stamp };
+
+  const stoppedAt = (
+    step: PublishStep,
+    error: PodError,
+    recovery: string,
+    etag?: string | null,
+  ): PublishTripReport => ({ tripUrl: url, completed, failed: { step, error }, recovery, etag });
+
+  const put = await putTrip(opts.fetch, stamped, url, { etag: opts.etag });
+  if (!put.ok) return stoppedAt("trip", put.error, recoveryForWrite(put.error));
+  completed.push("trip");
+  const etag = put.value.etag;
+
+  const acl = await reconcile({
+    fetch: opts.fetch,
+    resource: tripContainerUrl(opts.podRoot, stamped.slug),
+    status,
+    webId: opts.webId,
+  });
+  if (!acl.ok) return stoppedAt("acl", acl.error, recoveryForWrite(acl.error), etag);
+  completed.push("acl");
+
+  const diary =
+    status === "published"
+      ? await addTripToDiary({
+          fetch: opts.fetch,
+          podRoot: opts.podRoot,
+          trip: { iri: stamped.iri, status },
+        })
+      : await removeTripFromDiary({ fetch: opts.fetch, podRoot: opts.podRoot, tripIri: stamped.iri });
+  // The trip and its container ACL already changed — reported, not swallowed
+  // into a bare failure (§10's partial-failure design, applied to trips).
+  if (!diary.ok) return stoppedAt("diary", diary.error, "retry", etag);
+  completed.push("diary");
+
+  return { tripUrl: url, completed, recovery: "none", etag };
+}
+
+export const publishTrip = (opts: PublishTripOptions) => publishStatus(opts, "published");
+export const unpublishTrip = (opts: PublishTripOptions) => publishStatus(opts, "draft");

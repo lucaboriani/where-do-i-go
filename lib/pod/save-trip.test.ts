@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
-import { SCHEMA_VERSION } from "@/lib/vocab";
-import { readTripIndex, tripIndexUrl, tripUrl } from "@/lib/pod/read";
+import { DY, DY_CLASS, RDF, SCHEMA_VERSION, XSD } from "@/lib/vocab";
+import { diaryUrl, readTrip, readTripIndex, tripIndexUrl, tripUrl } from "@/lib/pod/read";
+import { triples } from "@/test/graph";
 import { server, servePod } from "@/test/msw";
 import type { AccessState } from "@/lib/pod/access";
 import type { SaveRecovery } from "@/lib/pod/save-entry";
@@ -129,6 +130,33 @@ const TRIP_INDEX_URL = tripIndexUrl(POD_ROOT, SLUG);
 const WEBID = `${POD}/profile/card#me`;
 const NOW = "2026-04-20T18:02:11+02:00";
 
+/* --------------------------------------------------------- Task 2.2 fixture */
+
+/** §7.1's diary root. A second, already-published trip lives here throughout
+ *  the publish/unpublish tests below, so add/remove is provably TARGETED
+ *  rather than a rebuild from nothing. */
+const DIARY_URL = diaryUrl(POD_ROOT);
+const OTHER_TRIP_IRI = `${POD_ROOT}travel/trips/2025-patagonia/trip.ttl#it`;
+
+/** Full IRIs throughout — no `@prefix` block needed, and nothing here is a
+ *  blank node. Mirrors lib/studio/diary.test.ts's fixture of the same shape. */
+const diaryTtl = (tripIris: string[]) => `
+<#it>
+    <${RDF.type}> <${DY_CLASS.Diary}> ;
+    <${DY.schemaVersion}> "${SCHEMA_VERSION}"^^<${XSD.integer}> ;
+    ${tripIris.map((iri) => `<${DY.trip}> <${iri}>`).join(" ;\n    ")} .
+`;
+
+/** Before/after triple diff — graph isomorphism, never bytes (§11 guardrail 6). */
+function diaryDiff(beforeTtl: string, afterTtl: string) {
+  const before = triples(beforeTtl, DIARY_URL);
+  const after = triples(afterTtl, DIARY_URL);
+  return {
+    added: [...after].filter((t) => !before.has(t)),
+    removed: [...before].filter((t) => !after.has(t)),
+  };
+}
+
 /** Deliberately minimal: this file is about orchestration and preconditions,
  *  not RDF fidelity — `trip-model.test.ts` already pins `serialiseTrip`
  *  against the §7.2 fixture. The slug matches `TRIP_URL`'s container segment,
@@ -149,10 +177,23 @@ type Recorded = { method: string; url: string; headers: Record<string, string>; 
 /** `existingTrip` scripts the pre-check's HEAD: a create against a slug that
  *  already has a trip there (fix round 1 — task-1b-report.md). Absent/false
  *  is every existing test's world: nothing at that slug yet. */
-type PodScript = { failTripPut?: number; existingTrip?: boolean };
+
+/** Task 2.2 additions: `diaryTrips` seeds diary.ttl's rows for the
+ *  publish/unpublish tests; `failDiaryPutOnce` fails only the FIRST PUT to
+ *  diary.ttl, so a retry test can script "fails, then converges". */
+type PodScript = {
+  failTripPut?: number;
+  existingTrip?: boolean;
+  diaryTrips?: string[];
+  diaryEtag?: string;
+  failDiaryPutOnce?: number;
+};
 
 function podFake(script: PodScript = {}) {
   const requests: Recorded[] = [];
+  const diaryTrips = script.diaryTrips ?? [OTHER_TRIP_IRI];
+  const diaryEtag = script.diaryEtag ?? '"diary-v1"';
+  let diaryPutCalls = 0;
 
   const record = async (request: Request): Promise<Recorded> => {
     const headers: Record<string, string> = {};
@@ -179,6 +220,22 @@ function podFake(script: PodScript = {}) {
     http.put(TRIP_INDEX_URL, async ({ request }) => {
       await record(request);
       return new HttpResponse(null, { status: 205, headers: { etag: '"idx-1"' } });
+    }),
+    http.get(DIARY_URL, async ({ request }) => {
+      await record(request);
+      return HttpResponse.text(diaryTtl(diaryTrips), {
+        headers: { "content-type": "text/turtle", etag: diaryEtag },
+      });
+    }),
+    http.put(DIARY_URL, async ({ request }) => {
+      await record(request);
+      diaryPutCalls += 1;
+      if (script.failDiaryPutOnce && diaryPutCalls === 1) {
+        return new HttpResponse("conflict or precondition failed", {
+          status: script.failDiaryPutOnce,
+        });
+      }
+      return new HttpResponse(null, { status: 205, headers: { etag: '"diary-v2"' } });
     }),
   );
 
@@ -224,6 +281,55 @@ const loadReconcile = async () =>
   (await import("@/lib/pod/save-trip")).reconcile as (
     opts: ReconcileOptions,
   ) => Promise<Result<AccessState>>;
+
+/* --------------------------------------------------- Task 2.2 loaders/types */
+
+/**
+ * `publishTrip`/`unpublishTrip` DO NOT EXIST YET — Task 2.2's red step.
+ * task-2-brief.md sketches the three effects in prose, not a shape; the
+ * types below are what this file pins the implementer to instead.
+ */
+
+/** Three steps, named `"trip" | "acl" | "diary"`, run in that order: PUT
+ *  trip.ttl with dy:status flipped (If-Match); the trip's CONTAINER (not the
+ *  document — §5's default is what governs trip.ttl/entries.ttl) through
+ *  `reconcile`; the diary row added or removed. */
+type PublishStep = "trip" | "acl" | "diary";
+
+/** Mirrors `SaveTripReport`'s shape. `recovery` is typed as a bare `string`
+ *  rather than one literal: the only behaviour pinned here is that a PARTIAL
+ *  success reports something other than `"none"` — the exact vocabulary
+ *  (reusing `"retry"`, or a new `"reconcile"`) is the implementer's call. */
+type PublishTripReport = {
+  tripUrl: string;
+  completed: PublishStep[];
+  failed?: { step: PublishStep; error: PodError };
+  recovery: string;
+  etag?: string | null;
+};
+
+/** One options object, `{ fetch, trip, podRoot, etag, webId?, now? }`.
+ *  `etag` is REQUIRED, unlike `saveTrip`'s optional one — publish/unpublish
+ *  are always updates to an existing trip.ttl, never a create. */
+type PublishTripOptions = {
+  fetch: PodFetch;
+  trip: Trip;
+  podRoot: string;
+  /** From the read that produced the edited state — never a blind PUT (§10).
+   *  Always required: publish/unpublish never create a trip. */
+  etag: string;
+  webId?: string;
+  now?: () => string;
+};
+
+const loadPublish = async () =>
+  (await import("@/lib/pod/save-trip")).publishTrip as (
+    opts: PublishTripOptions,
+  ) => Promise<PublishTripReport>;
+const loadUnpublish = async () =>
+  (await import("@/lib/pod/save-trip")).unpublishTrip as (
+    opts: PublishTripOptions,
+  ) => Promise<PublishTripReport>;
 
 /* ============================================================== saveTrip */
 
@@ -437,5 +543,148 @@ describe("reconcile — convergent ACL, routed around rebuildIndex", () => {
     await reconcile({ fetch: recordingFetch([]), resource: TRIP_CONTAINER, status: "draft", webId: WEBID });
 
     expect(accessCalls).toEqual([{ op: "makePrivate", url: TRIP_CONTAINER }]);
+  });
+});
+
+/* ======================================================= Task 2.2: publish */
+
+describe("publishTrip — status, container ACL, and the diary row are one transaction", () => {
+  it("flips dy:status to Published, makes the container public-read, AND adds the diary row", async () => {
+    const publishTrip = await loadPublish();
+    const pod = podFake({ diaryTrips: [OTHER_TRIP_IRI] });
+
+    const report = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(report.completed).toEqual(["trip", "acl", "diary"]);
+
+    /* 1. the status flip, over If-Match — never a blind PUT (§10). */
+    const tripPut = pod.of("PUT", TRIP_URL)[0];
+    expect(tripPut).toBeDefined();
+    expect(tripPut.headers["if-match"]).toBe('"trip-v3"');
+    servePod({ [TRIP_URL]: tripPut.body });
+    const backTrip = await readTrip(TRIP_URL);
+    expect(backTrip.ok).toBe(true);
+    if (backTrip.ok) expect(backTrip.value.status).toBe("published");
+
+    /* 2. the CONTAINER's ACL — §5: the container default is what actually
+       governs trip.ttl/entries.ttl, so this is the resource that must flip,
+       not the document. Through lib/pod/access.ts and nowhere else. */
+    expect(accessCalls).toEqual(
+      expect.arrayContaining([{ op: "makePublic", url: TRIP_CONTAINER }]),
+    );
+
+    /* 3. the diary row. */
+    const diaryPut = pod.of("PUT", DIARY_URL)[0];
+    expect(diaryPut).toBeDefined();
+    expect(diaryPut.headers["if-match"]).toBe('"diary-v1"');
+    const diff = diaryDiff(diaryTtl([OTHER_TRIP_IRI]), diaryPut.body);
+    expect(diff.removed).toEqual([]);
+    expect(diff.added).toHaveLength(1);
+    expect(diff.added[0]).toContain(DY.trip);
+    expect(diff.added[0]).toContain(`${TRIP_URL}#it`);
+  });
+});
+
+/* ===================================================== Task 2.2: unpublish */
+
+describe("unpublishTrip — status, container ACL, and the diary row, THE CRITICAL CASE", () => {
+  it("flips dy:status to Draft, makes the container owner-only, AND removes the diary row", async () => {
+    /** Finding #2: a status change not paired with the container-ACL
+     *  reconcile leaves bytes public after the owner believes the trip is
+     *  private again — this fails if EITHER the ACL flip or the diary
+     *  removal is missing. */
+    const unpublishTrip = await loadUnpublish();
+    const pod = podFake({ diaryTrips: [`${TRIP_URL}#it`, OTHER_TRIP_IRI] });
+
+    const report = await unpublishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v4"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(report.completed).toEqual(["trip", "acl", "diary"]);
+
+    /* 1. the status flip. */
+    const tripPut = pod.of("PUT", TRIP_URL)[0];
+    expect(tripPut).toBeDefined();
+    expect(tripPut.headers["if-match"]).toBe('"trip-v4"');
+    servePod({ [TRIP_URL]: tripPut.body });
+    const backTrip = await readTrip(TRIP_URL);
+    expect(backTrip.ok).toBe(true);
+    if (backTrip.ok) expect(backTrip.value.status).toBe("draft");
+
+    /* 2. THE CONTAINER ACL — the assertion this whole test exists for. */
+    expect(accessCalls).toEqual(
+      expect.arrayContaining([{ op: "makePrivate", url: TRIP_CONTAINER }]),
+    );
+
+    /* 3. the diary row, removed — and the OTHER trip's row is untouched. */
+    const diaryPut = pod.of("PUT", DIARY_URL)[0];
+    expect(diaryPut).toBeDefined();
+    const diff = diaryDiff(diaryTtl([`${TRIP_URL}#it`, OTHER_TRIP_IRI]), diaryPut.body);
+    expect(diff.added).toEqual([]);
+    expect(diff.removed).toHaveLength(1);
+    expect(diff.removed[0]).toContain(DY.trip);
+    expect(diff.removed[0]).toContain(`${TRIP_URL}#it`);
+    expect(diaryPut.body).toContain(OTHER_TRIP_IRI);
+  });
+});
+
+/* ============================================ Task 2.2: partial-failure mode */
+
+describe("publishTrip — the partial-failure mode §10 designs for, applied to trips", () => {
+  it("a diary write that fails AFTER the ACL flip reports the partial state, and a retry converges", async () => {
+    const publishTrip = await loadPublish();
+    const pod = podFake({ diaryTrips: [OTHER_TRIP_IRI], failDiaryPutOnce: 412 });
+
+    const first = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    // The trip and its container ACL are BOTH already changed — this is not
+    // "nothing happened", and the report must say so rather than collapsing
+    // into a bare failure.
+    expect(first.completed).toEqual(["trip", "acl"]);
+    expect(first.failed?.step).toBe("diary");
+    expect(first.failed?.error).toEqual({ kind: "http", url: DIARY_URL, status: 412 });
+    // Some repair is owed — the one property this file pins on the recovery
+    // value; see the interface note above loadPublish for why the literal
+    // itself is left to the implementer.
+    expect(first.recovery).not.toBe("none");
+    expect(pod.of("PUT", DIARY_URL)).toHaveLength(1);
+
+    // A retry: the trip is already published and its container already public
+    // (both idempotent to repeat), and this time the diary write goes
+    // through — the whole operation converges to "trip.ttl says Published,
+    // the container is public, and the diary lists it".
+    const retry = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"),
+      podRoot: POD_ROOT,
+      etag: first.etag ?? '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(retry.failed).toBeUndefined();
+    expect(retry.completed).toEqual(["trip", "acl", "diary"]);
+    expect(pod.of("PUT", DIARY_URL)).toHaveLength(2);
   });
 });

@@ -21,7 +21,7 @@ import { err, ok, type PodError, type Result } from "./result";
 import { TAGS } from "./tags";
 import { putGuarded, type Precondition } from "./write";
 import type { PodFetch } from "./rdf";
-import type { Entry } from "./schema";
+import type { Entry, Status } from "./schema";
 
 /* --------------------------------------------------------------------- types */
 
@@ -70,6 +70,11 @@ export type SaveEntryOptions = {
    *  keep in an ACL — never to decide authorisation, which is the Pod's job. */
   webId?: string;
   now?: () => string;
+  /** §5's guard: a still-draft trip never had its container ACL relaxed, so an
+   *  entry publishing under it would be published-but-unreachable. Optional,
+   *  defaulting to today's behaviour — every caller above this point passes
+   *  none of it. */
+  tripStatus?: Status;
 };
 
 /* ------------------------------------------------------------------- helpers */
@@ -221,6 +226,13 @@ export async function saveEntry(opts: SaveEntryOptions): Promise<SaveEntryReport
     recovery: SaveRecovery,
     etag?: string | null,
   ): SaveEntryReport => ({ entryUrl, completed, failed: { step, error }, recovery, etag });
+
+  /* -- the §5 guard: no publishing under a still-draft trip ------------------ */
+
+  if (stamped.status === "published" && opts.tripStatus === "draft") {
+    const error = { kind: "tripNotPublished", url: entryUrl, tripSlug: opts.tripSlug } as const;
+    return stoppedAt("entry", error, recoveryForWrite(error));
+  }
 
   /* -- step 1: the entry ---------------------------------------------------- */
 

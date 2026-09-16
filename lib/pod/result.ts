@@ -19,6 +19,9 @@ export type PodError =
       expected: string;
     }
   | { kind: "slugMismatch"; url: string; slug: string; segment: string }
+  /** §5: an entry may not be published under a still-draft trip — its
+   *  container ACL was never relaxed, so a published row would be unreachable. */
+  | { kind: "tripNotPublished"; url: string; tripSlug: string }
   /**
    * Access control was written, or read, and the result could not be confirmed.
    * Distinct from `http` on purpose: A 2XX PROVES THE WRITE, NOT THE RULE.
@@ -48,6 +51,8 @@ export function describe(error: PodError): string {
       return `${error.url}: ${error.predicate} has datatype ${error.found ?? "(none)"}, expected ${error.expected}`;
     case "slugMismatch":
       return `${error.url}: dy:slug "${error.slug}" does not match container segment "${error.segment}"`;
+    case "tripNotPublished":
+      return `${error.url}: cannot publish an entry while trip "${error.tripSlug}" is still a draft`;
     case "accessUnverified":
       return `could not verify access on ${error.url}: expected ${error.expected}, found ${error.found}`;
   }
