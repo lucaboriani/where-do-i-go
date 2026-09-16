@@ -1948,11 +1948,15 @@ it.
       all cut over. A ≥1-non-empty-section pre-flight was added. The photo GPS/EXIF-time still fills the
       single entry-level coordinate/timestamp (unchanged). All gates green; `size:public` unchanged;
       e2e 23/23. **Legacy `Entry.articleBody`/`photos` kept but UNWRITTEN — Stage 3b removes them.**
-- [ ] **Stage 3b — remove the legacy fields.** Drop `articleBody`/`photos` from the `Entry` Zod schema,
-      `lib/pod/read.ts` (stop parsing them), `lib/pod/entry-model.ts` (stop serialising the top-level
-      `schema:articleBody`/`schema:image`), and update the read/serialise/save tests + guardrails. Before
-      starting, confirm no local pre-sections (legacy) entry matters — editing one today already drops
-      its prose (migration was out of scope; fixtures are already sectioned; no live Pod). Needs a plan.
+- [x] **Stage 3b — remove the legacy fields** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3b-remove-legacy-fields.md`,
+      2 tasks, commit `bc5971d`). Dropped `articleBody` + entry-level `photos` from the `Entry` schema,
+      `readEntry` (stops parsing them), and the serialiser (deleted the dead `photoQuads`, repointed
+      `imageObjectQuads` at `Section["photos"]`); kept `photosOf`/`SCHEMA.image` (sections use them) and
+      `SCHEMA.articleBody` (regression assertions). Full DoD green: `npm test` 1866, integration 36/36,
+      build, `size:public` 182.5 kB (unchanged), e2e 23/23. **The sectioned-entry feature is now complete
+      end to end (data layer → public page → studio editor → legacy removal).** Deferred: `data-model.md`
+      §8's JSON-LD table still maps `schema:articleBody` for a not-yet-built serialiser (one-line edit when
+      that lands).
 - [ ] **Future (not Stage 3) — a studio EDIT surface.** The running studio can only CREATE: `studio-shell`
       always mounts `EntryEditor` with no `initial`, and there is no entries list / `/studio/entries/[id]`
       route. The edit-with-sections path is component-tested but unreachable in the app. Pre-existing,
