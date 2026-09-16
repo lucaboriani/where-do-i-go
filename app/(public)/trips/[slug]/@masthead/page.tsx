@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getTrip } from "@/lib/pod/cached";
 
 // Exported for page.test.tsx: React's client renderer rejects an async
@@ -31,6 +32,13 @@ export async function TripMasthead({ params }: { params: Promise<{ slug: string 
   );
 }
 
+// The Suspense boundary sits in the segment, not just the layout: instant
+// validation checks this slot's own shell, and params/getTrip must stream
+// behind a boundary here. ../notes.md#why-the-masthead-slot-mirrors-the-entry-route
 export default function MastheadPage(props: { params: Promise<{ slug: string }> }) {
-  return <TripMasthead params={props.params} />;
+  return (
+    <Suspense fallback={null}>
+      <TripMasthead params={props.params} />
+    </Suspense>
+  );
 }

@@ -26,20 +26,55 @@ The layout does not await `params` on its shell path, for the reason
 static shell, which is what makes a navigation feel slow. The frame is reserved
 synchronously and the index read happens inside `<Suspense>`.
 
-## Why the masthead catch-all needs instant false
+## Why the masthead slot mirrors the entry route
 
-`@masthead/default.tsx` only covers a hard reload — the bundled parallel-routes
-guide's own modal example needed a catch-all to null a slot on client-side
-`<Link>` navigation too, because `default.tsx` is a load-time fallback, not a
-per-navigation one. But this catch-all matches no real params, so Next tries
-to prerender its OWN static fallback shell, and that render passes through the
-`[slug]` layout, which puts `TripHighlightProvider` (a Client Component
-calling `useSelectedLayoutSegment()`) outside any `<Suspense>` — a hard build
-failure under Cache Components' static-shell validation, not a warning.
-Wrapping `TripHighlightProvider` itself in `<Suspense>` would touch a shared
-component every real route already builds fine with; `instant = false` scopes
-the exemption to the one leaf that is never real content.
-`node_modules/next/dist/docs/.../route-segment-config/instant.md#disabling-static-shell-validation`.
+`@masthead/default.tsx` only covers a hard reload. On a client-side `<Link>`
+nav the slot needs a *matching* subpage, or Next keeps the slot's previously
+active subpage — its documented behaviour: "changing the subpage within the
+slot, while maintaining the other slot's active subpages, even if they don't
+match the current URL"
+(`node_modules/next/dist/docs/.../file-conventions/parallel-routes.md`). So a
+trip → entry soft nav that finds no `@masthead` match for `[entry]` leaves the
+trip banner mounted.
+
+The bundled parallel-routes guide reaches for a `[...catchAll]` to null a slot
+on soft nav (its modal example). That does **not** work here: measured on
+2026-09-16, a soft nav to `[slug]/[entry]` never resolved the catch-all —
+Next kept `@masthead/page.tsx` (the index banner) active and, because that
+page reads URL data (`params`, `getTrip`) while wrongly pulled into the entry
+route's tree, threw `instant-shell-url-data` at `TripMasthead`. The catch-all
+is a different segment *shape* than the real `[entry]` route, and the router's
+soft-nav tree diff would not match it.
+
+The fix is an explicit `@masthead/[entry]/page.tsx` returning `null` that
+mirrors the real `[slug]/[entry]` route segment one-for-one. An exact match
+resolves on soft nav where the catch-all did not, so the *current* route's
+masthead slot renders nothing on the entry route. Because the leaf matches the
+same concrete params the children route prerenders (no unknown-param fallback
+shell), it needs no `instant = false`: the static-shell validation the catch-all
+tripped never fires. `[entry]` is the only real route deeper than the index, so
+it supersedes the catch-all entirely; the catch-all was removed.
+
+The `instant-shell-url-data` error is separate, and `instant = false` on the
+leaf did **not** silence it (measured 2026-09-16). The masthead reads URL data
+(`params` → `getTrip`); Cache Components validates that access per *segment*, and
+the layout's `<Suspense>` around `{masthead}` does not count as this segment's
+own boundary. `@masthead/page.tsx` therefore wraps `TripMasthead` in its own
+`<Suspense fallback={null}>`, co-located with the read — the doc's first
+suggested fix (`.../route-segment-config/instant.md`), and it clears the error.
+
+### Why the e2e filters by visibility, and the banner can never reach count 0
+
+The explicit `[entry]` slot stops a *visible* banner on the entry route, but the
+previous route's masthead stays in the DOM, hidden with `display:none`. That is
+not the slot: it is Cache Components preserving up to 3 routes with React
+`<Activity>` for instant back-nav and state (the old timeline `<main>` lingers
+the same way). `node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md`
+— its "Testing" section is written for exactly this trap: a raw `.masthead`
+locator matches hidden `<Activity>` content, so `e2e/trip-masthead.spec.ts`
+asserts the banner is not *visible* (`.filter({ visible: true })`), not absent.
+A raw count is never 0 after a soft nav; no slot config changes that, because it
+is a router-cache property, not a routing one.
 
 ## The Suspense-child test, and what it does and does not prove
 
