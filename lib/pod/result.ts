@@ -19,8 +19,8 @@ export type PodError =
       expected: string;
     }
   | { kind: "slugMismatch"; url: string; slug: string; segment: string }
-  /** §5: an entry may not be published under a still-draft trip — its
-   *  container ACL was never relaxed, so a published row would be unreachable. */
+  /** §5: an entry may not be published under a still-draft trip — its own ACL
+   *  would make it directly readable (§20) even while the trip stays private. */
   | { kind: "tripNotPublished"; url: string; tripSlug: string }
   /**
    * Access control was written, or read, and the result could not be confirmed.

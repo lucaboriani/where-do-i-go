@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { DY, DY_CLASS, RDF, SCHEMA_VERSION, XSD } from "@/lib/vocab";
+import { computeIndexFromRows, serialiseIndex } from "@/lib/pod/index-model";
 import { diaryUrl, readTrip, readTripIndex, tripIndexUrl, tripUrl } from "@/lib/pod/read";
 import { triples } from "@/test/graph";
 import { server, servePod } from "@/test/msw";
@@ -138,6 +139,22 @@ const NOW = "2026-04-20T18:02:11+02:00";
 const DIARY_URL = diaryUrl(POD_ROOT);
 const OTHER_TRIP_IRI = `${POD_ROOT}travel/trips/2025-patagonia/trip.ttl#it`;
 
+/** Fix round 1 (finding C1): entry documents this trip's entries.ttl lists,
+ *  for the ACL-reconciliation tests below. */
+const ENTRY_ONE_URL = `${ENTRIES_CONTAINER}2026-03-29-arrival.ttl`;
+const ENTRY_TWO_URL = `${ENTRIES_CONTAINER}2026-03-31-nara.ttl`;
+
+/** entries.ttl for a given row set, through the real (pure) serialiser rather
+ *  than hand-written Turtle — so a shape drift in the index model fails here
+ *  too, not just in index-model.test.ts. */
+const indexTtl = (rows: { entryResource: string; slug: string }[]) =>
+  serialiseIndex(
+    TRIP_INDEX_URL,
+    `${TRIP_URL}#it`,
+    computeIndexFromRows(rows.map((r) => ({ ...r, title: { value: r.slug, language: "en" } }))),
+    NOW,
+  );
+
 /** Full IRIs throughout — no `@prefix` block needed, and nothing here is a
  *  blank node. Mirrors lib/studio/diary.test.ts's fixture of the same shape. */
 const diaryTtl = (tripIris: string[]) => `
@@ -187,12 +204,17 @@ type PodScript = {
   diaryTrips?: string[];
   diaryEtag?: string;
   failDiaryPutOnce?: number;
+  /** Fix round 1 (finding C1): entries.ttl's rows, for the per-entry ACL
+   *  reconciliation tests. Defaults to none, so every test predating this fix
+   *  reads an empty index and reconciles nothing extra. */
+  entries?: { entryResource: string; slug: string }[];
 };
 
 function podFake(script: PodScript = {}) {
   const requests: Recorded[] = [];
   const diaryTrips = script.diaryTrips ?? [OTHER_TRIP_IRI];
   const diaryEtag = script.diaryEtag ?? '"diary-v1"';
+  const entries = script.entries ?? [];
   let diaryPutCalls = 0;
 
   const record = async (request: Request): Promise<Recorded> => {
@@ -220,6 +242,12 @@ function podFake(script: PodScript = {}) {
     http.put(TRIP_INDEX_URL, async ({ request }) => {
       await record(request);
       return new HttpResponse(null, { status: 205, headers: { etag: '"idx-1"' } });
+    }),
+    http.get(TRIP_INDEX_URL, async ({ request }) => {
+      await record(request);
+      return HttpResponse.text(await indexTtl(entries), {
+        headers: { "content-type": "text/turtle", etag: '"idx-1"' },
+      });
     }),
     http.get(DIARY_URL, async ({ request }) => {
       await record(request);
@@ -686,5 +714,75 @@ describe("publishTrip — the partial-failure mode §10 designs for, applied to 
     expect(retry.failed).toBeUndefined();
     expect(retry.completed).toEqual(["trip", "acl", "diary"]);
     expect(pod.of("PUT", DIARY_URL)).toHaveLength(2);
+  });
+});
+
+/* ==================================== Fix round 1 (finding C1): §20's ACL */
+
+/**
+ * A per-resource ACL OVERRIDES the container default (decision 20), so
+ * flipping the trip's CONTAINER alone leaves each entry's OWN public-read ACL
+ * intact — a bytes leak the strict/guarded requirement forbids. entries.ttl
+ * itself is never rewritten; only the listed entries' ACLs are reconciled.
+ */
+describe("unpublishTrip — also reconciles each indexed entry's own ACL (§20)", () => {
+  it("calls makePrivate for every entry entries.ttl lists, not just the container", async () => {
+    const unpublishTrip = await loadUnpublish();
+    const pod = podFake({
+      diaryTrips: [`${TRIP_URL}#it`, OTHER_TRIP_IRI],
+      entries: [
+        { entryResource: `${ENTRY_ONE_URL}#it`, slug: "2026-03-29-arrival" },
+        { entryResource: `${ENTRY_TWO_URL}#it`, slug: "2026-03-31-nara" },
+      ],
+    });
+
+    const report = await unpublishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v4"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(accessCalls).toEqual(
+      expect.arrayContaining([
+        { op: "makePrivate", url: TRIP_CONTAINER },
+        { op: "makePrivate", url: ENTRY_ONE_URL },
+        { op: "makePrivate", url: ENTRY_TWO_URL },
+      ]),
+    );
+
+    // entries.ttl itself is untouched — only the ACLs move, so a republish
+    // finds the same rows and can restore the same set.
+    expect(pod.of("PUT", TRIP_INDEX_URL)).toEqual([]);
+  });
+});
+
+describe("publishTrip — also restores each indexed entry's own ACL (§20)", () => {
+  it("calls makePublic for the entry entries.ttl already lists, restoring it", async () => {
+    const publishTrip = await loadPublish();
+    podFake({
+      diaryTrips: [OTHER_TRIP_IRI],
+      entries: [{ entryResource: `${ENTRY_ONE_URL}#it`, slug: "2026-03-29-arrival" }],
+    });
+
+    const report = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(accessCalls).toEqual(
+      expect.arrayContaining([
+        { op: "makePublic", url: TRIP_CONTAINER },
+        { op: "makePublic", url: ENTRY_ONE_URL },
+      ]),
+    );
   });
 });

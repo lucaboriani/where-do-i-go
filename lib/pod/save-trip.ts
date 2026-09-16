@@ -6,8 +6,9 @@
  */
 import { createContainer, makePublic, makePrivate, type AccessState } from "./access";
 import { addTripToDiary, removeTripFromDiary } from "./diary";
+import { documentUrlOf } from "./entry-model";
 import { computeIndexFromRows, serialiseIndex } from "./index-model";
-import { tripIndexUrl, tripUrl } from "./read";
+import { readTripIndex, tripIndexUrl, tripUrl } from "./read";
 import { recoveryForWrite, type SaveRecovery } from "./save-entry";
 import { serialiseTrip } from "./trip-model";
 import { putGuarded, type Precondition } from "./write";
@@ -230,6 +231,28 @@ export type PublishTripOptions = {
 };
 
 /**
+ * A per-resource ACL OVERRIDES the container default (§20), so flipping the
+ * container alone leaves each entry's own public-read ACL exactly as it was —
+ * a bytes leak. Reads entries.ttl, never writes it: only the listed entries'
+ * OWN ACLs are reconciled, so a later republish restores the same set.
+ */
+async function reconcileIndexedEntries(
+  opts: PublishTripOptions,
+  status: Status,
+): Promise<Result<null>> {
+  const index = await readTripIndex(tripIndexUrl(opts.podRoot, opts.trip.slug), { fetch: opts.fetch });
+  if (!index.ok) return index;
+
+  const accessOptions = { fetch: opts.fetch, webId: opts.webId };
+  const setAccess = status === "published" ? makePublic : makePrivate;
+  for (const row of index.value.entries) {
+    const result = await setAccess(documentUrlOf(row.entryResource), accessOptions);
+    if (!result.ok) return result;
+  }
+  return ok(null);
+}
+
+/**
  * §5's transaction: flip `dy:status`, reconcile the trip's CONTAINER ACL, and
  * add/remove the diary row — all three, in order. A step that fails reports
  * what already completed; a retry converges, since every step is idempotent.
@@ -259,6 +282,9 @@ async function publishStatus(opts: PublishTripOptions, status: Status): Promise<
     webId: opts.webId,
   });
   if (!acl.ok) return stoppedAt("acl", acl.error, recoveryForWrite(acl.error), etag);
+
+  const entries = await reconcileIndexedEntries(opts, status);
+  if (!entries.ok) return stoppedAt("acl", entries.error, recoveryForWrite(entries.error), etag);
   completed.push("acl");
 
   const diary =

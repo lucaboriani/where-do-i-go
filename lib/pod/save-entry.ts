@@ -70,10 +70,10 @@ export type SaveEntryOptions = {
    *  keep in an ACL — never to decide authorisation, which is the Pod's job. */
   webId?: string;
   now?: () => string;
-  /** §5's guard: a still-draft trip never had its container ACL relaxed, so an
-   *  entry publishing under it would be published-but-unreachable. Optional,
-   *  defaulting to today's behaviour — every caller above this point passes
-   *  none of it. */
+  /** §5's guard: an entry's OWN ACL overrides the trip container's default
+   *  (§20), so publishing one under a draft trip would leak it directly even
+   *  though the trip and its index stay private. Optional, defaulting to
+   *  today's behaviour — every caller above this point passes none of it. */
   tripStatus?: Status;
 };
 
