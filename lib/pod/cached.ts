@@ -98,9 +98,9 @@ export async function publishedTripSlugs(): Promise<Result<string[]>> {
     .map((iri) => iri.match(/trips\/([^/]+)\//)?.[1])
     .filter((s): s is string => Boolean(s));
 
-  // diary.ttl lists every trip, draft or not — unlike entries, there is no
-  // index acting as a publication boundary for trips. So filter here, or a
-  // draft is linked from the home page and advertised in the sitemap and feed.
+  // diary.ttl is already published-only (§7.1: publishTrip/unpublishTrip own
+  // the row, saveTrip never touches it) — this status check is defense in
+  // depth against a row that predates that boundary or was edited by hand.
   const checked = await Promise.all(
     candidates.map(async (slug) => [slug, await getTrip(slug)] as const),
   );

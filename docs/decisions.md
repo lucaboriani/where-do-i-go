@@ -767,3 +767,24 @@ removed. Overrides spec §10 as written.
 
 26px has no Tailwind step and arbitrary className values are banned, so the size and halo are a
 named CSS class, consistent with the sheet geometry (§26).
+
+---
+
+## 37. The trip publication boundary: `diary.ttl` published-only, strict/guarded, bootstrap writes no `privacy.ttl`
+
+`diary.ttl`'s `dy:trip` rows belong entirely to `publishTrip`/`unpublishTrip` (§7.1); `saveTrip`'s
+own create/update never adds or removes one, so a draft trip is never listed there — the same
+publication-boundary role `entries.ttl` plays for entries, one level up.
+
+Publish/unpublish are strict/guarded: a trip's `dy:status` and its CONTAINER ACL change together,
+and — per decision 20's per-resource-overrides-container finding — every entry `entries.ttl`
+already lists has its OWN ACL reconciled too, or a previously published entry stays public after
+its trip returns to draft. `reconcile` is convergent: it calls `makePublic`/`makePrivate`
+unconditionally from the target status, without reading the current ACL first, which is what
+lets a partial failure be repaired by calling the same operation again — routed around
+`rebuildIndex` (§10's own recovery step), which is for entries, not trips.
+
+`ensurePodInitialised` creates `/travel/settings/` owner-only and writes no document into it — no
+`privacy.ttl`. Per §9's fail-closed ruling, defaulting a home region or precision would be a
+choice made on the owner's behalf where every option is wrong; a coordinate-bearing entry on a
+fresh Pod is written with no coordinate until the owner authors `privacy.ttl` deliberately.

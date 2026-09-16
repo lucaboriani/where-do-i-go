@@ -11,6 +11,7 @@ import { computeIndexFromRows, serialiseIndex } from "./index-model";
 import { readTripIndex, tripIndexUrl, tripUrl } from "./read";
 import { recoveryForWrite, type SaveRecovery } from "./save-entry";
 import { serialiseTrip } from "./trip-model";
+import { TAGS } from "./tags";
 import { putGuarded, type Precondition } from "./write";
 import { err, ok, type PodError, type Result } from "./result";
 import type { PodFetch } from "./rdf";
@@ -39,6 +40,10 @@ export type SaveTripOptions = {
   etag?: string;
   webId?: string;
   now?: () => string;
+  /** Step 4 on the edit path only (a create adds no diary row to invalidate).
+   *  Optional so every caller predating Task 2.3 keeps compiling; absent means
+   *  skip, exactly like `runRevalidation`'s hook in save-entry.ts. */
+  revalidate?: (tags: string[]) => void | Promise<void>;
 };
 
 export type ReconcileOptions = {
@@ -159,7 +164,17 @@ export async function saveTrip(opts: SaveTripOptions): Promise<SaveTripReport> {
 
   // An update stops here: entries.ttl and entries/ already exist, and
   // rewriting either on every edit is exactly the blind overwrite §10 bans.
-  if (!creating) return { tripUrl: url, completed, recovery: "none", etag };
+  if (!creating) {
+    if (opts.revalidate) {
+      await runTripRevalidation({
+        revalidate: opts.revalidate,
+        kind: "edit",
+        tripSlug: stamped.slug,
+        tripUrl: url,
+      });
+    }
+    return { tripUrl: url, completed, recovery: "none", etag };
+  }
 
   /* -- step "index": an empty entries.ttl, create-only ------------------------ */
 
@@ -228,6 +243,9 @@ export type PublishTripOptions = {
   etag: string;
   webId?: string;
   now?: () => string;
+  /** Step 4: the diary row just changed, so this fires on full success only —
+   *  optional, and skipped when absent, exactly like `SaveTripOptions`. */
+  revalidate?: (tags: string[]) => void | Promise<void>;
 };
 
 /**
@@ -300,8 +318,47 @@ async function publishStatus(opts: PublishTripOptions, status: Status): Promise<
   if (!diary.ok) return stoppedAt("diary", diary.error, "retry", etag);
   completed.push("diary");
 
+  if (opts.revalidate) {
+    await runTripRevalidation({
+      revalidate: opts.revalidate,
+      kind: status === "published" ? "publish" : "unpublish",
+      tripSlug: stamped.slug,
+      tripUrl: url,
+    });
+  }
+
   return { tripUrl: url, completed, recovery: "none", etag };
 }
 
 export const publishTrip = (opts: PublishTripOptions) => publishStatus(opts, "published");
 export const unpublishTrip = (opts: PublishTripOptions) => publishStatus(opts, "draft");
+
+/* ------------------------------------------------------------- revalidation */
+
+export type TripRevalidationKind = "publish" | "unpublish" | "edit";
+
+export type RunTripRevalidationOptions = {
+  revalidate: (tags: string[]) => void | Promise<void>;
+  kind: TripRevalidationKind;
+  tripSlug: string;
+  tripUrl: string;
+};
+
+/**
+ * Step 4 for trips, mirroring `runRevalidation` in save-entry.ts: publish and
+ * unpublish both change the diary's OWN list, so `TAGS.diary`; a plain edit
+ * changes only this trip's own resource, so `TAGS.trip(slug)` alone — stamping
+ * the diary on every edit would drop every trip's cache on every unrelated save.
+ */
+export async function runTripRevalidation(
+  opts: RunTripRevalidationOptions,
+): Promise<Result<null>> {
+  const tags = opts.kind === "edit" ? [TAGS.trip(opts.tripSlug)] : [TAGS.diary];
+  try {
+    await opts.revalidate(tags);
+    return ok(null);
+  } catch (cause) {
+    const message = `revalidation hook failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+    return err({ kind: "network", url: opts.tripUrl, message });
+  }
+}

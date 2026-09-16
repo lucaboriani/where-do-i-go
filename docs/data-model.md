@@ -426,6 +426,11 @@ The trip list powers the home page and the all-trips globe. Denormalising each t
 cover image into this resource is tempting; resist until the trip count makes N+1 fetches
 actually hurt, because it is another index to keep in sync.
 
+**Published-only.** A `dy:trip` row is added by `publishTrip` and removed by `unpublishTrip`
+alone — `saveTrip`'s own create/update never touches this resource. A draft trip is therefore
+never listed here, making `diary.ttl` the trip-level publication boundary, the same role
+`entries.ttl` plays for entries ("The index is the publication boundary", above).
+
 ### 7.2 Trip — `/travel/trips/2026-japan/trip.ttl`
 
 ```turtle

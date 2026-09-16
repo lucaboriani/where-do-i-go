@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { DY, DY_CLASS, RDF, SCHEMA_VERSION, XSD } from "@/lib/vocab";
 import { computeIndexFromRows, serialiseIndex } from "@/lib/pod/index-model";
 import { diaryUrl, readTrip, readTripIndex, tripIndexUrl, tripUrl } from "@/lib/pod/read";
+import { TAGS } from "@/lib/pod/tags";
 import { triples } from "@/test/graph";
 import { server, servePod } from "@/test/msw";
 import type { AccessState } from "@/lib/pod/access";
@@ -299,6 +300,7 @@ type SaveTripOptions = {
   etag?: string;
   webId?: string;
   now?: () => string;
+  revalidate?: (tags: string[]) => void | Promise<void>;
 };
 
 const loadSave = async () =>
@@ -348,6 +350,7 @@ type PublishTripOptions = {
   etag: string;
   webId?: string;
   now?: () => string;
+  revalidate?: (tags: string[]) => void | Promise<void>;
 };
 
 const loadPublish = async () =>
@@ -358,6 +361,26 @@ const loadUnpublish = async () =>
   (await import("@/lib/pod/save-trip")).unpublishTrip as (
     opts: PublishTripOptions,
   ) => Promise<PublishTripReport>;
+
+/* ------------------------------------------------------- Task 2.3 loader */
+
+/** `runTripRevalidation` DOES NOT EXIST YET — Task 2.3's red step. Pinned as
+ *  ONE options object (this codebase's `saveEntry(opts)` convention),
+ *  mirroring `runRevalidation(opts, entry, entryUrl)`: `kind` is the one input
+ *  `publishStatus` has (publish/unpublish/edit); `tripUrl` only feeds the
+ *  network-error's `url` field, unasserted on the happy path. */
+type TripRevalidationKind = "publish" | "unpublish" | "edit";
+type RunTripRevalidationOptions = {
+  revalidate: (tags: string[]) => void | Promise<void>;
+  kind: TripRevalidationKind;
+  tripSlug: string;
+  tripUrl: string;
+};
+
+const loadRunTripRevalidation = async () =>
+  (await import("@/lib/pod/save-trip")).runTripRevalidation as (
+    opts: RunTripRevalidationOptions,
+  ) => Promise<Result<null>>;
 
 /* ============================================================== saveTrip */
 
@@ -784,5 +807,181 @@ describe("publishTrip — also restores each indexed entry's own ACL (§20)", ()
         { op: "makePublic", url: ENTRY_ONE_URL },
       ]),
     );
+  });
+});
+
+/* ============================================ Task 2.3: trip revalidation */
+
+/** The home page, sitemap and RSS read `diary.ttl` (§7.1), so publish/unpublish
+ *  — which add/remove a trip's diary ROW — must invalidate `TAGS.diary`, not
+ *  `TAGS.trip(slug)`. A plain EDIT changes no row, so it only needs to drop
+ *  the trip's OWN entry, `TAGS.trip(slug)`. `revalidatePublicSite` is
+ *  tag-agnostic, so this layer DECIDES the tags (mirrors `runRevalidation`). */
+describe("runTripRevalidation — the tags a publish/unpublish/edit stamps (Task 2.3)", () => {
+  it("stamps TAGS.diary on publish — the diary's list changed", async () => {
+    const runTripRevalidation = await loadRunTripRevalidation();
+    const tags: string[][] = [];
+
+    const result = await runTripRevalidation({
+      revalidate: (t) => void tags.push(t),
+      kind: "publish",
+      tripSlug: SLUG,
+      tripUrl: TRIP_URL,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(tags).toEqual([[TAGS.diary]]);
+  });
+
+  it("stamps TAGS.diary on unpublish too — the diary's list changed the other way", async () => {
+    const runTripRevalidation = await loadRunTripRevalidation();
+    const tags: string[][] = [];
+
+    const result = await runTripRevalidation({
+      revalidate: (t) => void tags.push(t),
+      kind: "unpublish",
+      tripSlug: SLUG,
+      tripUrl: TRIP_URL,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(tags).toEqual([[TAGS.diary]]);
+  });
+
+  it("stamps TAGS.trip(slug) on an edit, and NOT TAGS.diary — the diary's list did not change", async () => {
+    const runTripRevalidation = await loadRunTripRevalidation();
+    const tags: string[][] = [];
+
+    const result = await runTripRevalidation({
+      revalidate: (t) => void tags.push(t),
+      kind: "edit",
+      tripSlug: SLUG,
+      tripUrl: TRIP_URL,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(tags).toEqual([[TAGS.trip(SLUG)]]);
+    // The negative half: an edit stamping the diary too would drop every
+    // trip's cache on every save of any one of them — the imprecision
+    // TAGS.trip(slug) exists to avoid.
+    expect(tags.flat()).not.toContain(TAGS.diary);
+  });
+
+  it("reports a throwing hook as a network error, mirroring save-entry's runRevalidation", async () => {
+    const runTripRevalidation = await loadRunTripRevalidation();
+
+    const bad = await runTripRevalidation({
+      revalidate: () => {
+        throw new Error("route handler said no");
+      },
+      kind: "publish",
+      tripSlug: SLUG,
+      tripUrl: TRIP_URL,
+    });
+
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.error.kind).toBe("network");
+  });
+});
+
+/* ============================== Task 2.3: wired into the actual call sites */
+
+/** `runTripRevalidation` existing is not enough — a caller that forgets to
+ *  invoke it would leave the tests above green forever. These assert
+ *  `publishTrip`/`unpublishTrip`/`saveTrip`'s edit path actually call the
+ *  injected hook, with the right tags, and that a create calls it not at all. */
+describe("publishTrip/unpublishTrip — the revalidate hook, wired (Task 2.3)", () => {
+  it("publishTrip stamps TAGS.diary through the injected hook on success", async () => {
+    const publishTrip = await loadPublish();
+    podFake({ diaryTrips: [OTHER_TRIP_IRI] });
+    const tags: string[][] = [];
+
+    const report = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+      revalidate: (t) => void tags.push(t),
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(tags).toEqual([[TAGS.diary]]);
+  });
+
+  it("unpublishTrip stamps TAGS.diary through the injected hook on success", async () => {
+    const unpublishTrip = await loadUnpublish();
+    podFake({ diaryTrips: [`${TRIP_URL}#it`, OTHER_TRIP_IRI] });
+    const tags: string[][] = [];
+
+    const report = await unpublishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v4"',
+      webId: WEBID,
+      now: () => NOW,
+      revalidate: (t) => void tags.push(t),
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(tags).toEqual([[TAGS.diary]]);
+  });
+
+  it("publishTrip with no revalidate hook still succeeds — the field is optional", async () => {
+    const publishTrip = await loadPublish();
+    podFake({ diaryTrips: [OTHER_TRIP_IRI] });
+
+    const report = await publishTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v3"',
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    expect(report.failed).toBeUndefined();
+  });
+});
+
+describe("saveTrip — the revalidate hook on the edit (update) path (Task 2.3)", () => {
+  it("an update stamps TAGS.trip(slug), not TAGS.diary — no diary row changed", async () => {
+    const saveTrip = await loadSave();
+    podFake();
+    const tags: string[][] = [];
+
+    const report = await saveTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"),
+      podRoot: POD_ROOT,
+      etag: '"trip-v0"',
+      webId: WEBID,
+      now: () => NOW,
+      revalidate: (t) => void tags.push(t),
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(tags).toEqual([[TAGS.trip(SLUG)]]);
+  });
+
+  it("a create — even of a draft — calls the hook zero times", async () => {
+    const saveTrip = await loadSave();
+    podFake();
+    const tags: string[][] = [];
+
+    const report = await saveTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("draft"),
+      podRoot: POD_ROOT,
+      webId: WEBID,
+      now: () => NOW,
+      revalidate: (t) => void tags.push(t),
+    });
+
+    expect(report.failed).toBeUndefined();
+    expect(tags).toEqual([]);
   });
 });
