@@ -26,6 +26,7 @@ const entry = (over: Partial<Entry> & Pick<Entry, "slug">): Entry => ({
   schemaVersion: 1,
   headline: { value: over.slug, language: "en" },
   photos: [],
+  sections: [],
   tags: [],
   ...over,
 });

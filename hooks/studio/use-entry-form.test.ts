@@ -21,6 +21,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   trip: TRIP,
   tags: ["walking", "morning"],
   photos: [],
+  sections: [],
   ...over,
 });
 

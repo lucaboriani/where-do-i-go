@@ -328,6 +328,9 @@ export function useEntrySave({
       /** WHAT THE ENTRY ARRIVED WITH, THEN WHAT WAS PICKED HERE — and only the
        *  `ready` picks: ./notes.md#the-photos-and-why-a-failed-slot-reaches-nothing */
       photos: photosFor(existing?.photos ?? [], attached),
+      // Placeholder until a later stage builds sections from the form; see
+      // lib/pod/notes.md#sections-supersede-articlebody-and-photos
+      sections: [],
       tags: parseTags(tagsText),
       created,
       creator: existing?.creator ?? session.info.webId,

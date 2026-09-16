@@ -45,6 +45,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   trip: TRIP.iri,
   tags: [],
   photos: [],
+  sections: [],
   ...over,
 });
 

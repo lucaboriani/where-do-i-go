@@ -27,6 +27,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   schemaVersion: SCHEMA_VERSION,
   headline: { value: "First night in Shinjuku", language: "en" },
   photos: [],
+  sections: [],
   tags: [],
   ...over,
 });
