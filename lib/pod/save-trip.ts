@@ -89,6 +89,21 @@ async function putTrip(
   return putGuarded(fetch, url, body.value, precondition);
 }
 
+/** A HEAD ahead of the create branch's ACL write — see
+ *  ./notes.md#a-create-pre-checks-the-trip-document-before-touching-the-container-acl.
+ *  Mirrors `ensureContainer` in access.ts: any non-ok status reads as absent. */
+async function tripAlreadyExists(fetch: PodFetch, url: string): Promise<Result<boolean>> {
+  try {
+    return ok((await fetch(url, { method: "HEAD" })).ok);
+  } catch (cause) {
+    return err({
+      kind: "network",
+      url,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
+
 /* -------------------------------------------------------------------- saveTrip */
 
 export async function saveTrip(opts: SaveTripOptions): Promise<SaveTripReport> {
@@ -111,12 +126,22 @@ export async function saveTrip(opts: SaveTripOptions): Promise<SaveTripReport> {
   /* -- step "container": create-only, and BEFORE any document write --------- */
 
   if (creating) {
-    const container = await createContainer(tripContainerUrl(opts.podRoot, stamped.slug), {
-      ...accessOptions,
-      publicChildren: stamped.status === "published",
-    });
-    if (!container.ok) return stoppedAt("container", container.error, "retry");
-    completed.push("container");
+    // A collision's ACL side effect, not just its bytes: createContainer
+    // rewrites an EXISTING container's access unconditionally (access.ts's
+    // "existed" still runs setContainerAccess), so a slug already taken by a
+    // trip of the other status must never reach it. If-None-Match: * on the
+    // PUT below still catches the collision; this only guards the ACL call.
+    const existing = await tripAlreadyExists(opts.fetch, url);
+    if (!existing.ok) return stoppedAt("trip", existing.error, recoveryForWrite(existing.error));
+
+    if (!existing.value) {
+      const container = await createContainer(tripContainerUrl(opts.podRoot, stamped.slug), {
+        ...accessOptions,
+        publicChildren: stamped.status === "published",
+      });
+      if (!container.ok) return stoppedAt("container", container.error, "retry");
+      completed.push("container");
+    }
   }
 
   /* -- step "trip" ------------------------------------------------------------ */

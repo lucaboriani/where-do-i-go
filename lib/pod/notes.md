@@ -1009,3 +1009,23 @@ what was asked for — `verifyContainerAccess` computes it that way — so
 matters against a test double (`save-trip.test.ts`'s mocked `access.ts`) that
 returns the same shape regardless of resource kind. Guarded by
 `resource.endsWith("/")`, so a document call is left exactly as returned.
+
+## A create pre-checks the trip document before touching the container ACL
+
+Fix round 1 (task-1b-report.md): the create branch used to call
+`createContainer` unconditionally, before `trip.ttl`'s `If-None-Match: *` PUT
+could detect a slug collision. `createContainer` is not create-if-absent for
+the ACL — `access.ts`'s own `createContainer` calls `ensureContainer` (which
+IS create-if-absent for the container resource) and then unconditionally
+`setContainerAccess`, on the "existed" branch too. So a create for a slug that
+already belongs to an existing trip of the OTHER status silently rewrote that
+trip's container ACL to match the new attempt's status — flipping a live
+published trip private, or a draft public — while the report only ever showed
+`failed.step: "trip"`.
+
+`tripAlreadyExists` HEADs `trip.ttl` first and skips `createContainer`
+entirely when it is already there, falling through to the same `trip.ttl` PUT
+(still `If-None-Match: *`) that reports the collision today. The document
+precondition is still the authoritative guard — this only removes the ACL
+side effect that ran before it could fire. Mirrors `ensureContainer`'s own
+"any non-ok HEAD reads as absent" rule, so it costs no new failure mode.

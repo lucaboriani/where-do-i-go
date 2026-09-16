@@ -146,7 +146,10 @@ const baseTrip = (status: Status = "published"): Trip => ({
 /* ------------------------------------------------------------------ the fake Pod */
 
 type Recorded = { method: string; url: string; headers: Record<string, string>; body: string };
-type PodScript = { failTripPut?: number };
+/** `existingTrip` scripts the pre-check's HEAD: a create against a slug that
+ *  already has a trip there (fix round 1 — task-1b-report.md). Absent/false
+ *  is every existing test's world: nothing at that slug yet. */
+type PodScript = { failTripPut?: number; existingTrip?: boolean };
 
 function podFake(script: PodScript = {}) {
   const requests: Recorded[] = [];
@@ -161,6 +164,12 @@ function podFake(script: PodScript = {}) {
   };
 
   server.use(
+    http.head(TRIP_URL, async ({ request }) => {
+      await record(request);
+      return script.existingTrip
+        ? new HttpResponse(null, { status: 200, headers: { etag: '"existing"' } })
+        : new HttpResponse(null, { status: 404 });
+    }),
     http.put(TRIP_URL, async ({ request }) => {
       await record(request);
       return script.failTripPut
@@ -323,6 +332,35 @@ describe("saveTrip — create, ACL-at-creation", () => {
     // whether the document write that follows succeeds.
     expect(containerCalls.find((c) => c.url === TRIP_CONTAINER)).toBeDefined();
     // But nothing downstream of the conflicting write ran.
+    expect(pod.of("PUT", TRIP_INDEX_URL)).toEqual([]);
+  });
+
+  it("a create colliding with an existing trip of the OTHER status never touches the container ACL", async () => {
+    const saveTrip = await loadSave();
+    // The slug already belongs to a trip — an existing DRAFT, say — so a
+    // colliding "published" create must not flip its container to public-read
+    // on the way to discovering the collision. Scripted exactly like a real
+    // Pod's own If-None-Match: * 412 on the trip.ttl PUT (failTripPut), which
+    // stays the authoritative signal; existingTrip only removes the ACL call
+    // that used to run unconditionally before it (fix round 1).
+    const pod = podFake({ existingTrip: true, failTripPut: 412 });
+
+    const report = await saveTrip({
+      fetch: recordingFetch([]),
+      trip: baseTrip("published"), // no etag: this is a create
+      podRoot: POD_ROOT,
+      webId: WEBID,
+      now: () => NOW,
+    });
+
+    // createContainer never ran, so the pre-existing (draft) trip's ACL was
+    // never rewritten to public-read — the defect this test pins.
+    expect(containerCalls).toEqual([]);
+
+    expect(pod.of("HEAD", TRIP_URL).length).toBeGreaterThan(0);
+    expect(report.failed?.step).toBe("trip");
+    expect(report.failed?.error).toEqual({ kind: "http", url: TRIP_URL, status: 412 });
+    expect(report.recovery).toBe("refetch");
     expect(pod.of("PUT", TRIP_INDEX_URL)).toEqual([]);
   });
 });
