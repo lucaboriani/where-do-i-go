@@ -131,9 +131,15 @@
 .prose { max-width: 66ch; }
 .prose p { margin: 0 0 1.6em; }
 
-/* The masthead: type is the entrance. Ported from .mockups/entry.html; the
-   horizontal inset comes from the enclosing .wrap, not from here. */
-.masthead { padding-block: clamp(3rem, 9vh, 7rem) clamp(2rem, 5vh, 3.5rem); }
+/* The entry masthead: type is the entrance. Ported from .mockups/entry.html;
+   the horizontal inset comes from the enclosing .wrap, not from here. Named
+   `.entry-masthead`, not `.masthead` — Task 4's trip masthead needs its own
+   rule (a border, per .mockups/trip.html) and a shared name would collide. */
+.entry-masthead { padding-block: clamp(3rem, 9vh, 7rem) clamp(2rem, 5vh, 3.5rem); }
+
+.breadcrumb { margin: 0 0 clamp(1.5rem, 4vh, 2.5rem); }
+.breadcrumb a { color: var(--color-accent-bright); text-decoration: underline; }
+.breadcrumb a:hover { color: var(--color-accent); }
 
 .display {
   margin: 0;
@@ -303,7 +309,6 @@
 }
 
 .entry-prose { padding-block-start: clamp(1rem, 3vh, 2rem); }
-.entry-prose p:first-of-type::first-line { color: var(--color-text); }
 
 /* Entry photographs. Ported from .mockups/entry.html + _shared.css; the mockup
    bleeds to 100vw, but the entry lives in the unpadded 34rem sheet column, so a

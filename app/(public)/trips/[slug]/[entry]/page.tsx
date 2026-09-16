@@ -90,7 +90,7 @@ export async function EntryContent({
   return (
     <>
       <div className="wrap">
-        <header className="masthead">
+        <header className="entry-masthead">
           <p className="breadcrumb">
             <a href={`/trips/${slug}`}>{"← Back to the trip"}</a>
           </p>
