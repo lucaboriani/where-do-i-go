@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IndexEntry } from "@/lib/pod/schema";
-import { buildLegs, orderEntries } from "@/lib/map/legs";
+import { arcCoordinates, buildLegs, orderEntries } from "@/lib/map/legs";
 
 function entry(slug: string, over: Partial<IndexEntry> = {}): IndexEntry {
   return {
@@ -36,7 +36,29 @@ describe("orderEntries", () => {
   });
 });
 
+describe("arcCoordinates", () => {
+  it("interpolates an arc between the two endpoints, bowed off the chord", () => {
+    const pts = arcCoordinates([139.7, 35.7], [135.8, 34.7], 24);
+    expect(pts.length).toBe(25); // segments + 1
+    expect(pts[0]).toEqual([139.7, 35.7]);
+    expect(pts[pts.length - 1]).toEqual([135.8, 34.7]);
+    // a midpoint lies off the straight chord (great-circle bow)
+    const chordMidLat = (35.7 + 34.7) / 2;
+    expect(pts[12][1]).not.toBeCloseTo(chordMidLat, 5);
+  });
+});
+
 describe("buildLegs", () => {
+  it("emits one arc LineString per leg, keeping the destination's mode", () => {
+    const fc = buildLegs([
+      entry("a", { sortOrder: 1, lat: 35.7, long: 139.7 }),
+      entry("b", { sortOrder: 2, lat: 34.7, long: 135.8, travelModeFrom: "Train" }),
+    ]);
+    expect(fc.features).toHaveLength(1);
+    expect(fc.features[0].geometry.coordinates.length).toBeGreaterThan(2);
+    expect(fc.features[0].properties.mode).toBe("Train");
+  });
+
   it("joins two placed entries into one line", () => {
     const fc = buildLegs([
       entry("a", { sortOrder: 1, lat: 1, long: 2 }),
