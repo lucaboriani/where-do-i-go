@@ -115,7 +115,9 @@ seed, so on a real Pod the §4 containers and the `dy:Diary` root do not exist �
 `allTripSlugs` then reject (`cached.ts` throws the whole public build) and `createContainer` for
 `trips/<slug>/` has no parent. So the flow must, on first use:
 
-- Create the §4 container tree (`travel/`, `travel/trips/`, `travel/media/`) with their ACLs.
+- Create the §4 container tree (`travel/`, `travel/trips/`, `travel/media/`, `travel/settings/` —
+  `settings/` owner-only and left EMPTY, no `privacy.ttl`: data-model §4/§5/§9 says it
+  "deliberately writes no document" and every privacy default is wrong) with their ACLs.
 - Author a **valid `dy:Diary` root** in `diary.ttl`: `a dy:Diary`, `dy:schemaVersion 2`, a title,
   and an (initially empty) published-trip list — not merely the trip-row list the boundary
   section describes. `readDiary` must accept it.

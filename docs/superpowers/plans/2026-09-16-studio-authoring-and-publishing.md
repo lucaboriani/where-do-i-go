@@ -192,34 +192,35 @@ has no production caller. Prefer wiring/extending it over a hand-rolled duplicat
   §4 containers — `travel/`, `travel/trips/`, `travel/media/`, and **`travel/settings/`** — with
   their ACLs via `createContainer` (`media/` public-read children; `trips/` public-read children;
   `settings/` **owner-only**, `publicChildren:false` — data-model §4 "the settings container is
-  owner-only", `access.ts:112-117`), authors a valid `dy:Diary` root in `diary.ttl` if absent
-  (`a dy:Diary; dy:schemaVersion 2; <title>; empty trip list`), **and authors a default
-  `settings/privacy.ttl`** if absent. Each write is `If-None-Match: *`.
+  owner-only", `access.ts:112-117`), and authors a valid `dy:Diary` root in `diary.ttl` if absent
+  (`a dy:Diary; dy:schemaVersion 2; <title>; empty trip list`). Each write is `If-None-Match: *`.
 - Consumes: `access.ts` `createContainer`/`initialiseContainers`, `write.ts` `putGuarded`,
-  `serialiseDiary` (small helper here or in `diary.ts`), the `PrivacySettings` shape
-  (`schema.ts:198-208`).
+  `serialiseDiary` (small helper here or in `diary.ts`).
 
-**Why `privacy.ttl` can't be skipped:** `readPrivacySettings` has **no defaults and fails
-closed** (`read.ts:482-517`), and `EntryEditor` requires `settingsUrl` and reads the §9 gate on
-mount (`entry-editor.tsx:53-61`). On a blank Pod without it, a **coordinate-bearing** entry
-can't be saved (§9 drops the coordinate) — which breaks "self-serve, no seed." Text entries are
-unaffected.
+**RULING (2026-09-16) — bootstrap does NOT author `privacy.ttl`.** `docs/data-model.md` §4/§5/§9
+is NORMATIVE and states `settings/` "deliberately writes no document" and that choosing a privacy
+default is wrong "because every possible choice is wrong (§9)." `readPrivacySettings` **fails
+closed** (structured `err`, no crash — `read.ts:482-517`) and `EntryEditor` is explicitly designed
+for `privacy.ttl` to be absent (`entry-editor.tsx:53-61`, "THE READ FAILING IS THE CASE THAT
+MATTERS"). So a blank Pod authors trips + text/photo entries + publishes fine self-serve; a
+**coordinate-bearing** entry fails closed (coordinate unpublished) until the owner authors
+`privacy.ttl` **deliberately** — the intended §9 behavior, not a defect. In-app privacy-settings
+authoring is a **separate deferred task**, not part of bootstrap. **Remove the privacy.ttl test**
+the test-specialist wrote; bootstrap = 4 containers + `dy:Diary` root only.
 
 - [ ] **Step 1 — failing tests** against the fake Pod: on a blank Pod, `ensurePodInitialised`
-  creates **four** containers (assert `settings/` is owner-only via the ACL result), a
-  `diary.ttl` that `readDiary` accepts (`a dy:Diary`, `schemaVersion 2`, zero trips), and a
-  `privacy.ttl` that `readPrivacySettings` accepts; called twice it does not error and does not
-  overwrite existing resources (second call's creates 412 → swallowed as "already there").
+  creates **four** containers (assert `settings/` is owner-only via the ACL result — but writes
+  NO document into it) and a `diary.ttl` that `readDiary` accepts (`a dy:Diary`, `schemaVersion 2`,
+  zero trips); called twice it does not error and does not overwrite the diary (second call's
+  create 412 → swallowed as "already there"). **No `privacy.ttl` assertion** (per the ruling —
+  drop the test-specialist's privacy.ttl case).
 - [ ] **Step 2:** run → FAIL.
-- [ ] **Step 3 — implement.** Create-if-absent for each container + the diary + privacy roots;
-  treat 412/"already exists" as success. For `privacy.ttl` use **conservative defaults** the
-  `PrivacySettings` schema accepts — verify the exact fields in `schema.ts:198-208`; default to
-  no home-region coordinate-drop and a coarse publication precision, and **flag the chosen
-  defaults for maintainer review** (privacy defaults are the owner's call — record them in the
-  decisions entry, Task 2.3).
+- [ ] **Step 3 — implement.** Create-if-absent for each container + the diary root; treat
+  412/"already exists" as success. `settings/` is created owner-only and left **empty** (no
+  `privacy.ttl`), matching data-model §4/§5/§9.
 - [ ] **Step 4:** `npx vitest run lib/pod/bootstrap.test.ts && npm run typecheck && npm run lint`
   → green.
-- [ ] **Step 5:** commit `feat(pod): idempotent first-run Pod bootstrap (containers + diary + privacy)`.
+- [ ] **Step 5:** commit `feat(pod): idempotent first-run Pod bootstrap (containers + diary root)`.
 
 ### Task 1.5: `saveTrip` (create/update, ACL-at-creation, preconditions)
 
@@ -329,8 +330,9 @@ trip status; entry publish guard), tests alongside.
   claim data-model previously said "lists every trip" — that wording lives in `cached.ts`; fix
   that comment too, leaving the `publishedTripSlugs` filter as defense-in-depth). Add
   `docs/decisions.md` **§37** (confirmed current last is §36) recording: the trip publication
-  boundary, strict/guarded, ACL-convergence-around-`rebuildIndex`, and the bootstrap
-  `privacy.ttl` defaults chosen in Task 1.4. `npm run check:structure` (notes anchors) green.
+  boundary, strict/guarded, ACL-convergence-around-`rebuildIndex`, and that bootstrap creates an
+  empty `settings/` and authors NO `privacy.ttl` (per the §9 ruling). `npm run check:structure`
+  (notes anchors) green.
 - [ ] **Step 5:** commit `feat(studio): revalidate the diary on publish; record the decisions`.
 
 ### Task 2.4: integration proof (a draft is ACL-private)
@@ -479,8 +481,9 @@ the entry-under-draft-trip refusal → Task 2.2; ACL model incl. `entries/` clos
 1.5/2.4; `rebuildIndex`-ACL-gap avoided via leaf `reconcile` → Tasks 1.5/2.2; `TAGS.diary`
 revalidation → Task 2.3; `xsd:date` + slug assertion + `creator`/`dy:index` → Tasks 1.1–1.3;
 lists + editors + routing → Stages 3–4; shared publish guard → Task 3.1; cover via media pipeline
-→ Task 3.3; e2e → Task 5.1; "Signed in as" kept → Task 3.2; bootstrap containers + `privacy.ttl`
-→ Task 1.4. ✔ Deferred (hard delete, GPX `track`, `tripOrigin`) are absent by design.
+→ Task 3.3; e2e → Task 5.1; "Signed in as" kept → Task 3.2; bootstrap (4 containers + `dy:Diary`
+root, NO `privacy.ttl` per the §9 ruling) → Task 1.4. ✔ Deferred (hard delete, GPX `track`,
+`tripOrigin`, in-app privacy-settings authoring) are absent by design.
 
 **Placeholder scan:** none — each task names exact files, interfaces, and test intent with code
 for the data-layer steps; UI tasks give signatures + test assertions and defer only exact JSX to
