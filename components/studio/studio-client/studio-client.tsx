@@ -35,7 +35,9 @@ export default function StudioClient(props: StudioClientProps) {
   }, []);
 
   if (session === null) return <Waiting />;
-  return <StudioShell session={session} {...props} />;
+  // Task 3.2: `/studio` lands on the trips list. See
+  // ../studio-shell/notes.md#the-trips-home-migration-seam.
+  return <StudioShell session={session} tripsHome {...props} />;
 }
 
 function Waiting() {

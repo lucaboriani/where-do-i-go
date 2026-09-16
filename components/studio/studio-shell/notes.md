@@ -158,6 +158,37 @@ The empty string is a URL that can only fail to read, and failing to read is
 everything else on the form still works. A configuration that reaches here is
 already showing the owner a failed enumeration.
 
+## the trips-home migration seam
+
+`tripsHome` is Task 3.2's repurposing of `/studio`, done as narrowly as
+possible rather than as a rewrite of this component. `studio-client.tsx` is
+the only caller that sets it, hardcoded `true` there — it is not threaded
+through `app/(studio)/studio/page.tsx`'s props, which `page.test.ts` pins to
+exactly five keys (`ownerWebId`, `oidcIssuer`, `siteUrl`, `siteName`,
+`podRoot`), none of them this one.
+
+**Why a flag rather than deleting the pre-3.2 branch outright.** Every
+existing case in this file and in `studio-shell.trip-loading.test.tsx` calls
+`StudioShell` directly, without `tripsHome`, and exercises the enumerate-then-
+`EntryEditor` path in detail — loading states, the empty-Pod note, skipped
+trips, session expiry mid-listing, the `trips` prop's own "supplied means
+supplied" contract. None of that is what Task 3.2 was asked to touch, and
+routing `/studio` to `TripsList` does not require any of it to stop being
+true for a caller that does not opt in. Leaving the default `false` (absent)
+keeps all of it running unchanged; `tripsHome` only changes what the OWNER
+branch renders, and only for the one caller that asks for the new page.
+
+**This is a seam, not a permanent fork.** The brief that introduced it names
+the entry-creation flow as moving under a trip in Stage 4, at which point the
+enumerate-then-`EntryEditor` branch (`Writables`/`Writable`/`Skipped` below,
+and the two test files that pin it) is expected to be replaced rather than
+kept in parallel with `TripsList` indefinitely.
+
+When `tripsHome` is set, the enumeration effect above does not run at all
+(`enumerating` is `false`) — `TripsList` does its own load through
+`useStudioTrips`, and running both would be two competing listings of the
+same container.
+
 ## the enumeration is a value rather than a throw
 
 `listStudioTrips` promises to return a `Result` and never to reject, so

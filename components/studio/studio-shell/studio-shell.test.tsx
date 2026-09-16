@@ -452,6 +452,16 @@ describe("studio shell — owner", () => {
     expect(courtesyMessage()).toHaveLength(0);
   });
 
+  // e2e/solid-login.spec.ts asserts this exact text; Task 3.2 repurposes what
+  // renders BELOW it, so this pins it at the unit level ahead of that.
+  it("renders the exact 'Signed in as …' text the login e2e depends on", async () => {
+    const fake = fakeStudioSession({ isLoggedIn: true, webId: OWNER });
+
+    await renderShell(fake.session);
+
+    await waitFor(() => expect(screen.getByText(`Signed in as ${OWNER}.`)).toBeInTheDocument());
+  });
+
   /**
    * The owner verdict is an IRI comparison, not a string comparison — the shell
    * must route through sameWebId/studioState rather than `===`. A host spelled

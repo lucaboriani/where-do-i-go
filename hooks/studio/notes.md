@@ -1443,3 +1443,35 @@ an entry back to draft is never refused, only publishing one is.
 by IDENTITY, not wrapped — `use-publish.test.ts` asserts `call.revalidate ===`
 the module's own export, so a caller mocking `@/lib/studio/revalidate` sees its
 own mock reach the Pod layer rather than a copy this hook made.
+
+---
+
+# `use-studio-trips`
+
+## ensurePodInitialised runs from here, once
+
+Finding #3 (Stage 1 review): `saveTrip` deliberately skips bootstrap, so
+something upstream of every write has to run it once. This hook is that
+something — the studio's first Pod-touching load — and it runs bootstrap
+BEFORE `listStudioTrips`, memoised by `podRoot` in a ref exactly as
+`studio-shell.tsx`'s `enumerateTrips` memoises its own listing: StrictMode's
+second effect invocation attaches to the first's in-flight promise rather than
+starting a second bootstrap.
+
+## entryCount is published-only, and that is a known gap
+
+`readTripIndex(trip.indexUrl).entryCount` is `entries.ttl`'s own count, which
+§4 scopes to PUBLISHED entries. A trip with drafts only, or a trip mid-way
+through its first few unpublished entries, shows `0` here — correct against
+what the index actually holds, understating what the owner has written. A
+draft-inclusive count would read `entriesContainer` instead (one more
+`listContainer` call per trip); left as a future refinement rather than done
+here, because the two are equally testable and the choice is a product one,
+not a technical one.
+
+## one bad trip's index does not fail the list
+
+Mirrors `listStudioTrips`'s own "skip and report" rule one layer up: a trip
+whose `entries.ttl` cannot be read still appears, with `entryCount: 0`, rather
+than taking every other trip down with it. The trip itself was already proven
+readable by `listStudioTrips`; only its count is uncertain.

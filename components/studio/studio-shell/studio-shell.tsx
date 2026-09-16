@@ -19,6 +19,7 @@ import {
   subscribeSessionState,
 } from "@/lib/studio/session";
 import EntryEditor from "@/components/studio/entry-editor";
+import TripsList from "@/components/studio/trips-list";
 import type { EditorTrip } from "@/components/studio/entry-editor";
 import type { PodError } from "@/lib/pod/result";
 import type { StudioTripListing } from "@/lib/studio/trips";
@@ -47,6 +48,11 @@ export interface StudioShellProps {
    *  absent means ask the Pod.
    *  ./notes.md#trips-is-a-test-seam-and-supplied-means-supplied */
   trips?: EditorTrip[];
+  /** TASK 3.2 MIGRATION SEAM: the owner's writable content is the trips list
+   *  rather than the pre-3.2 enumerate-and-editor flow every existing case
+   *  above exercises. `studio-client.tsx` is the only caller.
+   *  ./notes.md#the-trips-home-migration-seam */
+  tripsHome?: boolean;
 }
 
 /** Where the enumeration has got to. `pending` IS A STATE, NEVER A RESULT, and
@@ -65,6 +71,7 @@ export default function StudioShell({
   siteName,
   podRoot,
   trips,
+  tripsHome,
 }: StudioShellProps) {
   const [state, setState] = useState<SessionState>({ status: "restoring" });
   const [failure, setFailure] = useState<string | null>(null);
@@ -101,7 +108,7 @@ export default function StudioShell({
    *  BOOLEANS RATHER THAN `view`, which is a fresh object every render and would
    *  re-enter unboundedly:
    *  ./notes.md#enumerate-only-for-the-owner-and-only-when-nobody-handed-us-a-list */
-  const enumerating = view.status === "owner" && trips === undefined;
+  const enumerating = view.status === "owner" && trips === undefined && !tripsHome;
 
   /** The in-flight listing, memoised by the root it was started for — the shape
    *  `restoreSession` documents. THE REF IS DELIBERATELY NOT CLEARED ON CLEANUP:
@@ -155,6 +162,7 @@ export default function StudioShell({
         listing={listing}
         settingsUrl={settingsUrlFor(podRoot)}
         podRoot={podRoot}
+        tripsHome={tripsHome}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -175,6 +183,7 @@ function Body({
   listing,
   settingsUrl,
   podRoot,
+  tripsHome,
   onSignIn,
   onSignOut,
 }: {
@@ -191,6 +200,8 @@ function Body({
   /** §4's one global `travel/media/` hangs off this, and the editor needs it for
    *  the same reason it needs `settingsUrl`: it reads no config. */
   podRoot: string;
+  /** See `StudioShellProps.tripsHome`'s own docblock. */
+  tripsHome: boolean | undefined;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -240,13 +251,17 @@ function Body({
         <>
           <p className="mt-2 text-muted-foreground">{`Signed in as ${view.webId}.`}</p>
           <Action onClick={onSignOut}>{"Sign out"}</Action>
-          <Writables
-            session={session}
-            trips={trips}
-            listing={listing}
-            settingsUrl={settingsUrl}
-            podRoot={podRoot}
-          />
+          {tripsHome ? (
+            <TripsList session={session} podRoot={podRoot} />
+          ) : (
+            <Writables
+              session={session}
+              trips={trips}
+              listing={listing}
+              settingsUrl={settingsUrl}
+              podRoot={podRoot}
+            />
+          )}
         </>
       );
   }

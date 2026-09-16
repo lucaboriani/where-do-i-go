@@ -235,43 +235,57 @@ export const privacySettingsUrl = (podRoot: string) =>
 
 /* --------------------------------------------------------------------- read */
 
-export async function readTrip(url: string, opts?: ReadOptions): Promise<Result<Trip>> {
+/** The `<#it>` parse, throwing form — mirrors `tripIndexOf`. */
+function tripOf(quads: Quad[], url: string): Trip {
+  const v = viewOf(quads, itOf(url));
+  if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+  if (!v.types().includes(DY_CLASS.Trip)) {
+    throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Trip}`] });
+  }
+  const slug = v.typed(DY.slug)?.value ?? "";
+  take(assertSlug(url, slug));
+
+  return validate(
+    Trip,
+    {
+      iri: itOf(url),
+      slug,
+      status: statusOf(v, url),
+      schemaVersion: schemaVersionOf(v, url),
+      name: langText(v, SCHEMA.name),
+      description: langText(v, SCHEMA.description),
+      startDate: take(date(v, DY.startDate, url)),
+      endDate: take(date(v, DY.endDate, url)),
+      index: v.one(DY.index),
+      coverImage: v.one(DY.coverImage),
+      track: v.one(DY.track),
+      tags: v.all(DY.tag),
+      origin: placeOf(quads, v.one(SCHEMA.tripOrigin), url),
+      created: take(offsetDateTime(v, DCTERMS.created, url)),
+      modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+      creator: v.one(DCTERMS.creator),
+    },
+    url,
+  );
+}
+
+/** `readTrip`, plus the ETag: the studio's publish action needs a
+ *  precondition (§10), and `readTrip` alone discards it. Mirrors
+ *  `readTripIndexWithEtag`. */
+export async function readTripWithEtag(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<{ trip: Trip; etag: string | null }>> {
   const fetched = await fetchTurtle(url, opts);
   if (!fetched.ok) return fetched;
-  const { quads } = fetched.value;
+  const { quads, etag } = fetched.value;
+  const parsed = guard(() => tripOf(quads, url));
+  return parsed.ok ? ok({ trip: parsed.value, etag }) : parsed;
+}
 
-  return guard(() => {
-    const v = viewOf(quads, itOf(url));
-    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
-    if (!v.types().includes(DY_CLASS.Trip)) {
-      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Trip}`] });
-    }
-    const slug = v.typed(DY.slug)?.value ?? "";
-    take(assertSlug(url, slug));
-
-    return validate(
-      Trip,
-      {
-        iri: itOf(url),
-        slug,
-        status: statusOf(v, url),
-        schemaVersion: schemaVersionOf(v, url),
-        name: langText(v, SCHEMA.name),
-        description: langText(v, SCHEMA.description),
-        startDate: take(date(v, DY.startDate, url)),
-        endDate: take(date(v, DY.endDate, url)),
-        index: v.one(DY.index),
-        coverImage: v.one(DY.coverImage),
-        track: v.one(DY.track),
-        tags: v.all(DY.tag),
-        origin: placeOf(quads, v.one(SCHEMA.tripOrigin), url),
-        created: take(offsetDateTime(v, DCTERMS.created, url)),
-        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
-        creator: v.one(DCTERMS.creator),
-      },
-      url,
-    );
-  });
+export async function readTrip(url: string, opts?: ReadOptions): Promise<Result<Trip>> {
+  const read = await readTripWithEtag(url, opts);
+  return read.ok ? ok(read.value.trip) : read;
 }
 
 export async function readEntry(url: string, opts?: ReadOptions): Promise<Result<Entry>> {
