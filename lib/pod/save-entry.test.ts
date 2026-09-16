@@ -340,7 +340,6 @@ const naraEntry = (spec: Entry): Entry => ({
   headline: { value: "Deer, and a very large bell", language: "en" },
   occurredAt: "2026-03-31T11:05:00+09:00",
   place: { geo: { lat: 34.6851, long: 135.8048, precisionMeters: 200 } },
-  photos: [],
 });
 
 afterEach(() => {
@@ -587,7 +586,6 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     const inJapanese: Entry = {
       ...spec,
       headline: { value: "新宿の最初の夜", language: JA },
-      articleBody: { value: "成田エクスプレスに乗ったのは失敗だった。", language: JA },
       /* The place the STUDIO would build for this entry: `placeTextOf` gives
          the name the entry's language and gives the locality none, because the
          locality is tagged at serialisation. That asymmetry is the defect's
@@ -637,7 +635,6 @@ describe("serialiseEntry — §6 datatypes and language tags", () => {
     const untagged = await serialiseEntry({
       ...inJapanese,
       headline: { value: inJapanese.headline.value },
-      articleBody: undefined,
       place: { ...inJapanese.place, name: { value: "東京、新宿" } },
     });
     expect(untagged.ok).toBe(true);

@@ -358,9 +358,6 @@ export function useEntrySave({
       datePublished,
       travelModeFrom: mode === "" ? undefined : mode,
       place,
-      // Legacy top-level photos are no longer written (Stage 3b removes the
-      // field); a section owns its own photos, built by `sectionsFor`.
-      photos: [],
       sections: sectionsFor(values.sections, language),
       tags: parseTags(tagsText),
       created,

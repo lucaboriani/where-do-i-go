@@ -27,7 +27,6 @@ const anEntry = (over: Partial<Entry> = {}): Entry => ({
   status: "published",
   schemaVersion: 2,
   headline: { value: "Under Fitz Roy", language: "en" },
-  photos: [],
   sections: [],
   tags: [],
   ...over,
@@ -78,8 +77,8 @@ describe("EntryContent", () => {
     await renderEntry({ sections: twoSections });
     const proses = screen.getAllByText(/the lead|second/);
     expect(proses.map((p) => p.textContent)).toEqual(["the lead", "second"]);
-    // articleBody is absent on a real sectioned entry (Stage 1 emptied it);
-    // nothing should stringify the undefined value.
+    // articleBody no longer exists on Entry at all (Stage 3b removed it);
+    // nothing should stringify an undefined value in its place.
     expect(screen.queryByText("undefined")).toBeNull();
   });
 

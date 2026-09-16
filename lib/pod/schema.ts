@@ -116,16 +116,12 @@ export const Entry = z.object({
   status: Status,
   schemaVersion: z.number().int(),
   headline: LangText,
-  articleBody: LangText.optional(),
   trip: z.url().optional(),
   /** Carries the local UTC offset of the place, deliberately (§7.3). */
   occurredAt: z.iso.datetime({ offset: true }).optional(),
   datePublished: z.iso.datetime({ offset: true }).optional(),
   travelModeFrom: TravelMode.optional(),
   place: Place.optional(),
-  photos: z.array(Photo),
-  // Legacy `articleBody`/`photos` stay until Stage 3 removes them; new content
-  // is `sections`. See ./notes.md#sections-supersede-articlebody-and-photos
   sections: z.array(Section),
   tags: z.array(z.string()),
   /**

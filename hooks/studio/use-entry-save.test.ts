@@ -44,7 +44,6 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   headline: { value: "Morning in Yanaka", language: "en" },
   trip: TRIP.iri,
   tags: [],
-  photos: [],
   sections: [],
   ...over,
 });
@@ -377,7 +376,7 @@ describe("useEntrySave — what it assembles", () => {
     expect(sent().entry.place?.geo).toEqual(GEO);
   });
 
-  it("parses the tags and carries the original creator, writing no legacy body", async () => {
+  it("parses the tags and carries the original creator", async () => {
     const older = entry({ creator: "https://someone.example/card#me" });
     const { result } = mount({
       initial: { entry: older, etag: '"v1"' },
@@ -387,7 +386,6 @@ describe("useEntrySave — what it assembles", () => {
       await result.current.save(vi.fn());
     });
     expect(sent().entry.tags).toEqual(["walking", "morning"]);
-    expect(sent().entry.articleBody, "the legacy body is no longer written").toBeUndefined();
     expect(sent().entry.creator).toBe("https://someone.example/card#me");
   });
 });
@@ -449,16 +447,13 @@ describe("useEntrySave — the sections it writes", () => {
     expect(sections[1].photos).toHaveLength(1);
   });
 
-  it("writes no legacy articleBody and no top-level photos", async () => {
+  it("puts a section's photo on the section, with no top-level list to leak into", async () => {
     const { result } = mount({
       values: values({ sections: [{ id: "a", text: "Morning", slots: [readySlot("p0")] }] }),
     });
     await act(async () => {
       await result.current.save(vi.fn());
     });
-    expect(sent().entry.articleBody).toBeUndefined();
-    // The section owns the photo; nothing leaks into the legacy top-level list.
-    expect(sent().entry.photos ?? [], "a section photo leaked into the top-level list").toEqual([]);
     expect(sent().entry.sections[0].photos, "the photo belongs to its section").toHaveLength(1);
   });
 });

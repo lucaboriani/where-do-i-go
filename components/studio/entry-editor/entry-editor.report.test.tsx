@@ -136,7 +136,7 @@ describe("control — the scripts really do produce the six §10 outcomes", () =
       const pod = podFake(SCENARIOS[name]);
       const fake = fakeStudioSession();
       const spec = await specEntry();
-      const entry: Entry = { ...spec, iri: `${entryUrl}#it`, slug, photos: [], place: undefined };
+      const entry: Entry = { ...spec, iri: `${entryUrl}#it`, slug, place: undefined };
 
       const { saveEntry } = await import("@/lib/pod/save-entry");
       const report = await saveEntry({

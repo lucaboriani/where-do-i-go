@@ -20,7 +20,7 @@ import {
 import { dec, dt, int, text } from "./literals";
 import { assertEntrySlug } from "./read";
 import { err, ok, type Result } from "./result";
-import { Entry, type GeoPoint } from "./schema";
+import { Entry, type GeoPoint, type Section } from "./schema";
 
 const { namedNode, literal, quad } = DataFactory;
 
@@ -66,7 +66,6 @@ export function itQuads(it: NamedNode, e: Entry): Quad[] {
     quad(it, namedNode(DY.status), namedNode(statusIri(e.status))),
   ];
 
-  if (e.articleBody) quads.push(quad(it, namedNode(SCHEMA.articleBody), text(e.articleBody)));
   if (e.datePublished) quads.push(quad(it, namedNode(SCHEMA.datePublished), dt(e.datePublished)));
   if (e.trip) quads.push(quad(it, namedNode(DY.trip), namedNode(e.trip)));
   if (e.occurredAt) quads.push(quad(it, namedNode(DY.occurredAt), dt(e.occurredAt)));
@@ -161,7 +160,7 @@ export function geoQuads(frag: Frag, place: NamedNode, point: GeoPoint): Quad[] 
  *  caller hangs it off `<#it>` or a `<#section-n>` via schema:image. */
 export function imageObjectQuads(
   node: NamedNode,
-  photo: Entry["photos"][number],
+  photo: Section["photos"][number],
   fallbackOrder: number,
 ): Quad[] {
   const quads: Quad[] = [
@@ -200,14 +199,6 @@ export function imageObjectQuads(
     quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
   }
   return quads;
-}
-
-/** §7.3 `<#photo-n>` — one schema:ImageObject per photo, numbered from 1. */
-export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): Quad[] {
-  return photos.flatMap((photo, i) => {
-    const node = frag(`photo-${i + 1}`);
-    return [quad(it, namedNode(SCHEMA.image), node), ...imageObjectQuads(node, photo, i + 1)];
-  });
 }
 
 /** §7.3 `<#section-n>` (spec §3): schema:hasPart from <#it>, dy:Section, its
@@ -261,7 +252,6 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
   const quads: Quad[] = [
     ...itQuads(it, e),
     ...(e.place ? placeQuads(frag, it, e.place, e.headline.language) : []),
-    ...photoQuads(frag, it, e.photos),
     ...sectionQuads(frag, it, e.sections),
   ];
 

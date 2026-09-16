@@ -25,7 +25,6 @@ const entry = (over: Partial<Entry> & Pick<Entry, "slug">): Entry => ({
   status: "published",
   schemaVersion: 1,
   headline: { value: over.slug, language: "en" },
-  photos: [],
   sections: [],
   tags: [],
   ...over,
@@ -86,7 +85,6 @@ describe("rowOfEntry", () => {
     const row = rowOfEntry(
       entry({
         slug: "a",
-        photos: [],
         sections: [
           { sortOrder: 1, text: { value: "lead", language: "en" }, photos: [] },
           {

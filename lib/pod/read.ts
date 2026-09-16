@@ -282,7 +282,6 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
     const v = viewOf(quads, itOf(url));
     if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
 
-    const photos = take(photosOf(quads, v.all(SCHEMA.image), url));
     const sections = take(sectionsOf(quads, v.all(SCHEMA.hasPart), url));
 
     if (!v.types().includes(DY_CLASS.Entry)) {
@@ -299,13 +298,11 @@ export async function readEntry(url: string, opts?: ReadOptions): Promise<Result
         status: statusOf(v, url),
         schemaVersion: schemaVersionOf(v, url),
         headline: langText(v, SCHEMA.headline),
-        articleBody: langText(v, SCHEMA.articleBody),
         trip: v.one(DY.trip),
         occurredAt: take(offsetDateTime(v, DY.occurredAt, url)),
         datePublished: take(offsetDateTime(v, SCHEMA.datePublished, url)),
         travelModeFrom: travelModeOf(v),
         place: placeOf(quads, v.one(SCHEMA.contentLocation), url),
-        photos,
         sections,
         tags: v.all(DY.tag),
         // Read even though nothing renders them: an edit that rewrites this

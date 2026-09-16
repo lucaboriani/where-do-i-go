@@ -655,4 +655,29 @@ ${body}
     if (r.ok) return;
     expect(r.error.kind).toBe("shape");
   });
+
+  /**
+   * `articleBody`/entry-level `photos` are gone from `Entry` (Stage 3b). A
+   * stray `<#it> schema:articleBody`/`schema:image` — a foreign writer, or
+   * this app's own pre-cutover output — must not resurrect fields the type no
+   * longer has; `readEntry` ignores them and reads only the sections.
+   */
+  it("ignores a legacy entry-level articleBody and schema:image, reading only sections", async () => {
+    servePod({
+      [URLS.entry]: sectioned(`
+    schema:articleBody "Legacy prose."@en ;
+    schema:image <#photo-1> ;
+    schema:hasPart <#section-1> .
+<#photo-1> a schema:ImageObject ;
+    schema:contentUrl <../../../media/legacy/web.webp> ;
+    dy:sortOrder 1 .
+<#section-1> a dy:Section ; dy:sortOrder 1 ; schema:text "first"@en .`),
+    });
+    const r = await readEntry(URLS.entry);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect("articleBody" in r.value).toBe(false);
+    expect("photos" in r.value).toBe(false);
+    expect(r.value.sections.map((s) => s.text?.value)).toEqual(["first"]);
+  });
 });

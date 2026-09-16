@@ -20,7 +20,6 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   headline: { value: "Morning in Yanaka", language: "en" },
   trip: TRIP,
   tags: ["walking", "morning"],
-  photos: [],
   sections: [],
   ...over,
 });
@@ -123,20 +122,6 @@ describe("initialEntryFormState — an edit", () => {
       tripIris: [TRIP],
     });
     expect(noText.sections[0].text).toBe("");
-  });
-
-  it("does NOT seed sections from the entry's legacy top-level photos", () => {
-    // The entry-level `photos` are Stage-3b legacy; a section owns its own
-    // photos, and a top-level pool leaking into one would double-count them.
-    const state = initialEntryFormState({
-      existing: entry({
-        photos: [{ contentUrl: "https://pod.example/travel/media/legacy/web.jpg" }],
-        sections: [{ text: { value: "Text only", language: "en" }, photos: [], sortOrder: 1 }],
-      }),
-      tripIris: [TRIP],
-    });
-    expect(state.sections).toHaveLength(1);
-    expect(state.sections[0].slots, "a legacy top-level photo became a section slot").toEqual([]);
   });
 
   it("leaves the trip picker unchosen for a trip that is not on offer", () => {
