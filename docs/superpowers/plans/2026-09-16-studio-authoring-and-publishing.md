@@ -69,7 +69,7 @@ tasks below.
 - `lib/pod/trip-model.ts` (+ `.test.ts`) — `serialiseTrip`, diary-row builder.
 - `lib/pod/save-trip.ts` (+ `.test.ts`) — `saveTrip`, publish/unpublish, `reconcile`.
 - `lib/pod/bootstrap.ts` (+ `.test.ts`) — first-run containers + `dy:Diary` root.
-- `lib/studio/diary.ts` (+ `.test.ts`) — `readDiaryWithEtag`, `writeDiary` (published-only).
+- `lib/pod/diary.ts` (+ `.test.ts`) — `readDiaryWithEtag`, `writeDiary` (published-only).
 - `hooks/studio/use-trip-form.ts`, `use-trip-save.ts`, `use-studio-trips.ts`,
   `use-studio-entries.ts`, `use-publish.ts` (+ tests).
 - `components/studio/trips-list/`, `trip-editor/`, `entries-list/` (each: named `.tsx`,
@@ -155,7 +155,7 @@ it("date() types the literal as xsd:date, not dateTime", () => {
   diary lists trips as **bare IRIs** (`readDiary` reads `v.all(DY.trip)`; §7.1 shows
   `dy:trip <…/trip.ttl#it>`), so "adding a trip to the diary" is a single `dy:trip` triple on
   `<#it>`, NOT a denormalised fragment row like `rowOfEntry` — the real surface is
-  `addTripToDiary`/`removeTripFromDiary` in `lib/studio/diary.ts` (Task 2.1), and no `tripRow`
+  `addTripToDiary`/`removeTripFromDiary` in `lib/pod/diary.ts` (Task 2.1), and no `tripRow`
   builder is needed.
 
 - [ ] **Step 1 — failing tests.** In `trip-model.test.ts`, using the `graphEquals` helper the
@@ -274,9 +274,9 @@ the test-specialist wrote; bootstrap = 4 containers + `dy:Diary` root only.
 
 # Stage 2 — `diary.ttl` boundary, publish/unpublish, strict/guarded, revalidation
 
-### Task 2.1: `lib/studio/diary.ts` — read + published-only maintenance
+### Task 2.1: `lib/pod/diary.ts` — read + published-only maintenance
 
-**Files:** Create `lib/studio/diary.ts`, `lib/studio/diary.test.ts`.
+**Files:** Create `lib/pod/diary.ts`, `lib/pod/diary.test.ts`.
 
 **Interfaces:** `readDiaryWithEtag(podRoot)` → `{ diary, etag }`; `addTripToDiary` /
 `removeTripFromDiary` (read-modify-write with `If-Match`, published-only), modelled on
@@ -317,9 +317,9 @@ trip status; entry publish guard), tests alongside.
 
 ### Task 2.3: revalidation + docs
 
-**Files:** Modify the trip save orchestration (a `runTripRevalidation` beside `save-entry.ts`'s
-`runRevalidation`, or in `use-trip-save`) + test; `lib/pod/cached.ts` (comment); `docs/data-model.md`;
-`docs/decisions.md`.
+**Files:** Add a `runTripRevalidation` in **`lib/pod`** (beside `save-entry.ts`'s
+`runRevalidation` — NOT in `use-trip-save`, which is `hooks/studio/**` and would gate Stage 2) +
+test; `lib/pod/cached.ts` (comment); `docs/data-model.md`; `docs/decisions.md`.
 
 - [ ] **Step 1 — failing test:** a trip publish/unpublish stamps `TAGS.diary`; a trip edit stamps
   `TAGS.trip(slug)`. (Assert the orchestration hands `revalidatePublicSite` those tags —
@@ -351,18 +351,23 @@ trip status; entry publish guard), tests alongside.
 - [ ] **Step 3:** make it pass. **Step 4:** `npm test` with Pod up runs it (add the file to any
   integration allowlist `check:structure` carries). **Step 5:** commit.
 
-### Task 2.5: Stage-2 checkpoint — full DoD INCLUDING e2e
+### Task 2.5: Stage-2 checkpoint — full DoD (e2e conditional)
 
-Stage 2 creates `lib/studio/diary.ts` and touches `lib/studio/revalidate.ts` (or a sibling) —
-both match `lib/studio/**`, which is on the e2e-gated globs, and `docs/testing-gates.md` says do
-NOT narrow it. So run the **existing** e2e (solid-login + media) here to prove no regression; the
-new authoring spec is added at Task 5.1.
+Per RULING A, Stage 2 lives in `lib/pod` (`diary.ts`, `save-trip.ts` publish/unpublish,
+`save-entry.ts` guard + optional `tripStatus` param, a `runTripRevalidation` in `lib/pod`),
+`result.ts` (the new `tripNotPublished` kind), `docs/**`, and `test/integration/**` — **none of
+which are on the e2e-gated globs** (only `lib/pod/write.ts` is, and it stays untouched). So e2e is
+NOT required at this checkpoint IF the diff is confirmed off the gated globs. Do NOT modify
+`lib/studio/**`, `hooks/studio/**`, or the entry-editor caller wiring here — the `tripStatus`
+param is added to `saveEntry` as **optional** (defaults to current behavior) and wired by its
+callers in Stage 3/4; that keeps Stage 2 off the gate. The ACL-privacy guarantee is proven by the
+Task 2.4 integration test (in `npm test` with a Pod), not by Playwright.
 
 - [ ] Pod up. `npm test`, lint, typecheck, validate:fixtures, check:vocab, check:commands,
-  check:structure, build, size:public (unchanged), format:check, and
-  `env -u CLAUDECODE -u AI_AGENT E2E_PORT=<port> npm run test:e2e` (existing specs pass). Commit
-  fixes. (Stage 1 was correctly outside the gate — only `lib/pod/*`; if Task 1.x modified
-  `lib/pod/write.ts`, run e2e there too.)
+  check:structure, build, size:public (unchanged), format:check. Then confirm the diff is off the
+  gated globs (`git diff --name-only f1893a1..HEAD` against `lib/pod/write.ts` + the studio/media/
+  public/map globs → empty); **only if a gated path was touched**, run
+  `env -u CLAUDECODE -u AI_AGENT E2E_PORT=<port> npm run test:e2e`. Commit fixes.
 
 ---
 
