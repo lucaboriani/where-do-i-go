@@ -1928,12 +1928,16 @@ it.
       `2046689..22116df`; all gates green; final review clean. **A data-loss bug was fixed in
       passing:** the studio save hook now carries `existing?.sections ?? []` forward — a bare
       `sections: []` would have wiped an edited entry's sections and blanked its index thumbnail.
-- [ ] **Stage 2 — the public entry page.** Render sections with the phase-7 look: display masthead,
-      `.meta-row`, per-section prose / full-bleed photo / a new `.pair` two-photo class, `SiteFooter`
-      at content end. **Its opening task is a failing entry-page rendering test** — after Stage 1 the
-      page still reads the now-empty `articleBody`, so entry pages currently show headline + date and
-      NO prose/photos (nothing tests this; the final Stage-1 review flagged it as Stage-2 work). Needs
-      a plan.
+- [x] **Stage 2 — the public entry page** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-2-public-page.md`,
+      three tasks). `EntryContent` renders sections with the phase-7 look: `.display` masthead (sized
+      for the sheet column via `.entry-title`; global `.display` untouched for phase-7's full-width
+      mastheads), mono `.meta-row` with the precision shape, text sections as `.prose`, and photos via
+      a new `components/public/entry-section/` server component — a single column-bleed `<figure>`, a
+      two-photo stacking `.pair`, plain `<img>` for Pod URLs, box reserved by real aspect-ratio,
+      `blurDataUrl` background. `SiteFooter` at content end. The browser check caught + fixed two real
+      desktop overflows (bled photo onto the map; the `9vw` headline overflowing the 448px column) and
+      an unstyled breadcrumb. Commits `878f2b7..162fdca`; all gates green; `size:public` unchanged at
+      182.3–182.5 kB; e2e 23/23.
 - [ ] **Stage 3 — the studio section editor.** Section authoring (add / remove / reorder sections,
       0–2 photos each); draft key `wig.draft.v2` → `v3`; then **remove the legacy `articleBody`/
       `photos`** from `Entry` and the dead read/serialise/page code. Also closes the deferred gap: the
