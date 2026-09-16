@@ -81,11 +81,20 @@ export async function TripContent({ params }: { params: Promise<{ slug: string }
   // A draft trip that happens to be readable is still not published.
   if (trip.ok && trip.value.status !== "published") notFound();
 
-  // The name, dates and description live in the @masthead slot now
-  // (layout.tsx renders it above .trip-shell); this only describes a failed
-  // trip read, which is not that slot's concern.
+  // The @masthead slot carries the name/dates on desktop, but it is hidden
+  // <48rem (occluded by the fixed map + sheet), so the title is rendered
+  // in-sheet for mobile here. ./notes.md#why-the-title-is-repeated-for-mobile
   return (
     <>
+      {trip.ok && (
+        <header className="trip-title-mobile">
+          <h1 className="display trip-title">{trip.value.name.value}</h1>
+          <p className="data-lg">
+            {[trip.value.startDate, trip.value.endDate].filter(Boolean).join(" – ")}
+          </p>
+        </header>
+      )}
+
       {!trip.ok && <p className="text-muted-foreground">{describe(trip.error)}</p>}
 
       {index.ok ? (

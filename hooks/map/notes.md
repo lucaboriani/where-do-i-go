@@ -70,6 +70,23 @@ takes `styleLoaded` as a dependency rather than reading `map.isStyleLoaded()`, s
 re-runs exactly when the flag flips, regardless of whether that happens before or after the
 render on which `map` itself first appears.
 
+## Why the fade is in the gradient alpha
+
+The origin→arrival fade (spec §6, decision §35) is baked into `line-gradient`'s
+alpha, not a separate `line-opacity`. `line-progress` is honored **only** inside
+`line-gradient` (a color-ramp property); in `line-opacity` — whose parameters are
+`zoom`/`feature`/`feature-state` — it silently constant-folds to the value at
+`line-progress` 0 (0.25), so the line renders flat. Verified with the style-spec:
+`createPropertyExpression([...line-progress...], line-opacity-spec)` returns
+`success` with kind `constant`, evaluating flat. The plan (Task 8) put the fade
+there; the phase-7 final review caught that it never rendered.
+
+The gradient stops carry 8-digit-hex alpha (`40`/`99`/`F2` ≈ 0.25/0.60/0.95) on
+the existing accent hexes, keeping the accent→accent-bright hue shift and the
+dim-departure→bright-arrival direction. `use-map-layers.test.ts` compiles the
+gradient as a color ramp and asserts the alpha ramps 0.25→0.95, so a regression
+back to a flat `line-opacity` fails.
+
 ## Why the legs source promotes toSlug
 
 `buildLegs` (`lib/map/legs.ts`) gives each leg feature `properties: { mode, fromSlug, toSlug }`

@@ -166,15 +166,17 @@ describe("the diary page", () => {
 
     const { container } = render(await DiaryContent());
 
-    const footer = screen.getByRole("contentinfo");
-    expect(footer).toHaveClass("status-line");
-    expect(footer.textContent).not.toBe("");
+    // NOT getByRole("contentinfo"): in production this <footer> is inside
+    // <main>, so it maps to generic. Assert the element and its tagline.
+    const footer = container.querySelector("footer.status-line");
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent(/solid pod/i);
 
     const list = container.querySelector("ul, ol");
     expect(list).not.toBeNull();
     // The footer is content, not chrome — it closes the page after the list,
     // not a layout-level element that could sit anywhere relative to it.
-    expect(!!(list!.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+    expect(!!(list!.compareDocumentPosition(footer!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
       true,
     );
   });

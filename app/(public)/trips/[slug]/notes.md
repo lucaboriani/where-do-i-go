@@ -26,6 +26,25 @@ The layout does not await `params` on its shell path, for the reason
 static shell, which is what makes a navigation feel slow. The frame is reserved
 synchronously and the index read happens inside `<Suspense>`.
 
+## Why the title is repeated for mobile
+
+The `@masthead` slot renders the trip name/dates full-width above `.trip-shell`.
+That works on desktop, but `<48rem` the shell collapses: `.trip-map-pane` and
+`.trip-sheet` are both `position: fixed; inset: 0` (see `app/globals.css`), so
+they occlude the in-flow slot and `.trip-shell` has ~0 height — the masthead is
+invisible on phones. The phase-7 final review caught this as a regression (the
+title used to live in the sheet).
+
+The fix keeps the slot masthead on desktop and hides it `<48rem`
+(`.masthead { display: none }`), and `TripContent` renders the title again
+in-sheet inside `.trip-title-mobile`, which is hidden `≥48rem`. Both toggles live
+in the one `@media (min-width: 48rem)` block, so the breakpoint stays spelled
+once. TripContent's draft/not-found `notFound()` runs before this markup, so a
+draft title cannot leak on mobile any more than in the slot. This is a small,
+deliberate duplication of two elements rather than a shared component — the
+render sites differ (the slot also carries the description and its own wrap), and
+a component folder for two tags is more machinery than the duplication it removes.
+
 ## Why the masthead slot mirrors the entry route
 
 `@masthead/default.tsx` only covers a hard reload. On a client-side `<Link>`

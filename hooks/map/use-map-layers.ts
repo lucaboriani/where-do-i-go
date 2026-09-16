@@ -74,18 +74,20 @@ function addAll(
     type: "line",
     source: LEGS_SOURCE,
     paint: {
+      // Origin fade is baked into the gradient ALPHA (8-digit hex 40/99/F2 ≈
+      // 0.25/0.60/0.95), NOT a separate line-opacity: line-progress is honored
+      // only inside line-gradient. ./notes.md#why-the-fade-is-in-the-gradient-alpha
       "line-gradient": [
         "interpolate",
         ["linear"],
         ["line-progress"],
         0,
-        ["to-color", MAP_COLORS.accent],
+        ["to-color", `${MAP_COLORS.accent}40`],
         0.5,
-        ["to-color", MAP_COLORS.accent],
+        ["to-color", `${MAP_COLORS.accent}99`],
         1,
-        ["to-color", MAP_COLORS.accentBright],
+        ["to-color", `${MAP_COLORS.accentBright}F2`],
       ],
-      "line-opacity": ["interpolate", ["linear"], ["line-progress"], 0, 0.25, 1, 0.95],
       "line-width": [
         "case",
         ["boolean", ["feature-state", "active"], false],

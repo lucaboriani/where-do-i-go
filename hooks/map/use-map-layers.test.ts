@@ -1,10 +1,22 @@
 // @vitest-environment jsdom
 import { renderHook } from "@testing-library/react";
+import { createPropertyExpression } from "@maplibre/maplibre-gl-style-spec";
+import type { StylePropertySpecification } from "@maplibre/maplibre-gl-style-spec";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LAYERS, LEGS_SOURCE, POINTS_SOURCE, useMapLayers } from "./use-map-layers";
 import { MAP_COLORS } from "@/lib/map/tokens";
 import { ROUTE_WIDTH, ROUTE_WIDTH_ACTIVE } from "@/lib/map/view";
 import type { IndexEntry } from "@/lib/pod/schema";
+
+// The line-gradient property spec, so createPropertyExpression compiles the
+// paint value as a color ramp over line-progress rather than a constant.
+const LINE_GRADIENT_SPEC = {
+  type: "color",
+  "property-type": "color-ramp",
+  expression: { interpolated: true, parameters: ["line-progress"] },
+} as unknown as StylePropertySpecification;
+
+type CompiledExpr = { value: { evaluate: (globals: object) => { a: number } } };
 
 class FakeSource {
   data: unknown = null;
@@ -113,13 +125,34 @@ describe("useMapLayers", () => {
       ["linear"],
       ["line-progress"],
       0,
-      ["to-color", MAP_COLORS.accent],
+      ["to-color", `${MAP_COLORS.accent}40`],
       0.5,
-      ["to-color", MAP_COLORS.accent],
+      ["to-color", `${MAP_COLORS.accent}99`],
       1,
-      ["to-color", MAP_COLORS.accentBright],
+      ["to-color", `${MAP_COLORS.accentBright}F2`],
     ]);
     expect(paint).not.toHaveProperty("line-dasharray");
+  });
+
+  it("bakes the origin fade into the gradient alpha, not a folded line-opacity", () => {
+    // line-progress is honored only inside line-gradient; in line-opacity it
+    // folds flat. Guard: no line-opacity, and the compiled gradient's alpha
+    // actually ramps 0.25 -> 0.95 along the leg.
+    renderHook(() => useMapLayers(map as never, [entry("a"), entry("b", { sortOrder: 2 })], true));
+    const paint = map.layerSpecs[LAYERS.line].paint as Record<string, unknown>;
+    expect(paint).not.toHaveProperty("line-opacity");
+
+    const compiled = createPropertyExpression(
+      paint["line-gradient"],
+      "line-gradient",
+      LINE_GRADIENT_SPEC,
+    );
+    expect(compiled.result).toBe("success");
+    const alphaAt = (lineProgress: number) =>
+      (compiled as CompiledExpr).value.evaluate({ zoom: 5, lineProgress }).a;
+    expect(alphaAt(0)).toBeCloseTo(0.25, 1);
+    expect(alphaAt(1)).toBeCloseTo(0.95, 1);
+    expect(alphaAt(0)).toBeLessThan(alphaAt(1));
   });
 
   it("widens the active leg via feature-state, not color", () => {

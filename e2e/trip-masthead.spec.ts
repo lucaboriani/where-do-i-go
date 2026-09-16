@@ -35,3 +35,20 @@ test.describe("the trip masthead is a slot, and the entry route nulls it", () =>
     await expect(page.locator(".masthead").filter({ visible: true })).toHaveCount(0);
   });
 });
+
+test.describe("the trip title survives on a phone (final-review FIX 1)", () => {
+  test("shows the title in-sheet at 390px, where the full-width masthead is hidden", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(TRIP);
+
+    // The full-width slot masthead is display:none <48rem.
+    await expect(page.locator(".masthead").filter({ visible: true })).toHaveCount(0);
+
+    // The title still appears exactly once, from the in-sheet mobile copy.
+    const titles = page.locator("h1.display.trip-title").filter({ visible: true });
+    await expect(titles).toHaveCount(1);
+    await expect(titles).toHaveText("Japan, spring");
+  });
+});

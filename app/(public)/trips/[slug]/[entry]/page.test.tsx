@@ -82,8 +82,12 @@ describe("EntryContent", () => {
     expect(screen.queryByText("undefined")).toBeNull();
   });
 
-  it("renders the site footer as a contentinfo landmark", async () => {
-    await renderEntry();
-    expect(screen.getByRole("contentinfo")).toHaveClass("status-line");
+  it("renders the site footer at the end of the entry, as a status line", async () => {
+    // NOT getByRole("contentinfo"): in production this <footer> is inside
+    // <main>, so it maps to generic. Assert the element and its tagline.
+    const { container } = await renderEntry();
+    const footer = container.querySelector("footer.status-line");
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent(/solid pod/i);
   });
 });

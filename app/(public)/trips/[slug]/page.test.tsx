@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Phase 7 task 4: TripContent owns the timeline column and footer; the
- * masthead moved to the `@masthead` slot — see its own page.test.tsx.
+ * Phase 7 task 4 + final-review FIX 1: TripContent owns the timeline, the
+ * footer, and a mobile-only trip title (the `@masthead` slot is hidden <48rem).
  * Calls exported `TripContent` directly, not `<TripPage>` — see page.tsx.
  */
 import { cleanup, render, screen } from "@testing-library/react";
@@ -59,9 +59,19 @@ beforeEach(() => {
 });
 
 describe("TripContent", () => {
-  it("no longer renders the trip name — it moved to the @masthead slot", async () => {
-    render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+  it("renders a mobile-only trip title in the sheet, since the masthead is hidden <48rem", async () => {
+    const { container } = render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveClass("display", "trip-title");
+    expect(h1).toHaveTextContent("Japan, spring");
+    // jsdom can't evaluate the <48rem media query; assert the wrapper class
+    // that hides this copy at desktop instead.
+    expect(container.querySelector(".trip-title-mobile")).toContainElement(h1);
+  });
+
+  it("does not leak a draft trip's title on mobile — it 404s before rendering", async () => {
+    vi.mocked(getTrip).mockResolvedValue(ok(aTrip({ status: "draft" })));
+    await expect(TripContent({ params: Promise.resolve({ slug: SLUG }) })).rejects.toThrow();
   });
 
   it("still renders the timeline", async () => {
@@ -69,8 +79,13 @@ describe("TripContent", () => {
     expect(screen.getByRole("link", { name: "First night in Shinjuku" })).toBeInTheDocument();
   });
 
-  it("renders the site footer at the end of the column", async () => {
-    render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole("contentinfo")).toHaveClass("status-line");
+  it("renders the site footer at the end of the column, as a status line", async () => {
+    // NOT getByRole("contentinfo"): in production this <footer> sits inside
+    // <main>, so it maps to generic, not the landmark. Assert the element and
+    // its tagline, which hold regardless of nesting.
+    const { container } = render(await TripContent({ params: Promise.resolve({ slug: SLUG }) }));
+    const footer = container.querySelector("footer.status-line");
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent(/solid pod/i);
   });
 });
