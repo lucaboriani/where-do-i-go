@@ -447,31 +447,50 @@ export async function readTripIndex(url: string, opts?: ReadOptions): Promise<Re
   return read.ok ? ok(read.value.index) : read;
 }
 
-export async function readDiary(url: string, opts?: ReadOptions): Promise<Result<Diary>> {
+function diaryOf(quads: Quad[], url: string): Diary {
+  const v = viewOf(quads, itOf(url));
+  if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+  if (!v.types().includes(DY_CLASS.Diary)) {
+    throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Diary}`] });
+  }
+  return validate(
+    Diary,
+    {
+      iri: itOf(url),
+      schemaVersion: schemaVersionOf(v, url),
+      title: langText(v, DCTERMS.title),
+      description: langText(v, DCTERMS.description),
+      creator: v.one(DCTERMS.creator),
+      trips: v.all(DY.trip),
+      modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+    },
+    url,
+  );
+}
+
+/** The same parse, as the Result this module promises its callers — mirrors
+ *  `parseTripIndex`. */
+export function parseDiary(quads: Quad[], url: string): Result<Diary> {
+  return guard(() => diaryOf(quads, url));
+}
+
+/** The diary, plus the ETag of the response it was parsed from — for
+ *  `lib/pod/diary.ts`'s read-modify-write, mirroring `readTripIndexWithEtag`. */
+export async function readDiaryWithEtag(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<{ diary: Diary; etag: string | null }>> {
   const fetched = await fetchTurtle(url, opts);
   if (!fetched.ok) return fetched;
-  const { quads } = fetched.value;
+  const { quads, etag } = fetched.value;
 
-  return guard(() => {
-    const v = viewOf(quads, itOf(url));
-    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
-    if (!v.types().includes(DY_CLASS.Diary)) {
-      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Diary}`] });
-    }
-    return validate(
-      Diary,
-      {
-        iri: itOf(url),
-        schemaVersion: schemaVersionOf(v, url),
-        title: langText(v, DCTERMS.title),
-        description: langText(v, DCTERMS.description),
-        creator: v.one(DCTERMS.creator),
-        trips: v.all(DY.trip),
-        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
-      },
-      url,
-    );
-  });
+  const parsed = parseDiary(quads, url);
+  return parsed.ok ? ok({ diary: parsed.value, etag }) : parsed;
+}
+
+export async function readDiary(url: string, opts?: ReadOptions): Promise<Result<Diary>> {
+  const read = await readDiaryWithEtag(url, opts);
+  return read.ok ? ok(read.value.diary) : read;
 }
 
 /**
