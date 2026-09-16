@@ -138,6 +138,14 @@
   line-height: 0.94;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+/* .display only renders in the entry masthead, inside the 34rem sheet column
+   (measured 448px of content) — fixed regardless of viewport past the
+   trip-shell breakpoint below, so its 9vw term overflowed there (measured:
+   "First night in Shinjuku" at 1002px in a 448px box). Pinned, not clamped. */
+@media (min-width: 48rem) {
+  .display { font-size: 3rem; }
 }
 .display-sm {
   margin: 0;
@@ -296,11 +304,12 @@
 .entry-prose p:first-of-type::first-line { color: var(--color-text); }
 
 /* Entry photographs. Ported from .mockups/entry.html + _shared.css; the mockup
-   bleeds to 100vw, but the entry lives in the 34rem sheet column, so a single
-   photo bleeds to the COLUMN edge (negative inline margin = the wrap padding),
-   never the viewport. Spec §8; see components/public/entry-section/notes.md. */
+   bleeds to 100vw, but the entry lives in the unpadded 34rem sheet column, so a
+   single photo already reaches the COLUMN edge at width:100% — NO negative
+   margin: `<main>` carries no ambient padding to cancel, and one spilled 48px
+   onto the map pane and past the viewport (measured, desktop; fixed here).
+   Spec §8; see components/public/entry-section/notes.md. */
 .entry-figure { margin-block: clamp(2rem, 7vh, 5rem); }
-.entry-figure--bleed { margin-inline: calc(-1 * clamp(1.25rem, 4vw, 3rem)); }
 .entry-figure--bleed .caption { padding-inline: clamp(1.25rem, 4vw, 3rem); }
 
 .plate { position: relative; width: 100%; overflow: hidden; background: var(--color-surface); background-size: cover; background-position: center; }

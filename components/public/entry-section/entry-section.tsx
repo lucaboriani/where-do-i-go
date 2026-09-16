@@ -8,7 +8,9 @@ function Plate({ photo }: { photo: Section["photos"][number] }) {
   if (photo.blurDataUrl) style.backgroundImage = `url("${photo.blurDataUrl}")`;
   return (
     <div className="plate" style={style}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- next/image cannot serve a Pod URL; see components/studio/entry-editor/fields/photo-fields */}
+      {/* eslint-disable-next-line @next/next/no-img-element --
+          PERMANENT: next/image cannot serve a Pod URL. Remove only if that
+          changes. See components/studio/entry-editor/fields/photo-fields. */}
       <img src={photo.contentUrl} alt={photo.caption?.value ?? ""} loading="lazy" />
     </div>
   );

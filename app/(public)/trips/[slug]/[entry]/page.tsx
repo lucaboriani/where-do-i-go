@@ -43,13 +43,15 @@ export default function EntryPage(props: { params: Promise<{ slug: string; entry
 
 function EntrySkeleton() {
   return (
-    <div aria-hidden className="animate-pulse">
-      <div className="h-8 w-3/4 rounded-sm bg-surface" />
-      <div className="mt-3 h-4 w-1/2 rounded-sm bg-surface" />
-      <div className="mt-6 space-y-2">
-        <div className="h-4 w-full rounded-sm bg-surface" />
-        <div className="h-4 w-full rounded-sm bg-surface" />
-        <div className="h-4 w-4/5 rounded-sm bg-surface" />
+    <div className="wrap">
+      <div aria-hidden className="animate-pulse">
+        <div className="h-8 w-3/4 rounded-sm bg-surface" />
+        <div className="mt-3 h-4 w-1/2 rounded-sm bg-surface" />
+        <div className="mt-6 space-y-2">
+          <div className="h-4 w-full rounded-sm bg-surface" />
+          <div className="h-4 w-full rounded-sm bg-surface" />
+          <div className="h-4 w-4/5 rounded-sm bg-surface" />
+        </div>
       </div>
     </div>
   );
