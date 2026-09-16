@@ -18,10 +18,13 @@ import {
   studioState,
   subscribeSessionState,
 } from "@/lib/studio/session";
+import { readTripWithEtag, tripUrl } from "@/lib/pod/read";
 import EntryEditor from "@/components/studio/entry-editor";
+import TripEditor from "@/components/studio/trip-editor";
 import TripsList from "@/components/studio/trips-list";
 import type { EditorTrip } from "@/components/studio/entry-editor";
 import type { PodError } from "@/lib/pod/result";
+import type { Trip } from "@/lib/pod/schema";
 import type { StudioTripListing } from "@/lib/studio/trips";
 import type { SessionState, StudioSessionLike, StudioState } from "@/lib/studio/session";
 
@@ -53,6 +56,12 @@ export interface StudioShellProps {
    *  above exercises. `studio-client.tsx` is the only caller.
    *  ./notes.md#the-trips-home-migration-seam */
   tripsHome?: boolean;
+  /** CREATE mode: mount a blank trip editor. Set by `/studio/trips/new`'s
+   *  page. Takes priority over `tripsHome`: ./notes.md#the-trip-editor-routing-props */
+  newTrip?: boolean;
+  /** EDIT mode: load this trip, then mount the editor on it. Set by
+   *  `/studio/trips/[slug]`'s page. ./notes.md#the-trip-editor-routing-props */
+  editTripSlug?: string;
 }
 
 /** Where the enumeration has got to. `pending` IS A STATE, NEVER A RESULT, and
@@ -72,6 +81,8 @@ export default function StudioShell({
   podRoot,
   trips,
   tripsHome,
+  newTrip,
+  editTripSlug,
 }: StudioShellProps) {
   const [state, setState] = useState<SessionState>({ status: "restoring" });
   const [failure, setFailure] = useState<string | null>(null);
@@ -108,7 +119,12 @@ export default function StudioShell({
    *  BOOLEANS RATHER THAN `view`, which is a fresh object every render and would
    *  re-enter unboundedly:
    *  ./notes.md#enumerate-only-for-the-owner-and-only-when-nobody-handed-us-a-list */
-  const enumerating = view.status === "owner" && trips === undefined && !tripsHome;
+  const enumerating =
+    view.status === "owner" &&
+    trips === undefined &&
+    !tripsHome &&
+    !newTrip &&
+    editTripSlug === undefined;
 
   /** The in-flight listing, memoised by the root it was started for — the shape
    *  `restoreSession` documents. THE REF IS DELIBERATELY NOT CLEARED ON CLEANUP:
@@ -163,6 +179,8 @@ export default function StudioShell({
         settingsUrl={settingsUrlFor(podRoot)}
         podRoot={podRoot}
         tripsHome={tripsHome}
+        newTrip={newTrip}
+        editTripSlug={editTripSlug}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -184,6 +202,8 @@ function Body({
   settingsUrl,
   podRoot,
   tripsHome,
+  newTrip,
+  editTripSlug,
   onSignIn,
   onSignOut,
 }: {
@@ -202,6 +222,9 @@ function Body({
   podRoot: string;
   /** See `StudioShellProps.tripsHome`'s own docblock. */
   tripsHome: boolean | undefined;
+  /** See `StudioShellProps.newTrip`/`.editTripSlug`'s own docblocks. */
+  newTrip: boolean | undefined;
+  editTripSlug: string | undefined;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -251,7 +274,13 @@ function Body({
         <>
           <p className="mt-2 text-muted-foreground">{`Signed in as ${view.webId}.`}</p>
           <Action onClick={onSignOut}>{"Sign out"}</Action>
-          {tripsHome ? (
+          {newTrip === true || editTripSlug !== undefined ? (
+            // Ahead of `tripsHome`, deliberately: `studio-client.tsx` sets
+            // `tripsHome` unconditionally, and both routes below it pass it
+            // straight through — this is what stops a create/edit route
+            // rendering the trips list instead. ./notes.md#the-trip-editor-routing-props
+            <TripEditorRoute session={session} podRoot={podRoot} editTripSlug={editTripSlug} />
+          ) : tripsHome ? (
             <TripsList session={session} podRoot={podRoot} />
           ) : (
             <Writables
@@ -263,6 +292,70 @@ function Body({
             />
           )}
         </>
+      );
+  }
+}
+
+/** Where loading the named trip has got to — `pending` is a state, never a
+ *  result, exactly as `ListingState` above treats it. */
+type TripLoad =
+  | { status: "pending" }
+  | { status: "ready"; trip: Trip; etag: string | null }
+  | { status: "failed"; error: PodError };
+
+/**
+ * CREATE mounts the editor blank; EDIT reads the trip first — with the
+ * session's own fetch, never the ambient one (invariant 4) — and mounts it on
+ * what came back. ./notes.md#the-trip-editor-routing-props
+ */
+function TripEditorRoute({
+  session,
+  podRoot,
+  editTripSlug,
+}: {
+  session: StudioSessionLike;
+  podRoot: string;
+  editTripSlug: string | undefined;
+}) {
+  const [load, setLoad] = useState<TripLoad>({ status: "pending" });
+
+  useEffect(() => {
+    if (editTripSlug === undefined) return;
+    let live = true;
+    void readTripWithEtag(tripUrl(podRoot, editTripSlug), { fetch: session.fetch }).then((read) => {
+      if (!live) return;
+      setLoad(
+        read.ok
+          ? { status: "ready", trip: read.value.trip, etag: read.value.etag }
+          : { status: "failed", error: read.error },
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [editTripSlug, podRoot, session]);
+
+  if (editTripSlug === undefined) return <TripEditor session={session} podRoot={podRoot} />;
+
+  switch (load.status) {
+    case "pending":
+      return <p className="mt-8 text-muted-foreground">{"Looking for this trip on your Pod…"}</p>;
+    case "failed":
+      return (
+        <>
+          <p role="alert" className="mt-8">
+            {"This trip could not be read."}
+          </p>
+          <p className="mt-2 text-muted-foreground">{describePodError(load.error)}</p>
+        </>
+      );
+    case "ready":
+      return (
+        <TripEditor
+          session={session}
+          podRoot={podRoot}
+          initial={{ trip: load.trip, etag: load.etag }}
+        />
       );
   }
 }

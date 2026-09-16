@@ -80,9 +80,10 @@ function commentRuns(file: string): Array<[string, number]> {
  * ./notes.md#the-comment-ratchet
  */
 const PROD_COMMENT_BASELINE = 0;
-/** 546 → 547: `save-trip.test.ts` (Task 1.5) added one more oversized,
- *  exempt test docblock, atop bootstrap.test.ts's two (Task 1.4). */
-const TEST_COMMENT_BASELINE = 547;
+/** 547 → 552: Task 3.3's five RED test files (`use-trip-form.test.ts` ×2,
+ *  `use-trip-save.test.ts`, `trip-editor.test.tsx`, `trips/new/page.test.ts`)
+ *  added five more oversized, exempt test docblocks between them. */
+const TEST_COMMENT_BASELINE = 552;
 
 /** The test side: the placement rule's own predicate, plus the editor rig (54
  *  blocks, no `*.test.tsx`) and all of `e2e/`, which is Playwright's suite and

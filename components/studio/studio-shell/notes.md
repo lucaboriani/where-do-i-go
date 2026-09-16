@@ -189,6 +189,26 @@ When `tripsHome` is set, the enumeration effect above does not run at all
 `useStudioTrips`, and running both would be two competing listings of the
 same container.
 
+## the trip editor routing props
+
+`newTrip` and `editTripSlug` are Task 3.3's, set by `/studio/trips/new` and `/studio/trips/[slug]`
+respectively — both routes go through `studio-client.tsx`, which sets `tripsHome` unconditionally
+for every caller. Without an explicit priority, a create/edit route would receive BOTH `tripsHome:
+true` and its own prop, and whichever branch of `Body`'s ternary happened to be checked first would
+win by accident rather than by design.
+
+The order is therefore: `newTrip`/`editTripSlug` first, `tripsHome` second, the pre-3.2
+`Writables` path last. `enumerating` gets the same two booleans added to its guard, for the reason
+`#trips-is-a-test-seam-and-supplied-means-supplied` already gives one flag at a time: a route
+headed straight for `TripEditorRoute` has no use for a trips listing, and starting one anyway is an
+authenticated request nobody asked for.
+
+`TripEditorRoute` itself is `TripsList`'s own two-phase load, applied to one trip instead of many:
+`pending` while `readTripWithEtag` is out, `failed` on a structured `PodError` rather than a blank
+screen, `ready` once the trip and its ETag are both in hand. CREATE never enters that state machine
+at all — `editTripSlug === undefined` mounts `<TripEditor>` blank on the first render, matching
+`TripsList`'s own reasoning against a flash of "loading" that could never resolve to anything else.
+
 ## the enumeration is a value rather than a throw
 
 `listStudioTrips` promises to return a `Result` and never to reject, so
