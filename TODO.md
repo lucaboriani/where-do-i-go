@@ -1901,8 +1901,59 @@ branch once this stage merges.
 
 ## Phase 7 — look and feel
 
-Design plan first, per the process section of `docs/design-brief.md`. Typefaces are still
-open.
+**IN PROGRESS on branch `phase-7-look-and-feel`, UNMERGED.** Jumped the queue ahead of phases 5–6
+(decided 2026-09-15 — see the status memory / `docs/decisions.md`). Typefaces are **decided**:
+`--sans: Syne`, `--mono: DM Mono`, both self-hosted via `next/font/google`. Spec
+`docs/superpowers/specs/2026-09-15-look-and-feel-phase-7-design.md`; plan
+`docs/superpowers/plans/2026-09-15-look-and-feel-phase-7.md` (9 tasks).
+
+Done (committed on the branch):
+- [x] Task 1 — Syne + DM Mono loaded, the three font tokens wired
+- [x] Task 2 — the type-scale CSS and the deadpan `SiteFooter` status line
+
+### The sectioned entry — supersedes phase-7 Task 3
+
+A content-model change decided with the maintainer 2026-09-15: an entry becomes an **ordered list
+of `dy:Section`s** (each with optional text + 0–2 photos) instead of one `schema:articleBody` blob
++ flat photo list. Spec `docs/superpowers/specs/2026-09-15-sectioned-entry-design.md`. Built as its
+own spec → three staged plans → SDD/TDD loop; phase-7 Tasks 4–9 are independent and resume around
+it.
+
+- [x] **Stage 1 — the data layer** (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-1-data-layer.md`,
+      six tasks). `dy:Section`/`schema:hasPart`/`schema:text` in vocab + data-model §3; the `Section`
+      Zod schema; `Entry` gains a required `sections` (legacy `articleBody`/`photos` KEPT as a shim,
+      removed in Stage 3); `readEntry` parses sections; the serialiser writes them (`sectionQuads`
+      sharing `imageObjectQuads` with `photoQuads`); index thumbnail from the first section's first
+      photo; `dy:schemaVersion` **1 → 2** with the §7.3 fixture + seed rewritten. Commits
+      `2046689..22116df`; all gates green; final review clean. **A data-loss bug was fixed in
+      passing:** the studio save hook now carries `existing?.sections ?? []` forward — a bare
+      `sections: []` would have wiped an edited entry's sections and blanked its index thumbnail.
+- [ ] **Stage 2 — the public entry page.** Render sections with the phase-7 look: display masthead,
+      `.meta-row`, per-section prose / full-bleed photo / a new `.pair` two-photo class, `SiteFooter`
+      at content end. **Its opening task is a failing entry-page rendering test** — after Stage 1 the
+      page still reads the now-empty `articleBody`, so entry pages currently show headline + date and
+      NO prose/photos (nothing tests this; the final Stage-1 review flagged it as Stage-2 work). Needs
+      a plan.
+- [ ] **Stage 3 — the studio section editor.** Section authoring (add / remove / reorder sections,
+      0–2 photos each); draft key `wig.draft.v2` → `v3`; then **remove the legacy `articleBody`/
+      `photos`** from `Entry` and the dead read/serialise/page code. Also closes the deferred gap: the
+      pre-sections editor writes new photos to legacy `entry.photos`, so a studio-CREATED entry has no
+      listing thumbnail until the editor writes photos into sections.
+
+### Phase-7 Tasks 4–9 (independent of the sectioned entry; order with the maintainer)
+
+- [ ] Task 4 — restyle the trip page (full-width masthead, quiet numbered timeline)
+- [ ] Task 5 — restyle the diary page; unnumber the trip list (a set, not a sequence)
+- [ ] Task 6 — the route leg becomes a fading great-circle arc: no casing, no dash (decisions §34–35)
+- [ ] Task 7 — restyle the markers: 26px, photograph fills them, arrival gets a soft halo (§36)
+- [ ] Task 8 — bring the diary-globe trip points into the quieter language
+- [ ] Task 9 — CSS-first page view transitions (reduced-motion opt-out), record §34–36, phase close
+
+**Branch must NOT merge to `main` until the feature is complete** — Stage 1 alone leaves entry pages
+without bodies. The `dy:` namespace is still `example.org`, so nothing here reaches a live Pod.
+
+**Found while designing, still unfixed:** one seeded marker renders a broken-image icon
+(`dy:thumbnail` set to something that does not resolve in dev) — a data bug, not styling.
 
 ## Phase 8 — landing page
 
