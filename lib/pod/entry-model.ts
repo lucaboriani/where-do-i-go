@@ -157,50 +157,76 @@ export function geoQuads(frag: Frag, place: NamedNode, point: GeoPoint): Quad[] 
   return quads;
 }
 
+/** One schema:ImageObject fragment's own triples (§7.3), no incoming link — the
+ *  caller hangs it off `<#it>` or a `<#section-n>` via schema:image. */
+export function imageObjectQuads(
+  node: NamedNode,
+  photo: Entry["photos"][number],
+  fallbackOrder: number,
+): Quad[] {
+  const quads: Quad[] = [
+    quad(node, namedNode(RDF.type), namedNode(SCHEMA.ImageObject)),
+    quad(node, namedNode(SCHEMA.contentUrl), namedNode(photo.contentUrl)),
+    // Ordering is always explicit (§6): parse order carries no meaning, so a
+    // photo that arrived without one gets its position, not nothing.
+    quad(node, namedNode(DY.sortOrder), int(photo.sortOrder ?? fallbackOrder)),
+  ];
+  if (photo.thumbnailUrl) {
+    quads.push(quad(node, namedNode(SCHEMA.thumbnailUrl), namedNode(photo.thumbnailUrl)));
+  }
+  if (photo.caption) quads.push(quad(node, namedNode(SCHEMA.caption), text(photo.caption)));
+  if (photo.width !== undefined) quads.push(quad(node, namedNode(SCHEMA.width), int(photo.width)));
+  if (photo.height !== undefined) {
+    quads.push(quad(node, namedNode(SCHEMA.height), int(photo.height)));
+  }
+  /**
+   * A media type is a code, not prose — plain, like the slug and the country
+   * code above (§7.3). Written from the type the blob ACTUALLY has.
+   * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
+   */
+  if (photo.encodingFormat) {
+    quads.push(quad(node, namedNode(SCHEMA.encodingFormat), literal(photo.encodingFormat)));
+  }
+  if (photo.dateCreated) {
+    quads.push(quad(node, namedNode(SCHEMA.dateCreated), dt(photo.dateCreated)));
+  }
+  /**
+   * Also a plain literal, and NOT language-tagged: base64 is not
+   * human-readable in any language. `dy:originalUrl` is deliberately never
+   * written; say so here if a fourth photo predicate joins it.
+   * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
+   */
+  if (photo.blurDataUrl) {
+    quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
+  }
+  return quads;
+}
+
 /** §7.3 `<#photo-n>` — one schema:ImageObject per photo, numbered from 1. */
 export function photoQuads(frag: Frag, it: NamedNode, photos: Entry["photos"]): Quad[] {
-  const quads: Quad[] = [];
-  photos.forEach((photo, i) => {
+  return photos.flatMap((photo, i) => {
     const node = frag(`photo-${i + 1}`);
-    quads.push(
-      quad(it, namedNode(SCHEMA.image), node),
-      quad(node, namedNode(RDF.type), namedNode(SCHEMA.ImageObject)),
-      quad(node, namedNode(SCHEMA.contentUrl), namedNode(photo.contentUrl)),
-      // Ordering is always explicit (§6): parse order carries no meaning, so a
-      // photo that arrived without one gets its position, not nothing.
-      quad(node, namedNode(DY.sortOrder), int(photo.sortOrder ?? i + 1)),
-    );
-    if (photo.thumbnailUrl) {
-      quads.push(quad(node, namedNode(SCHEMA.thumbnailUrl), namedNode(photo.thumbnailUrl)));
-    }
-    if (photo.caption) quads.push(quad(node, namedNode(SCHEMA.caption), text(photo.caption)));
-    if (photo.width !== undefined)
-      quads.push(quad(node, namedNode(SCHEMA.width), int(photo.width)));
-    if (photo.height !== undefined) {
-      quads.push(quad(node, namedNode(SCHEMA.height), int(photo.height)));
-    }
-    /**
-     * A media type is a code, not prose — plain, like the slug and the country
-     * code above (§7.3). Written from the type the blob ACTUALLY has.
-     * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
-     */
-    if (photo.encodingFormat) {
-      quads.push(quad(node, namedNode(SCHEMA.encodingFormat), literal(photo.encodingFormat)));
-    }
-    if (photo.dateCreated) {
-      quads.push(quad(node, namedNode(SCHEMA.dateCreated), dt(photo.dateCreated)));
-    }
-    /**
-     * Also a plain literal, and NOT language-tagged: base64 is not
-     * human-readable in any language. `dy:originalUrl` is deliberately never
-     * written; say so here if a fourth photo predicate joins it.
-     * ./notes.md#which-photo-literals-are-plain-and-which-are-tagged
-     */
-    if (photo.blurDataUrl) {
-      quads.push(quad(node, namedNode(DY.blurDataUrl), literal(photo.blurDataUrl)));
-    }
+    return [quad(it, namedNode(SCHEMA.image), node), ...imageObjectQuads(node, photo, i + 1)];
   });
-  return quads;
+}
+
+/** §7.3 `<#section-n>` (spec §3): schema:hasPart from <#it>, dy:Section, its
+ *  text, and its 0–2 photos as nested ImageObject fragments. */
+export function sectionQuads(frag: Frag, it: NamedNode, sections: Entry["sections"]): Quad[] {
+  return sections.flatMap((section, i) => {
+    const node = frag(`section-${i + 1}`);
+    const quads: Quad[] = [
+      quad(it, namedNode(SCHEMA.hasPart), node),
+      quad(node, namedNode(RDF.type), namedNode(DY_CLASS.Section)),
+      quad(node, namedNode(DY.sortOrder), int(section.sortOrder ?? i + 1)),
+    ];
+    if (section.text) quads.push(quad(node, namedNode(SCHEMA.text), text(section.text)));
+    section.photos.forEach((photo, j) => {
+      const p = frag(`section-${i + 1}-photo-${j + 1}`);
+      quads.push(quad(node, namedNode(SCHEMA.image), p), ...imageObjectQuads(p, photo, j + 1));
+    });
+    return quads;
+  });
 }
 
 export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
@@ -236,6 +262,7 @@ export async function serialiseEntry(entry: Entry): Promise<Result<string>> {
     ...itQuads(it, e),
     ...(e.place ? placeQuads(frag, it, e.place, e.headline.language) : []),
     ...photoQuads(frag, it, e.photos),
+    ...sectionQuads(frag, it, e.sections),
   ];
 
   const writer = new Writer({

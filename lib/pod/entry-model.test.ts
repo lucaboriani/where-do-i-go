@@ -269,3 +269,30 @@ describe("photoQuads — §7.3 <#photo-n>", () => {
     expect(photoQuads(frag, IT, [])).toEqual([]);
   });
 });
+
+/* ========================================================= §7.3 <#section-n> */
+
+describe("sectionQuads — §7.3 <#section-n>", () => {
+  it("writes a section: schema:hasPart, dy:Section, text, and a nested photo", async () => {
+    const { sectionQuads } = await import("./entry-model");
+    await expectGraph(
+      sectionQuads(frag, IT, [
+        {
+          text: { value: "Counter seating, no menu.", language: "en" },
+          sortOrder: 2,
+          photos: [{ contentUrl: `${MEDIA}/web.webp`, sortOrder: 1 }],
+        },
+      ]),
+      [
+        quad(IT, namedNode(SCHEMA.hasPart), frag("section-1")),
+        quad(frag("section-1"), namedNode(RDF.type), namedNode(DY_CLASS.Section)),
+        quad(frag("section-1"), namedNode(DY.sortOrder), literal("2", namedNode(XSD.integer))),
+        quad(frag("section-1"), namedNode(SCHEMA.text), literal("Counter seating, no menu.", "en")),
+        quad(frag("section-1"), namedNode(SCHEMA.image), frag("section-1-photo-1")),
+        quad(frag("section-1-photo-1"), namedNode(RDF.type), namedNode(SCHEMA.ImageObject)),
+        quad(frag("section-1-photo-1"), namedNode(SCHEMA.contentUrl), namedNode(`${MEDIA}/web.webp`)),
+        quad(frag("section-1-photo-1"), namedNode(DY.sortOrder), literal("1", namedNode(XSD.integer))),
+      ],
+    );
+  });
+});
