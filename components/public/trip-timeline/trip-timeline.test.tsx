@@ -104,4 +104,54 @@ describe("TripTimeline", () => {
     expect(screen.getByRole("listitem").textContent).toBe("Arrival");
     expect(screen.getByRole("listitem").children).toHaveLength(1);
   });
+
+  it("sets the entry date in mono data type", () => {
+    render(
+      <TripTimeline slug="japan" entries={[entry({ occurredAt: "2026-03-29T21:40:00+09:00" })]} />,
+    );
+    // Split across two <span> children (date, time); <time> is the stable
+    // anchor regardless of how the wall clock text is broken up.
+    const date = screen.getByText(/2026-03-29/);
+    expect(date.closest("time")).toHaveClass("data");
+  });
+
+  it("renders travel mode as a mono label", () => {
+    render(<TripTimeline slug="japan" entries={[entry({ travelModeFrom: "Train" })]} />);
+    expect(screen.getByText("Train")).toHaveClass("label");
+  });
+
+  it("marks an exact coordinate with the square shape", () => {
+    // Coordinates from .mockups/trip.html's Shinjuku row — an exact reading,
+    // no precisionMeters.
+    const { container } = render(
+      <TripTimeline
+        slug="japan"
+        entries={[entry({ slug: "shinjuku", lat: 35.6938, long: 139.7034 })]}
+      />,
+    );
+    const el = container.querySelector(".precision");
+    expect(el).not.toBeNull();
+    expect(el).toHaveClass("exact");
+  });
+
+  it("marks a fuzzed coordinate with the circle shape, not exact", () => {
+    // Coordinates from .mockups/trip.html's Nara row — fuzzed, so
+    // precisionMeters is set.
+    const { container } = render(
+      <TripTimeline
+        slug="japan"
+        entries={[entry({ slug: "nara", lat: 34.6851, long: 135.805, precisionMeters: 500 })]}
+      />,
+    );
+    const el = container.querySelector(".precision");
+    expect(el).not.toBeNull();
+    expect(el).not.toHaveClass("exact");
+  });
+
+  it("keeps entries as a numbered sequence, not an unordered list", () => {
+    // A trip's entries ARE a sequence (spec §3 / Global Constraints) — this
+    // must stay true across the restyle, unlike the diary's trip list.
+    const { container } = render(<TripTimeline slug="japan" entries={[entry({})]} />);
+    expect(container.querySelector("ol")).toHaveClass("list-decimal");
+  });
 });

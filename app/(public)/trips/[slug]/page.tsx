@@ -55,7 +55,10 @@ function TripSkeleton() {
   );
 }
 
-async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
+// Exported for page.test.tsx: React's client renderer rejects an async
+// function component reached through JSX, so the resolved path is tested by
+// calling it directly — same reason EntryContent and DiaryContent are exported.
+export async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
   // Second line of defence only. proxy.ts is what sets the 404 status, because
