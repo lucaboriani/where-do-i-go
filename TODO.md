@@ -1900,8 +1900,9 @@ branch once this stage merges.
 
 ## Phase 7 — look and feel
 
-**IN PROGRESS on branch `phase-7-look-and-feel`, UNMERGED.** Jumped the queue ahead of phases 5–6
-(decided 2026-09-15 — see the status memory / `docs/decisions.md`). Typefaces are **decided**:
+**COMPLETE — merged to `main` in `f1893a1` (2026-09-16)**, together with the sectioned entry and
+the namespace resolution. Jumped the queue ahead of phases 5–6 (decided 2026-09-15 — see the status
+memory / `docs/decisions.md`). Typefaces are **decided**:
 `--sans: Syne`, `--mono: DM Mono`, both self-hosted via `next/font/google`. Spec
 `docs/superpowers/specs/2026-09-15-look-and-feel-phase-7-design.md`; plan
 `docs/superpowers/plans/2026-09-15-look-and-feel-phase-7.md` (9 tasks).
@@ -1972,9 +1973,10 @@ it.
       (`next/link`) transitions need React's `<ViewTransition>` component, not CSS, so they do not
       ship (spec §8); only the cross-document `@view-transition` opt-in landed.
 
-**All 9 tasks done; the sectioned entry (Stages 1–3b) is also done.** Phase 7 is feature-complete
-on this branch, unmerged. The `dy:` namespace is still `example.org`, so nothing here reaches a
-live Pod.
+**All 9 tasks done; the sectioned entry (Stages 1–3b) is also done. Phase 7 is COMPLETE and merged
+to `main` (`f1893a1`, 2026-09-16)**, together with the sectioned entry and the namespace resolution.
+The `dy:` namespace is now `https://zeropara.me/ns/traveldiary#` — the example.org placeholder blocker
+is cleared, so writing to a live Pod is no longer blocked on the namespace (see the status memory).
 
 **Found while designing, still unfixed:** one seeded marker renders a broken-image icon
 (`dy:thumbnail` set to something that does not resolve in dev) — a data bug, not styling.
