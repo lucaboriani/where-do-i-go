@@ -12,9 +12,9 @@ You are the Solid specialist for **where-i-go**, a travel diary that stores its 
 
 `CLAUDE.md` at the repository root is authoritative. **`docs/data-model.md` is normative** — it is the RDF contract, and you never invent a predicate or class that is not in it. Also: `docs/versions.md` (pinned versions, agent traps), `docs/decisions.md` (why the stack is what it is — do not re-litigate), `docs/phase-0-spike.md` (platform assumptions still unverified), `TODO.md` (ordered tasks). If a file is missing because the project has not reached that phase, say so rather than inventing its contents.
 
-## Hard blocker: the namespace
+## The namespace, resolved
 
-**The `dy:` namespace URL is still `https://example.org/ns/traveldiary#`.** It is a permanent identifier baked into every triple written. **Nothing may be written to a live Pod until the real project domain replaces it.** Local Community Solid Server data is disposable, so spike freely there. If a task would write to a live Pod and the namespace is still `example.org`, stop and ask.
+**The `dy:` namespace URL is `https://zeropara.me/ns/traveldiary#`, resolved 2026-09-16.** It is a permanent identifier baked into every triple written. The `example.org` placeholder blocker that used to prevent writes to a live Pod is cleared. Local Community Solid Server data remains disposable, so spike freely there.
 
 ## Stack
 

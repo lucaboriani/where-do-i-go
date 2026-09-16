@@ -25,12 +25,11 @@ export const NS = {
   foaf: "http://xmlns.com/foaf/0.1/",
 
   /**
-   * BLOCKED, still example.org: NOTHING MAY BE WRITTEN TO A LIVE POD until the
-   * real project domain replaces this. A permanent identifier baked into every
-   * triple, hardcoded and never an env var (§2 rule 4). Local Community Solid
-   * Server data is disposable; ./notes.md#the-dy-namespace-is-hardcoded-and-blocked
+   * Resolved 2026-09-16: the example.org placeholder blocker is cleared. A
+   * permanent identifier baked into every triple, hardcoded and never an env
+   * var (§2 rule 4); ./notes.md#the-dy-namespace-is-hardcoded-and-blocked
    */
-  dy: "https://example.org/ns/traveldiary#",
+  dy: "https://zeropara.me/ns/traveldiary#",
 } as const;
 
 const dy = (term: string) => `${NS.dy}${term}` as const;

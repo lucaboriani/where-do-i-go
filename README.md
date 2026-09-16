@@ -5,10 +5,9 @@
 > **This is not finished software, and it is not ready to be pointed at a Pod you care
 > about.** It is being built in phases, in the open. Things work, then change shape.
 >
-> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is still
-> `https://example.org/ns/traveldiary#`, a placeholder. That URL is a permanent identifier
-> baked into every triple this app writes, and it has to be replaced with a real project
-> domain before anything is written anywhere that matters. Local development against
+> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is
+> `https://zeropara.me/ns/traveldiary#`, resolved 2026-09-16. That URL is a permanent
+> identifier baked into every triple this app writes. Local development against
 > Community Solid Server is fine — that data is disposable and meant to be thrown away.
 >
 > See `TODO.md` for the phase order and what is ticked, and the status note below for where

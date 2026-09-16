@@ -598,7 +598,7 @@ describe("readEntry — sections", () => {
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 <#it> a schema:BlogPosting, dy:Entry ;
     schema:headline "T"@en ;
     dcterms:creator <https://me.solidcommunity.net/profile/card#me> ;

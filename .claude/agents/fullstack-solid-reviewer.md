@@ -28,7 +28,7 @@ Default to the current diff: `git diff` for uncommitted work, `git diff <base>..
 4. **A write without a precondition.** `If-None-Match: *` to create, `If-Match: <etag>` to update. A blind PUT is a bug, including in tests and scratch code.
 5. Access control reached anywhere but `lib/pod/access.ts`, or a direct ACL/ACR call from a feature module.
 6. Coordinates written unfuzzed, fuzzing applied at render time instead of before the write, or EXIF surviving into any uploaded derivative or original.
-7. Anything written to a live Pod while the `dy:` namespace is still `https://example.org/ns/traveldiary#`.
+7. Anything written to a live Pod while the `dy:` namespace is not `https://zeropara.me/ns/traveldiary#` (resolved 2026-09-16; `example.org` was the placeholder).
 8. A predicate or class invented rather than taken from `docs/data-model.md`, or a `dy:` term changed, added or renamed without the human being asked.
 
 **High — the change erodes a structural boundary:**

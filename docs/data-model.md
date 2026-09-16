@@ -32,7 +32,7 @@ Revision 6. See §14 for what changed and why.
 | `geo` | `http://www.w3.org/2003/01/geo/wgs84_pos#` |
 | `ldp` | `http://www.w3.org/ns/ldp#` |
 | `solid` | `http://www.w3.org/ns/solid/terms#` |
-| `dy` | `https://example.org/ns/traveldiary#` |
+| `dy` | `https://zeropara.me/ns/traveldiary#` |
 
 Declare only the prefixes a given resource actually uses. `rdf:` is never declared, because
 Turtle's `a` keyword covers `rdf:type` and nothing else in this model needs it.
@@ -79,8 +79,8 @@ an environment variable. If each deployer's Pod used its own namespace, two diar
 be read by the same code and the interoperability premise collapses.
 
 Use the project's canonical URL and publish a small RDFS document there describing each term.
-Replace `https://example.org/ns/traveldiary#` throughout once the domain is settled — it
-appears in §7 examples and in `vocab.ts`, nowhere else.
+The domain was settled 2026-09-16: `dy:` resolves to `https://zeropara.me/ns/traveldiary#`,
+in §7 examples and in `vocab.ts`, nowhere else.
 
 ---
 
@@ -406,7 +406,7 @@ These are normative. Byte-level formatting is not (see §11).
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a dy:Diary ;
@@ -433,7 +433,7 @@ actually hurt, because it is another index to keep in sync.
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix geo:     <http://www.w3.org/2003/01/geo/wgs84_pos#> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a schema:TouristTrip, dy:Trip ;
@@ -485,7 +485,7 @@ No bounding box here. It lives on the index (§7.4) with the rest of the derived
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix geo:     <http://www.w3.org/2003/01/geo/wgs84_pos#> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a schema:BlogPosting, dy:Entry ;
@@ -592,7 +592,7 @@ Notes on this shape:
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     a dy:TripIndex ;
@@ -693,7 +693,7 @@ Registrations are appended to that document, never replacing it:
 
 ```turtle
 @prefix solid: <http://www.w3.org/ns/solid/terms#> .
-@prefix dy:    <https://example.org/ns/traveldiary#> .
+@prefix dy:    <https://zeropara.me/ns/traveldiary#> .
 
 <#traveldiary-diary>
     a solid:TypeRegistration ;
@@ -721,7 +721,7 @@ this document with that property.
 ```turtle
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix dy:      <https://example.org/ns/traveldiary#> .
+@prefix dy:      <https://zeropara.me/ns/traveldiary#> .
 
 <#it>
     dcterms:modified          "2026-09-06T11:20:04+02:00"^^xsd:dateTime ;

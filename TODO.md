@@ -34,9 +34,8 @@ See `docs/phase-0-spike.md` for the seven questions, how to test each, and the r
   a bare UUID on the consent screen and broke session restore. Phase 2 needs a deployed origin
   before the login flow can be validated end to end.
 
-**Blocker before any of this touches a live Pod:** the `dy:` namespace is still
-`https://example.org/ns/traveldiary#`. Local Community Solid Server data is disposable, so
-spiking against that is fine. See `CLAUDE.md`.
+**Resolved 2026-09-16:** the `dy:` namespace is `https://zeropara.me/ns/traveldiary#`. See
+`CLAUDE.md`.
 
 ---
 
