@@ -130,7 +130,7 @@ export interface EntryDraftSeed {
    * ./notes.md#the-scope-follows-the-target-and-that-was-once-argued-backwards
    */
   entryUrl: string | undefined;
-  /** The sixteen fields AS THEY ARE RIGHT NOW, from `draftTextOf` — and the
+  /** The fifteen fields AS THEY ARE RIGHT NOW, from `draftTextOf` — and the
    *  same value the save is given, because `settleDraft` compares the two and
    *  two constructions is how the answers drift. */
   text: DraftText;
@@ -153,7 +153,7 @@ export interface EntryDraft {
 /* ═════════════════════════════════════════════════════════════════ the hook ══ */
 
 /** 142 code lines against the 200 bound, over the 130 tendency and staying
- *  there: 52 of them are the same sixteen fields written out three times, and
+ *  there: 52 of them are the same fifteen fields written out three times, and
  *  the one split that would get under 130 lends two refs to another file:
  *  ./notes.md#task-7-measured-the-142-and-it-stays */
 export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed): EntryDraft {

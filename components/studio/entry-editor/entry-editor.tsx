@@ -94,7 +94,7 @@ export default function EntryEditor({
 }: EntryEditorProps) {
   const existing = initial?.entry;
 
-  /** THE TWENTY VALUES THE FORM IS, as one reducer, with every seeding decision
+  /** THE NINETEEN VALUES THE FORM IS, as one reducer, with every seeding decision
    *  in `initialEntryFormState`: ./state/notes.md#guard-inside-the-transition
    *  NOT DESTRUCTURED ANY MORE: hooks/studio/notes.md#the-seventeen-names-came-back-together */
   const tripIris = trips.map((choice) => choice.iri);

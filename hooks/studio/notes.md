@@ -493,9 +493,9 @@ the same bytes, and nothing else about a photo can change without the owner
 picking a different file. Order matters because `sortOrder` is the position, so
 a reordering is a change.
 
-`sameText` asks whether the sixteen fields moved between two snapshots, field by
+`sameText` asks whether the fifteen fields moved between two snapshots, field by
 field rather than by `JSON.stringify`, which would answer "different" for the
-same sixteen values in a different key order. A false "different" is not
+same fifteen values in a different key order. A false "different" is not
 cosmetic: it is a local copy written back for text the Pod already holds, which
 is exactly the resurrected draft the clear after a save exists to prevent.
 
@@ -586,7 +586,7 @@ opened**, held until the owner answers it, and that is state.
 Keyed on the form values, so every change restarts the window and the typing
 coalesces into one write.
 
-What goes in is the seventeen fields of `Draft` and nothing else — the sixteen
+What goes in is the sixteen fields of `Draft` and nothing else — the fifteen
 the form holds, plus the `savedAt` stamp. The ETag, the `dcterms:created` and
 the `schema:datePublished` the component is holding right now are deliberately
 absent: they come from the read that produced this state (§10), a draft outlives
@@ -725,7 +725,7 @@ plus a ref lent across a file.
 ## what use-entry-draft is tested for
 
 Twenty cases. `draftTextOf` first, because it is the projection everything else
-spends: the sixteen fields and *not* `slots`, the three credits or `offsetGuess`
+spends: the fifteen fields and *not* `slots`, the three credits or `offsetGuess`
 — a slot holds no URL until it settles, and a `File` in a draft serialises to
 `{}` without throwing.
 
@@ -1231,16 +1231,15 @@ draft sat." An edit that rewrites the resource without them destroys them
 silently and permanently — the place and its (already fuzzed) coordinates, the
 photos, the original creator.
 
-`sections` joined this list the day schemaVersion 2 landed, and it is the one
-member this form cannot yet edit at all — there is no section UI, only the
-legacy `story` textarea feeding `articleBody`. A literal `[]` therefore is not
-"nothing changed," it is a delete: `dy:thumbnail` on the index row is sourced
-from `entry.sections`, not from `photos` (lib/pod/index-model.ts), so a plain
-edit through this form — headline only, say — would silently blank the
-listing's picture for an entry that still has one. Carrying `existing?.sections`
-through, the same as `created`, is the correct placeholder until Stage 3 builds
-the editing UI; discarding it is not a smaller version of that work, it is a
-different bug the tests in entry-editor.photos.test.tsx exist to catch.
+`sections` joined this list the day schemaVersion 2 landed, and until Stage 3a's
+editor it was the one member this form could not edit at all — no section UI,
+only the legacy `story` textarea feeding `articleBody` — so `existing?.sections`
+was carried through as a placeholder, the same as `created`. Tasks 1–3 built
+that UI: the entry now AUTHORS `sections` from the form, via `sectionsFor`, and
+has left this list. `dy:thumbnail` on the index row is still sourced from
+`entry.sections`, not from `photos` (lib/pod/index-model.ts), which is why the
+placeholder mattered while it stood and why entry-editor.photos.test.tsx now
+exercises the authored path instead.
 
 ## the timestamp is concatenated, never converted
 
@@ -1284,7 +1283,7 @@ failed the draft is kept, because then the form and this copy are the only ones
 there are: §10's 412 tells the owner to reload, and the draft is what survives
 the reload.
 
-`text` is this render's snapshot of the sixteen fields — the same values the
+`text` is this render's snapshot of the fifteen fields — the same values the
 entry was assembled from, because `save()` is synchronous up to the await — so
 it is what reached the Pod. `settleDraft` compares it with what is on the form
 now and keeps the difference.
