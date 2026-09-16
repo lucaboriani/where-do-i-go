@@ -45,6 +45,16 @@ carrying a ready photo slot:
    allow-case on each end's other direction asserted too**, so a blanket
    disable cannot pass by accident.
 
+## The cap refusal is DISABLE, not hide
+
+The plan (`docs/superpowers/plans/2026-09-16-sectioned-entry-stage-3a-studio-
+editor.md`, Task 3) leaves open whether the refusal at the 2-photo cap is a
+visible message or the picker simply going away. Chosen: DISABLE — the photo
+rows and the picker's own hint stay in place, nothing shifts under the owner's
+pointer, and "disabled" is already announced by every screen reader without
+new copy to write or localise. Simplicity over cleverness (CLAUDE.md's own
+first rule).
+
 ## Why `photo-fields` is reused rather than folded in
 
 `photo-fields.tsx` already carries its own test for the four slot states and

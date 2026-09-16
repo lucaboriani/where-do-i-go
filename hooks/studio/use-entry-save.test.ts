@@ -49,9 +49,9 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
   ...over,
 });
 
-/** A form that would save: a trip, a slug and a headline. `status` is
- *  PUBLISHED rather than the create's own default, so that the draft case below
- *  is a change from it rather than a restatement of it. */
+/** A form that would save: a trip, a slug, a headline, and a non-empty
+ *  section — CREATE's own default is one EMPTY section, which Task 3's
+ *  pre-flight below refuses. ./notes.md#why-values-overrides-the-default-section */
 function values(over: Partial<EntryFormState> = {}): EntryFormState {
   return {
     ...initialEntryFormState({ existing: undefined, tripIris: [TRIP.iri] }),
@@ -59,6 +59,7 @@ function values(over: Partial<EntryFormState> = {}): EntryFormState {
     slug: "2026-04-11-morning",
     headline: "Morning in Yanaka",
     status: "published",
+    sections: [{ id: "a", text: "Morning in Yanaka", slots: [] }],
     ...over,
   };
 }
@@ -242,6 +243,46 @@ describe("useEntrySave — what it refuses before anything is sent", () => {
     });
     expect(save).not.toHaveBeenCalled();
     expect(result.current.outcome?.text).toMatch(/did not return a version tag/i);
+  });
+
+  /** TASK 3's OWN PRE-FLIGHT: a title over nothing is still nothing to save.
+   *  Message wording deliberately unpinned beyond "needs … section …" and
+   *  "Nothing has been sent". ./notes.md#the-section-pre-flight-extends-the-same-refusal */
+  it("refuses to save when every section is empty, and sends nothing", async () => {
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "", slots: [] },
+          { id: "b", text: "   ", slots: [] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    expect(save, "a trip, a slug and a headline over nothing is still nothing to save").not
+      .toHaveBeenCalled();
+    expect(result.current.outcome?.tone).toBe("problem");
+    expect(result.current.outcome?.text).toMatch(/needs/i);
+    expect(result.current.outcome?.text).toMatch(/section/i);
+    expect(result.current.outcome?.text).toMatch(/nothing has been sent/i);
+  });
+
+  it("saves once at least one section has text or a ready photo — the allow-case", async () => {
+    // Paired with the refusal above: a pre-flight that rejected every save
+    // would pass that test for the wrong reason.
+    const { result } = mount({
+      values: values({
+        sections: [
+          { id: "a", text: "", slots: [] },
+          { id: "b", text: "Something happened here", slots: [] },
+        ],
+      }),
+    });
+    await act(async () => {
+      await result.current.save(vi.fn());
+    });
+    expect(save).toHaveBeenCalled();
   });
 });
 

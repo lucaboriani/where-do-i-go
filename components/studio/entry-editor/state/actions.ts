@@ -43,10 +43,20 @@ export interface SectionDraft {
 let sectionSeq = 0;
 export const sid = (): string => `section-${sectionSeq++}`;
 
+/** 0–2 photos per section (§7; `lib/pod/schema.ts`'s `Section.photos.max(2)`),
+ *  enforced three times over: the reducer, the pipeline and the picker. */
+export const SECTION_PHOTO_CAP = 2;
+
+/** How many of a section's slots count toward that cap — every state except
+ *  `failed`, which freed its place back up. */
+export const cappedSlotCount = (slots: readonly PhotoSlot[]): number =>
+  slots.filter((slot) => slot.state !== "failed").length;
+
 /* ══════════════════════════════════════════════════════════════════ state ══ */
 
 /**
- * THE FIFTEEN FORM FIELDS, THE PHOTOS AND THE FOUR CREDITS, as one value.
+ * THE FIFTEEN FORM FIELDS AND THE FOUR CREDITS, as one value — `sections` is
+ * one of the fifteen now, so there is no separate photos group any more.
  * The field names are `Draft`'s, deliberately: ./notes.md#what-is-derived-and-what-had-to-stay-stored
  */
 export interface EntryFormState {
@@ -100,7 +110,7 @@ export function withTimeCredit(
 /* ════════════════════════════════════════════════════════════════ actions ══ */
 
 /**
- * The thirteen fields a keystroke carries a string into. `mode` and `status`
+ * The twelve fields a keystroke carries a string into. `mode` and `status`
  * are the two `Draft` fields whose values are not strings, and they get their
  * own kinds below: ./notes.md#three-deviations-from-the-plans-action-union-each-measured
  */

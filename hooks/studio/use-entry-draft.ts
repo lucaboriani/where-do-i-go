@@ -34,7 +34,10 @@ const samePhotos = (a: readonly Photo[], b: readonly Photo[]) =>
 /** The section list, per section: same text and the same photos in order. */
 const sameSections = (a: DraftText["sections"], b: DraftText["sections"]) =>
   a.length === b.length &&
-  a.every((section, at) => section.text === b[at]?.text && samePhotos(section.photos, b[at]?.photos ?? []));
+  a.every(
+    (section, at) =>
+      section.text === b[at]?.text && samePhotos(section.photos, b[at]?.photos ?? []),
+  );
 
 /** Have the fifteen fields moved between two snapshots? Field by field, and
  *  all fifteen: ./notes.md#photos-compare-by-contenturl-text-compares-field-by-field */
@@ -186,8 +189,8 @@ export function useEntryDraft({ storage, webId, entryUrl, text }: EntryDraftSeed
   });
 
   /** Destructured for ONE reason: the autosave's dependency array is these
-   *  sixteen values and not the object holding them, which is fresh on every
-   *  render. ./notes.md#why-the-autosave-still-depends-on-sixteen-values */
+   *  fifteen values and not the object holding them, which is fresh on every
+   *  render. ./notes.md#why-the-autosave-still-depends-on-fifteen-values */
   const {
     tripIri,
     slug,

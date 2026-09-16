@@ -7,7 +7,7 @@
 import { applyFieldEdit } from "./apply-field-edit";
 import { applyPhotoCoordinate, applyPhotoTimestamp } from "./apply-photo-offer";
 import { applyRestore } from "./apply-restore";
-import { sid } from "./actions";
+import { cappedSlotCount, SECTION_PHOTO_CAP, sid } from "./actions";
 import type { EntryFormAction, EntryFormState, SectionDraft } from "./actions";
 
 /** Swap a section past its neighbour, a no-op at the ends. */
@@ -49,11 +49,15 @@ export function entryFormReducer(state: EntryFormState, action: EntryFormAction)
        names, as functions of the state the reducer is handed rather than of a
        list a render held: ./notes.md#three-deviations-from-the-plans-action-union-each-measured */
     case "slot-added":
+      // THE BELT: a section already at the cap returns unchanged — the picker
+      // and the pipeline are the first two refusals, not the only ones.
       return {
         ...state,
         sections: state.sections.map((section) =>
           section.id === action.sectionId
-            ? { ...section, slots: [...section.slots, action.slot] }
+            ? cappedSlotCount(section.slots) >= SECTION_PHOTO_CAP
+              ? section
+              : { ...section, slots: [...section.slots, action.slot] }
             : section,
         ),
       };

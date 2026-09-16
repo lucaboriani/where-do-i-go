@@ -153,6 +153,7 @@ export default function EntryEditor({
     pipeline,
     coordinatesLive: gate.coordinatesLive,
     markTouched,
+    sections: values.sections,
     form,
   });
 

@@ -200,9 +200,9 @@ export interface EntrySaveSeed {
   /** Absent means CREATE. Present means EDIT, and its `etag` is the one from
    *  THE READ THAT PRODUCED THIS STATE (§10). */
   initial: { entry: Entry; etag: string | null } | undefined;
-  /** The twenty values the form is. */
+  /** The nineteen values the form is. */
   values: EntryFormState;
-  /** The sixteen the draft is — the SAME object `useEntryDraft` was given, so
+  /** The fifteen the draft is — the SAME object `useEntryDraft` was given, so
    *  that what `settle` is told was sent is what the entry was built from. */
   text: DraftText;
   /** §9 steps 1–3, delegated whole: ./use-settings-gate.ts */
@@ -271,10 +271,17 @@ export function useEntrySave({
     // leaving it up would also let a caller mistake it for this save's.
     setOutcome(null);
 
+    /** A TITLE OVER NOTHING IS STILL NOTHING TO SAVE: `sectionsFor` below would
+     *  otherwise drop every section and hand `saveEntry` an empty list with no
+     *  word said about it. Same test `sectionsFor` runs per section. */
+    const hasSection = values.sections.some(
+      (section) => section.text.trim() !== "" || attachedOf(section.slots).length > 0,
+    );
     const missing = [
       trip === undefined ? "a trip" : null,
       slug.trim() === "" ? "a slug" : null,
       headline.trim() === "" ? "a headline" : null,
+      hasSection ? null : "at least one section with text or a photo",
     ].filter((what): what is string => what !== null);
 
     if (trip === undefined || missing.length > 0) {

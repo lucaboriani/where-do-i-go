@@ -127,6 +127,46 @@ describe("the section list renders one card per section, each independently addr
   });
 });
 
+describe("the section list disables a section's picker once it holds 2 photos", () => {
+  // DISABLE, not hide, at the cap — the plan left it open.
+  // ./notes.md#the-cap-refusal-is-disable-not-hide
+  const ready = (key: string) => ({
+    key,
+    name: `${key}.jpg`,
+    state: "ready" as const,
+    photo: { contentUrl: `${MEDIA}/${key}/web.webp` },
+  });
+
+  it("disables the picker once a section already holds 2 photos", () => {
+    const atCap: SectionDraft[] = [{ id: "s-full", text: "", slots: [ready("a"), ready("b")] }];
+    render(<SectionsField {...props({ sections: atCap })} />);
+
+    expect(within(sectionCard(1)).getByLabelText(/photos/i)).toBeDisabled();
+  });
+
+  it("keeps the picker enabled below the cap — the allow-case", () => {
+    // Without this, a component that disabled every picker unconditionally
+    // would pass the test above for the wrong reason.
+    const oneReady: SectionDraft[] = [{ id: "s-partial", text: "", slots: [ready("a")] }];
+    render(<SectionsField {...props({ sections: oneReady })} />);
+
+    expect(within(sectionCard(1)).getByLabelText(/photos/i)).not.toBeDisabled();
+  });
+
+  it("does not count a FAILED pick toward the cap: a freed place stays enabled", () => {
+    const oneFailed: SectionDraft[] = [
+      {
+        id: "s-mixed",
+        text: "",
+        slots: [ready("a"), { key: "b", name: "b.jpg", state: "failed", message: "too large" }],
+      },
+    ];
+    render(<SectionsField {...props({ sections: oneFailed })} />);
+
+    expect(within(sectionCard(1)).getByLabelText(/photos/i)).not.toBeDisabled();
+  });
+});
+
 describe("the section list's add / remove / reorder controls", () => {
   it('an "Add section" control invokes onAdd', () => {
     const wired = props();

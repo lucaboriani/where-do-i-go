@@ -465,14 +465,16 @@ into three controls and the next save would delete `schema:name` and the whole
 prevent, reached by the operator chosen to avoid a version bump.
 
 **The `photos` precedent does not transfer**, which is what made it look safe. A
-restored empty photo list is harmless because `photosFor` re-carries
-`existing.photos` at save time, so the form state is not the last word. Place
-text has no such carry-through: the form state *is* the answer, and an empty box
-is an instruction rather than an absence of one. A bare required `z.string()` is
-the other horn and is also wrong — it refuses the whole older payload, losing
-the unsaved prose the key was left at `v2` to protect. `.optional()` takes
-neither: the older payload restores its prose, and the editor's restore leaves a
-control alone when the field is absent rather than emptying it.
+restored empty photo list is harmless because the entry's own photos are seeded
+onto the form directly when the editor opens (`initialEntryFormState` /
+`restoredSections`, `state/apply-restore.ts`), so the draft's copy is not the
+last word. Place text has no such second source: the form state *is* the
+answer, and an empty box is an instruction rather than an absence of one. A
+bare required `z.string()` is the other horn and is also wrong — it refuses the
+whole older payload, losing the unsaved prose the key was left at `v2` to
+protect. `.optional()` takes neither: the older payload restores its prose, and
+the editor's restore leaves a control alone when the field is absent rather
+than emptying it.
 
 ### The coordinate is kept as typed
 

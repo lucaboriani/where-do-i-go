@@ -182,6 +182,59 @@ describe("entryFormReducer — the slots are a section's, not the form's", () =>
   });
 });
 
+/* ─── the belt: `slot-added` must not exceed 2, whoever dispatches it ─────── */
+
+describe("entryFormReducer — the per-section 2-photo cap (the belt)", () => {
+  const decoding = (key: string, name: string): PhotoSlot => ({ key, name, state: "decoding" });
+  const ready = (key: string, name: string): PhotoSlot => ({
+    key,
+    name,
+    state: "ready",
+    photo: { contentUrl: `https://pod.example/travel/media/${key}/web.jpg` },
+  });
+  const failed = (key: string, name: string): PhotoSlot => ({
+    key,
+    name,
+    state: "failed",
+    message: "boom",
+  });
+
+  it("refuses a third slot-added for a section that already holds 2", () => {
+    const atCap = withSections({
+      id: "a",
+      text: "",
+      slots: [ready("k0", "a.jpg"), ready("k1", "b.jpg")],
+    });
+    const next = entryFormReducer(atCap, {
+      kind: "slot-added",
+      sectionId: "a",
+      slot: decoding("k2", "c.jpg"),
+    });
+    // UI-level disabling is the first line of defence; this is the reducer's
+    // own — a caller that reached `dispatch` directly must still not exceed 2.
+    expect(next.sections[0].slots.map((s) => s.key), "the third slot must not land").toEqual([
+      "k0",
+      "k1",
+    ]);
+  });
+
+  it("does not count a FAILED slot toward the cap: a freed place still accepts a slot", () => {
+    // THE ALLOW-CASE: a cap that counts every row, including one that never
+    // held a photo, would strand an owner whose first pick failed.
+    const oneFailed = withSections({
+      id: "a",
+      text: "",
+      slots: [ready("k0", "a.jpg"), failed("k1", "b.jpg")],
+    });
+    const next = entryFormReducer(oneFailed, {
+      kind: "slot-added",
+      sectionId: "a",
+      slot: decoding("k2", "c.jpg"),
+    });
+    expect(next.sections[0].slots.map((s) => s.key)).toEqual(["k0", "k1", "k2"]);
+  });
+});
+
 describe("entryFormReducer — two photo offers in one queue", () => {
   it("gives the second the state the first returned, so the first writer wins", () => {
     // The pure analogue of section 12m. React applies queued actions in order

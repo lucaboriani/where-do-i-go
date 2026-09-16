@@ -14,6 +14,9 @@ export interface PhotoFieldsProps {
   id: string;
   /** One row each, in the order they were picked. */
   slots: readonly PhotoSlot[];
+  /** The visible half of the 2-photo cap (Stage 3a Task 3) — the reducer and
+   *  the pipeline are the other two, so this is UX rather than the guarantee. */
+  disabled?: boolean;
   /**
    * Every file from ONE pick, in the order the picker delivered them. The input
    * is `multiple`, so this is a list rather than a file: the editor starts them
@@ -22,7 +25,7 @@ export interface PhotoFieldsProps {
   onPicked: (files: readonly File[]) => void;
 }
 
-export default function PhotoFields({ id, slots, onPicked }: PhotoFieldsProps) {
+export default function PhotoFields({ id, slots, disabled = false, onPicked }: PhotoFieldsProps) {
   return (
     <>
       {/* THE PICKER, AND IT UPLOADS AS SOON AS SOMETHING IS PICKED — the bytes
@@ -39,6 +42,7 @@ export default function PhotoFields({ id, slots, onPicked }: PhotoFieldsProps) {
           type="file"
           accept="image/*"
           multiple
+          disabled={disabled}
           className={CONTROL}
           aria-describedby={`${id}-hint`}
           onChange={(event) => {

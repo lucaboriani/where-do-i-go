@@ -608,6 +608,9 @@ describe("entry editor — the pre-flight guard", () => {
     setText(LABEL.slug, "   ");
     setText(LABEL.headline, "  ");
     setText(LABEL.occurredAt, "2026-04-02T16:20");
+    // A section with text, so the ONLY thing under test is the slug/headline
+    // trim — not Stage 3a Task 3's separate "needs a section" pre-flight.
+    setText(LABEL.articleBody, "Rain all afternoon, and I loved every minute of it.");
     await clickSaveAndWait();
 
     // The save sent nothing — the §7.6 mount read excluded by name and counted

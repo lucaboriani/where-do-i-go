@@ -19,9 +19,10 @@ here and argued in full in the six sections after this one:
 3. **The place text is SEEDED from the entry**, which is the opposite answer to
    the coordinate's and is what makes "untouched" and "emptied"
    distinguishable at all for text.
-4. **`slots` is NOT seeded from `existing.photos`.** It would renumber their
-   `sortOrder` on every save, and each seeded row would announce a settled
-   `role="status"` at mount about a photo that has not changed.
+4. **`slots` IS seeded from `existing.photos`, as already-`ready` rows** — a
+   settled state, never a transition into one, so no `role="status"` announces
+   at mount about a photo that has not changed. (Stage 3a; before the sections
+   cutover this was the opposite answer — see `#slots-restore-from-the-entry-now-and-photosfor-is-gone`.)
 5. **The three authors are seeded from the ENTRY, conditionally** — rulings
    T3-B and T4-B. `nobody` unconditionally lets a photo move, or from inside
    the home region delete, a pin an edit was loaded with; `owner`
@@ -90,16 +91,16 @@ is where the missing flag would otherwise have been needed, and it is handled
 there instead — a draft field that is ABSENT leaves the control alone, and only
 an explicitly empty one empties it.
 
-## slots is not seeded from the entry
+## slots restore from the entry now, and `photosFor` is gone
 
-`slots` holds the photos picked in this editor, and not the ones the entry
-arrived with. Seeding it from `existing.photos` is the obvious spelling and is
-wrong twice over: it would renumber their `sortOrder` from the list position on
-every save, walking §7.3 data nobody touched — the coordinate's defect, spelled
-for photos — and each seeded row would render a settled `role="status"` at
-mount, so the editor would announce, to a screen reader, news about photos that
-have not changed. What the entry arrived with is carried at save time instead,
-by `photosFor`.
+Before the sections cutover, `slots` held only what was picked in this editor,
+and what the entry already had was recombined at save time by `photosFor`
+(deleted). Now `restoredSlots`/`restoredSections` (`state/apply-restore.ts`)
+seed a section's slots from `existing.photos` directly, as already-`ready`
+rows — never a `decoding`→`ready` transition, so no settled `role="status"`
+fires for one at mount. `sectionPhotos` (`use-entry-save.ts`) renumbers every
+`sortOrder` by position at save time regardless, which is now the design
+rather than the hazard this note used to warn against.
 
 ## the coordinate author, and ruling T3-B
 
@@ -457,11 +458,11 @@ The one case that is deliberately the other way round is "writes nothing until
 the form has been touched": there the form MOVES and the ref stays down, which
 is an editor being read rather than typed into.
 
-## why the autosave still depends on sixteen values
+## why the autosave still depends on fifteen values
 
 `text` is a fresh object on every render, so it cannot be the dependency: the
 effect would re-run every render, restart the window, and never fire. The hook
-therefore destructures `text` into its sixteen fields and lists those, which is
+therefore destructures `text` into its fifteen fields and lists those, which is
 the dependency array the effect had in `entry-editor.tsx`, value for value.
 
 The shorter spelling was tried on paper and declined. Memoising `text` on
@@ -470,7 +471,7 @@ The shorter spelling was tried on paper and declined. Memoising `text` on
 when both of its branches refuse, so a refused offer would restart a window
 today's array leaves alone. It happens to be batched with a slot change every
 time it can occur, which makes the two equivalent by an argument about
-scheduling rather than by construction. The sixteen names need no argument.
+scheduling rather than by construction. The fifteen names need no argument.
 
 ## the debounce is exported on purpose
 
@@ -687,8 +688,10 @@ tendency and 58 under the 200 bound — reported, not failing.
 | the autosave's dependency array | 19 |
 
 All three are the same sixteen fields written out three times, and each spelling
-has its own reason already recorded here:
-`#why-the-autosave-still-depends-on-sixteen-values` for the array,
+has its own reason already recorded here (the array's heading has since been
+renamed from "sixteen" to "fifteen" values, when `sections` replaced `story`
+and the flat photo pool as one field rather than two):
+`#why-the-autosave-still-depends-on-fifteen-values` for the array,
 `#what-goes-into-the-autosave-and-what-is-left-out` for the payload. The short
 version is that `text` is a fresh object every render so it cannot be the
 dependency, and the one-dependency spelling — memoise `text` on
@@ -748,42 +751,34 @@ Then the four things only this hook can be asked:
 
 # `use-photo-pipeline`
 
-## picking appends, once each, and sortOrder is measured
+## the cap seam: `sections` on `PhotoPipelineSeed`
 
-`photosFor` returns the photos the entry will carry: the ones it arrived with,
-then the ones picked in this editor, in pick order.
+Stage 3a Task 3. `attachAll` has to answer "how many does this section already
+hold" to enforce the 2-photo cap, and `form` is write-only dispatch — no read
+path back into state. `sections: readonly SectionDraft[]` is the seam this
+test proposed and the implementation kept: a reactive seed prop, parallel to
+`coordinatesLive`, read fresh on every pick rather than counted in a ref. A
+restored slot on an EDIT counts exactly like one picked this session, which
+rules out a counter the hook would otherwise keep itself.
 
-**Picking appends; it never replaces.** An edit that rewrites the resource
-without the photos it arrived with destroys them silently — and for photos it
-destroys the binaries' only reference too, since nothing else on the Pod points
-at `travel/media/<hash>/`. Pick nothing and `carried` travels through exactly as
-it arrived, which is the treatment `created`, `datePublished` and the place
-already get.
+## dedup by contentUrl, and sortOrder is a section's own position now
+
+`photosFor` — entry-level, carrying `existing.photos` through and appending
+what was newly picked — is gone with the flat photo pool. `sectionPhotos`
+(`use-entry-save.ts`) is what replaced it: a SECTION's `ready` slots, restored
+and freshly picked alike (a restored slot is already `ready`, indistinguishable
+from one this session attached), numbered by position in that list.
 
 **Once each, however many times it is picked.** The media path is
-content-addressed, so re-picking a photo the entry already carries uploads
+content-addressed, so re-picking a photo already in the section uploads
 nothing new — `putGuarded` answers 412 and `uploadPhoto` reads that as reuse —
-and returns the SAME `contentUrl`. Appending it blindly would write two
-`#photo-N` fragments pointing at one binary: the same picture twice on the
-public listing, and, with no removal control in this editor, nothing the owner
-can do about it except abandon the edit. The `Set` covers both ways in, since
-the same file picked twice in one session is the same defect on a create, where
-there is nothing carried to compare against.
+and returns the SAME `contentUrl`. `sectionPhotos`'s `seen` set is what keeps
+that from writing two `#photo-N` fragments at one binary.
 
-**`sortOrder` is the position at save time, not at pick time**, so a file the
-pipeline refused leaves no gap in the sequence — and the carried photos keep the
-numbers they were stored with, because renumbering them would rewrite §7.3 data
-the owner never touched.
-
-**Which number is free is not `carried.length`, and that is measured rather than
-argued.** `lib/pod/entry-model.ts` writes `photo.sortOrder ?? i + 1` — a carried
-photo with no number of its own is serialised with its one-based position, not
-left unwritten — so a list of one unnumbered photo is written as `dy:sortOrder
-1`, and `carried.length` is 1: the collision, in the very case the fallback
-exists for. So the seed is what the serialiser will actually write, and the
-sequence is one-based like every other `dy:sortOrder` in §7.3 (`#photo-1`
-carries 1). The `0` seed is what makes a first photo on a create come out as 1
-rather than 0.
+**`sortOrder` is now always the position at save time**, for every photo in the
+section — restored or freshly picked — which is a deliberate change from the
+old model's "carried photos keep the number they were stored with": a section's
+photo order follows its slot list, not a number last stamped on the Pod.
 
 ## attachedOf is the fence between a slot and a photo
 
@@ -931,18 +926,10 @@ purpose: it displays it and never compares it.
 
 ## what use-photo-pipeline is tested for
 
-Seventeen cases. Two pure functions first, because `save()` and the draft both
-spend them:
+Seventeen cases. One pure function first, because `save()` and the draft both
+spend it — `sectionPhotos`/`sectionsFor`, `photosFor`'s replacement, moved to
+`use-entry-save.ts` with the sections cutover and is tested there instead:
 
-- **`photosFor`** — picking APPENDS and never replaces (an edit that rewrites
-  the resource without the photos it arrived with destroys the binaries' only
-  reference); a photo taken ONCE however many times it is picked, because the
-  media path is content-addressed and a re-pick returns the same URL; and
-  `sortOrder` seeded from **what the serialiser will write** rather than from
-  `carried.length`. That last one is the case the obvious spelling gets wrong:
-  `entry-model.ts` writes `photo.sortOrder ?? i + 1`, so one unnumbered carried
-  photo is stored as `1` and `carried.length` is `1` too — a collision in the
-  very case the fallback exists for.
 - **`attachedOf`** — `ready` only, in pick order. It is the fence between a slot
   and a `Photo`, and it is what the component now spends in a one-line `useMemo`.
 
@@ -990,6 +977,27 @@ down as redundancy rather than as a load-bearing line.
 ---
 
 # `use-entry-save`
+
+## why values() overrides the default section
+
+Stage 3a Task 3. The test file's `values()` helper builds "a form that would
+save": a trip, a slug, a headline — and, since the pre-flight below now checks
+sections too, a section with something in it. `initialEntryFormState`'s own
+CREATE default is one EMPTY section, which that pre-flight refuses, so the
+helper overrides it exactly as it already overrides `tripIri`/`slug`/`headline`.
+`status` is PUBLISHED rather than CREATE's own default, so the draft case
+elsewhere in the file is a change from this helper's baseline rather than a
+restatement of it.
+
+## the section pre-flight extends the same refusal
+
+Task 3: a trip, a slug and a headline are not enough if the entry would be a
+title over nothing — every section empty (no text after trim AND no ready
+photo) is `sectionsFor` dropping all of them, which `saveEntry` would happily
+accept as `sections: []`. This extends the SAME refusal ("needs …, sends
+nothing") rather than adding a second one: one more line in `missing`, not a
+new branch. The test pins "needs … section …" and "Nothing has been sent"
+loosely, not the exact phrase, so the wording can still move.
 
 ## the save and the draft meet at the submit handler
 
@@ -1248,14 +1256,13 @@ published, which is also why a photo's EXIF is never read here.
 
 ## the photos, and why a failed slot reaches nothing
 
-What the entry arrived with, then what was picked here — and only the `ready`
-picks, since `attached` is the filter. A failed slot reaches neither the entry
-nor the index row: an optimistic slot saved with a local preview URL would write
-`schema:contentUrl <blob:…>` into a publicly readable resource, which 404s for
-every reader while the entry reports itself saved.
-
-Pick nothing and this is `existing.photos`, unchanged and renumbered by nothing
-— see `photosFor`.
+Legacy top-level `photos` is now always written `[]` (Stage 3b removes the
+field); a section owns its own instead, via `sectionsFor`/`sectionPhotos` in
+`use-entry-save.ts` — only the `ready` picks, since `attachedOf` is the filter.
+A failed slot reaches neither a section nor its index row: an optimistic slot
+saved with a local preview URL would write `schema:contentUrl <blob:…>` into a
+publicly readable resource, which 404s for every reader while the entry
+reports itself saved.
 
 ## a throw means unknown, not failed
 

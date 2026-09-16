@@ -10,7 +10,7 @@ import { attachedOf, usePhotoPipeline } from "./use-photo-pipeline";
 import type { PhotoPipelineSeed } from "./use-photo-pipeline";
 import type { Pipeline, PipelineResult } from "@/lib/media/pipeline";
 import type { Photo } from "@/lib/pod/schema";
-import type { PhotoSlot } from "@/components/studio/entry-editor/state/actions";
+import type { PhotoSlot, SectionDraft } from "@/components/studio/entry-editor/state/actions";
 import type { StudioSessionLike } from "@/lib/studio/session";
 
 const upload = vi.hoisted(() => vi.fn());
@@ -80,6 +80,10 @@ function formSpy() {
   };
 }
 
+/** The section a pick lands in, as the hook must see it to enforce the
+ *  2-photo cap — restored slots on an EDIT count exactly like ones this
+ *  session just added, so the cap reads the live section rather than a
+ *  counter the hook keeps itself. ./notes.md#the-cap-seam-sections-on-photopipelineseed */
 function seed(over: Partial<PhotoPipelineSeed> = {}): PhotoPipelineSeed {
   return {
     session,
@@ -88,8 +92,9 @@ function seed(over: Partial<PhotoPipelineSeed> = {}): PhotoPipelineSeed {
     coordinatesLive: true,
     markTouched: vi.fn(),
     form: formSpy(),
+    sections: [],
     ...over,
-  };
+  } as PhotoPipelineSeed;
 }
 
 const jpeg = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: "image/jpeg" });
@@ -268,6 +273,65 @@ describe("usePhotoPipeline — what it refuses", () => {
       wall: undefined,
       offset: undefined,
     });
+  });
+});
+
+describe("usePhotoPipeline — the per-section 2-photo cap", () => {
+  /** A section as the hook must see it to answer "how many does it already
+   *  hold" — the count `attachAll` cannot get from `form`, which only carries
+   *  action functions (Stage 3a Task 3: the cap needs a live read, not a
+   *  write). */
+  const sectionWith = (...slots: PhotoSlot[]): SectionDraft[] => [
+    { id: SECTION, text: "", slots },
+  ];
+  const ready = (key: string): PhotoSlot => ({
+    key,
+    name: `${key}.jpg`,
+    state: "ready",
+    photo: stored(key),
+  });
+
+  it("refuses a third pick for a section that already holds 2, and adds no slot for it", async () => {
+    const form = formSpy();
+    const { result } = mount({ form, sections: sectionWith(ready("existing-0"), ready("existing-1")) });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("third.jpg")]);
+    });
+    expect(form.addSlot, "the section is already at the 2-photo cap").not.toHaveBeenCalled();
+  });
+
+  it("takes only the first N of a pick that would exceed the cap from empty", async () => {
+    const form = formSpy();
+    const { result } = mount({ form, sections: sectionWith() });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("a.jpg"), jpeg("b.jpg"), jpeg("c.jpg")]);
+    });
+    const added = form.addSlot.mock.calls.map(([, slot]) => slot.name);
+    // THE ALLOW-CASE lives inside this same assertion: exactly two attach, not
+    // zero — a picker that refused every file would pass a test that only
+    // checked "the third was refused".
+    expect(added, "only the first two of the three fit the cap").toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("does not count a FAILED slot toward the cap, so a freed place still attaches", async () => {
+    const form = formSpy();
+    const { result } = mount({
+      form,
+      sections: sectionWith(ready("existing-0"), {
+        key: "existing-1",
+        name: "b.jpg",
+        state: "failed",
+        message: "boom",
+      }),
+    });
+    await act(async () => {
+      result.current.attachAll(SECTION, [jpeg("c.jpg"), jpeg("d.jpg")]);
+    });
+    const added = form.addSlot.mock.calls.map(([, slot]) => slot.name);
+    // One place was free (1 ready + 1 failed = 1 counted), so of the two
+    // newly picked files exactly one fits — the failed row does not also
+    // block it, and the cap still holds at 2 total.
+    expect(added).toEqual(["c.jpg"]);
   });
 });
 

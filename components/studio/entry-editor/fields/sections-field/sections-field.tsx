@@ -6,6 +6,7 @@
 
 import Field, { BUTTON, CONTROL } from "../../field";
 import PhotoFields from "../photo-fields";
+import { cappedSlotCount, SECTION_PHOTO_CAP } from "../../state/actions";
 import type { SectionDraft } from "../../state/actions";
 
 export interface SectionsFieldProps {
@@ -51,6 +52,7 @@ export default function SectionsField({
           <PhotoFields
             id={`entry-section-${index}-photos`}
             slots={section.slots}
+            disabled={cappedSlotCount(section.slots) >= SECTION_PHOTO_CAP}
             onPicked={(files) => onPicked(section.id, files)}
           />
 
