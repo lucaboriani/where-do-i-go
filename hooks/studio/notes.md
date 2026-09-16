@@ -1419,3 +1419,27 @@ owns. What it says about the DESIGN — the five ordering decisions, §9's
 fail-closed posture, why a value that appeared without being typed has to name
 where it came from — is all still true, and is the reason it was not shortened
 here.
+
+---
+
+# `use-publish`
+
+## why undefined fails closed
+
+`PublishTarget`'s entry variant carries `tripStatus: Status | undefined` rather
+than `Status`, and the guard is `target.tripStatus === "published"` rather than
+`target.tripStatus !== "draft"`. The second spelling reads a trip whose status
+could not yet be determined as "allowed" — the one case §5 exists to refuse,
+because that is exactly what an entry editor sees before its trip has loaded.
+Only an EXPLICIT `"published"` opens the gate; every other value, `undefined`
+included, is the closed side.
+
+`unpublish` carries none of this guard, on either target kind: taking a trip or
+an entry back to draft is never refused, only publishing one is.
+
+## the trip path always uses the freshest revalidation hook
+
+`revalidatePublicSite` is imported and handed to `publishTrip`/`unpublishTrip`
+by IDENTITY, not wrapped — `use-publish.test.ts` asserts `call.revalidate ===`
+the module's own export, so a caller mocking `@/lib/studio/revalidate` sees its
+own mock reach the Pod layer rather than a copy this hook made.
