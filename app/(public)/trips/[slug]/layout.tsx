@@ -11,13 +11,18 @@ import { getTripIndex } from "@/lib/pod/cached";
  *  ./notes.md#why-the-map-lives-in-the-layout */
 export default function TripLayout({
   children,
+  masthead,
   params,
 }: {
   children: React.ReactNode;
+  // Optional so layout.test.tsx, which predates the slot, keeps compiling
+  // without passing every parallel-route prop.
+  masthead?: React.ReactNode;
   params: Promise<{ slug: string }>;
 }) {
   return (
     <TripHighlightProvider>
+      {masthead}
       <div className="trip-shell">
         <div className="trip-map-pane">
           <Suspense fallback={<div aria-hidden className={MAP_FRAME_CLASS} />}>

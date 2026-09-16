@@ -137,6 +137,14 @@
    rule (a border, per .mockups/trip.html) and a shared name would collide. */
 .entry-masthead { padding-block: clamp(3rem, 9vh, 7rem) clamp(2rem, 5vh, 3.5rem); }
 
+/* The trip masthead: full-width, above .trip-shell, unlike .entry-masthead
+   which lives inside the 34rem sheet column. Ported from .mockups/trip.html. */
+.masthead {
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block: clamp(3rem, 10vh, 7rem) clamp(2rem, 5vh, 3rem);
+}
+.trip-title { margin-bottom: 1rem; }
+
 .breadcrumb { margin: 0 0 clamp(1.5rem, 4vh, 2.5rem); }
 .breadcrumb a { color: var(--color-accent-bright); text-decoration: underline; }
 .breadcrumb a:hover { color: var(--color-accent); }
@@ -216,6 +224,12 @@
   border: 1.5px solid var(--color-accent); border-radius: 50%; opacity: 0.85;
 }
 .precision.exact::before { border-radius: 2px; opacity: 1; }
+
+/* The timeline row's title: interface weight, accent only while the row is
+   active (TimelineRow's data-active). Distinct from `.entry-title`, which
+   sizes the entry PAGE's own <h1> — a shared name would collide. */
+.row-title { color: var(--color-text); font-weight: 500; }
+li[data-active] .row-title { color: var(--color-accent-bright); }
 
 /* The trip shell and its sheet. GEOMETRY, not tokens: calc() over viewport
    units, which the arbitrary-value ban keeps out of className, and the

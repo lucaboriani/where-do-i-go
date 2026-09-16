@@ -71,7 +71,8 @@ describe("TripTimeline", () => {
   });
 
   it("renders the thumbnail, the travel mode and the precision when the index carries them", () => {
-    render(
+    // Nara, fuzzed — same coordinates as the "circle shape" case below.
+    const { container } = render(
       <TripTimeline
         slug="japan"
         entries={[
@@ -79,6 +80,8 @@ describe("TripTimeline", () => {
             slug: "nara",
             thumbnail: "https://pod.example/t/e1/thumb.jpg",
             travelModeFrom: "Train",
+            lat: 34.6851,
+            long: 135.805,
             precisionMeters: 500,
           }),
         ]}
@@ -89,8 +92,12 @@ describe("TripTimeline", () => {
     expect(thumb.getAttribute("src")).toBe("https://pod.example/t/e1/thumb.jpg");
     expect(thumb.getAttribute("loading")).toBe("lazy");
     expect(screen.getByText(/train/i)).toBeTruthy();
-    // The label lib/place/precision.ts owns, not a number formatted here.
-    expect(screen.getByText("~500 m")).toBeTruthy();
+    // The formatted coordinate, not the "~500 m" radius label — the shape
+    // class carries the fuzz now, per the two precision cases below.
+    const precision = container.querySelector(".precision");
+    expect(precision).not.toBeNull();
+    expect(precision).not.toHaveClass("exact");
+    expect(precision?.textContent).toBe("34.69°N 135.81°E");
   });
 
   it("renders none of the three when the index carries none of them", () => {
