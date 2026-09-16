@@ -23,9 +23,7 @@ export async function TripMasthead({ params }: { params: Promise<{ slug: string 
           {[trip.value.startDate, trip.value.endDate].filter(Boolean).join(" – ")}
         </p>
         {trip.value.description && (
-          <p className="mt-4 max-w-prose text-muted-foreground">
-            {trip.value.description.value}
-          </p>
+          <p className="mt-4 max-w-prose text-muted-foreground">{trip.value.description.value}</p>
         )}
       </div>
     </div>
