@@ -291,3 +291,23 @@
     background: transparent;
   }
 }
+
+.entry-prose { padding-block-start: clamp(1rem, 3vh, 2rem); }
+.entry-prose p:first-of-type::first-line { color: var(--color-text); }
+
+/* Entry photographs. Ported from .mockups/entry.html + _shared.css; the mockup
+   bleeds to 100vw, but the entry lives in the 34rem sheet column, so a single
+   photo bleeds to the COLUMN edge (negative inline margin = the wrap padding),
+   never the viewport. Spec §8; see components/public/entry-section/notes.md. */
+.entry-figure { margin-block: clamp(2rem, 7vh, 5rem); }
+.entry-figure--bleed { margin-inline: calc(-1 * clamp(1.25rem, 4vw, 3rem)); }
+.entry-figure--bleed .caption { padding-inline: clamp(1.25rem, 4vw, 3rem); }
+
+.plate { position: relative; width: 100%; overflow: hidden; background: var(--color-surface); background-size: cover; background-position: center; }
+.plate > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.plate::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05); pointer-events: none; }
+
+.caption { font-family: var(--font-mono); font-size: 0.76rem; color: var(--color-text-muted); line-height: 1.5; margin: 0.85rem 0 0; }
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(0.75rem, 2vw, 1.5rem); }
+@media (max-width: 40rem) { .pair { grid-template-columns: 1fr; } }

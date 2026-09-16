@@ -1,8 +1,25 @@
 import type { Section } from "@/lib/pod/schema";
 
-/** Text only for now — photos land in Task 2 (spec §8). A server component:
- *  no hooks, no events, nothing to hydrate. */
+/** A reserved-box `<img>`: real width/height set the aspect ratio so layout
+ *  never shifts, and blurDataUrl paints until the real photo loads (spec §8). */
+function Plate({ photo }: { photo: Section["photos"][number] }) {
+  const style: React.CSSProperties = {};
+  if (photo.width && photo.height) style.aspectRatio = `${photo.width} / ${photo.height}`;
+  if (photo.blurDataUrl) style.backgroundImage = `url("${photo.blurDataUrl}")`;
+  return (
+    <div className="plate" style={style}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- next/image cannot serve a Pod URL; see components/studio/entry-editor/fields/photo-fields */}
+      <img src={photo.contentUrl} alt={photo.caption?.value ?? ""} loading="lazy" />
+    </div>
+  );
+}
+
+/** A server component: no hooks, no events, nothing to hydrate. One photo
+ *  bleeds to the column edge; two stack as a `.pair` inside the text column
+ *  (spec §8). */
 export function EntrySection({ section }: { section: Section }) {
+  const photos = section.photos;
+  const caption = photos[0]?.caption;
   return (
     <>
       {section.text && (
@@ -14,7 +31,23 @@ export function EntrySection({ section }: { section: Section }) {
           </div>
         </div>
       )}
-      {/* photos: Task 2 */}
+      {photos.length === 1 && (
+        <figure className="entry-figure entry-figure--bleed">
+          <Plate photo={photos[0]} />
+          {caption && <figcaption className="caption">{caption.value}</figcaption>}
+        </figure>
+      )}
+      {photos.length === 2 && (
+        <div className="wrap">
+          <figure className="entry-figure">
+            <div className="pair">
+              <Plate photo={photos[0]} />
+              <Plate photo={photos[1]} />
+            </div>
+            {caption && <figcaption className="caption">{caption.value}</figcaption>}
+          </figure>
+        </div>
+      )}
     </>
   );
 }

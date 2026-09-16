@@ -33,7 +33,7 @@ export async function generateMetadata({
  *  the shell is instant and the entry streams in. */
 export default function EntryPage(props: { params: Promise<{ slug: string; entry: string }> }) {
   return (
-    <main className="mx-auto max-w-2xl p-8">
+    <main>
       <Suspense fallback={<EntrySkeleton />}>
         <EntryContent params={props.params} />
       </Suspense>
