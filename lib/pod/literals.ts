@@ -33,6 +33,9 @@ export const int = (n: number) => literal(String(n), namedNode(XSD.integer));
  *  form because normalising to UTC destroys the fact that it was evening (§7.3). */
 export const dt = (s: string) => literal(s, namedNode(XSD.dateTime));
 
+/** A trip's extent (§7.2) — xsd:date, not xsd:dateTime with the time cut off. */
+export const date = (s: string) => literal(s, namedNode(XSD.date));
+
 /**
  * Human-readable text, always language-tagged (§6). Falls back to the
  * deployment's default language rather than to no tag at all: an untagged
