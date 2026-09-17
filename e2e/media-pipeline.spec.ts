@@ -125,6 +125,11 @@ test.describe("the media pipeline in a real browser", () => {
   test.describe.configure({ timeout: 120_000 });
 
   test("resizes, strips EXIF, and uploads two derivatives", async ({ page }) => {
+    // This is the FIRST attach() of the whole run: Turbopack compiles the
+    // pipeline worker chunk cold here, not just decodes/encodes a 6 MP bitmap
+    // — tests 2-4 reuse the warm chunk and stay on attach()'s 60s default.
+    test.setTimeout(180_000);
+
     await signInAsOwner(page);
     await expectOwnerStudio(page);
 
@@ -163,7 +168,7 @@ test.describe("the media pipeline in a real browser", () => {
 
     const uploads = await collectUploads(page);
 
-    await attach(page, "shinjuku.jpg", withExif);
+    await attach(page, "shinjuku.jpg", withExif, { timeout: 150_000 });
 
     expect(uploads.map((u) => u.url)).toHaveLength(2);
     const web = uploads.find((u) => /\/web\./.test(u.url));
@@ -656,7 +661,12 @@ async function collectUploads(page: Page): Promise<Upload[]> {
  * <reason>" into the same `<li>`, so Playwright prints the reason as the
  * received text instead of timing out on a locator that matched nothing.
  */
-async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void> {
+async function attach(
+  page: Page,
+  name: string,
+  bytes: Uint8Array,
+  options: { timeout?: number } = {},
+): Promise<void> {
   await visiblyLabelled(page, PHOTOS).setInputFiles({
     name,
     mimeType: "image/jpeg",
@@ -664,7 +674,9 @@ async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void
   });
 
   const slot = page.getByRole("listitem").filter({ hasText: name });
-  await expect(slot).toContainText("is attached to this entry", { timeout: 60_000 });
+  await expect(slot).toContainText("is attached to this entry", {
+    timeout: options.timeout ?? 60_000,
+  });
   await expect(page.getByRole("img", { name })).toBeVisible();
 }
 
@@ -674,19 +686,29 @@ async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void
 const SEEDED_TRIP = "2026-japan";
 
 /**
- * Two assertions, because ONE OF THEM ONLY COVERS HALF OF WHAT THIS NEEDS —
- * a docblock claiming coverage it does not have is a documented defect shape
- * in this repository: it stops the next person looking.
+ * Three assertions, because any ONE alone only covers part of what this
+ * needs — a docblock claiming coverage it does not have is a documented
+ * defect shape in this repository: it stops the next person looking.
  *
  * The `Signed in as …` line discriminates OWNER FROM NOT-OWNER and nothing
  * else — worth having, since it is what breaks when OWNER_WEBID loses its
  * `#me` — but it says nothing about the editor, which is why this also opens
  * `SEEDED_TRIP`'s own "New entry" route before checking for the control.
+ *
+ * THE HEADING GATES THE PHOTOS CHECK, AND THAT ORDER IS LOAD-BEARING. The
+ * trip editor's own "Cover photo" field matches `PHOTOS` too (see
+ * `visiblyLabelled`'s docblock), and on a slow/cold render the old page can
+ * still be the CSS-`:visible` one for a moment after the click "finishes" —
+ * measured 2026-09-18, where that window was wide enough for `attach()` to
+ * set the file on the trip's cover input and then wait 150 s for a list item
+ * that could never appear. Waiting for the entry editor's OWN heading first
+ * closes that window rather than widening the attach timeout around it.
  */
 async function expectOwnerStudio(page: Page): Promise<void> {
   await expect(page.getByText(`Signed in as ${E2E.ownerWebId}.`)).toBeVisible();
   await page.locator(`a[href="/studio/trips/${SEEDED_TRIP}"]`).click();
   await page.getByRole("link", { name: "New entry" }).click();
+  await expect(page.getByRole("heading", { name: "New entry" })).toBeVisible();
   await expect(
     visiblyLabelled(page, PHOTOS),
     `the owner studio rendered no editor after opening ${SEEDED_TRIP}'s new-entry route: ` +

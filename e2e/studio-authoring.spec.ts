@@ -69,7 +69,12 @@ test.describe("the studio authoring and publishing flow", () => {
     await expect(publishTrip).toBeEnabled();
     await expect(tripRow.getByRole("alert")).toHaveCount(0);
 
-    await page.goto(`/studio/trips/${tripSlug}`);
+    // Click-through, not a hard goto: restorePreviousSession's silent re-auth
+    // round trip (docs/phase-0-spike.md, "What the App Router requires") lands
+    // on the ONE redirect_uri signIn() ever registers, /studio — a hard nav to
+    // a deeper route bounces back there instead of landing on this page.
+    await tripRow.getByRole("link", { name: tripName, exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Edit trip" })).toBeVisible();
     const entryRow = rowFor(page, entryHeadline);
     await expect(entryRow.getByText("Draft")).toBeVisible();
     // Proves the ordering above actually mattered, not just that a button exists.
