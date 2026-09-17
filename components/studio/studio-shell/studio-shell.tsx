@@ -19,6 +19,7 @@ import {
   subscribeSessionState,
 } from "@/lib/studio/session";
 import { readTripWithEtag, tripUrl } from "@/lib/pod/read";
+import EntriesList from "@/components/studio/entries-list";
 import EntryEditor from "@/components/studio/entry-editor";
 import TripEditor from "@/components/studio/trip-editor";
 import TripsList from "@/components/studio/trips-list";
@@ -351,11 +352,21 @@ function TripEditorRoute({
       );
     case "ready":
       return (
-        <TripEditor
-          session={session}
-          podRoot={podRoot}
-          initial={{ trip: load.trip, etag: load.etag }}
-        />
+        <>
+          <TripEditor
+            session={session}
+            podRoot={podRoot}
+            initial={{ trip: load.trip, etag: load.etag }}
+          />
+          {/* Task 4.1: the trip's own entries, below its editor.
+              ./notes.md#entrieslist-mounts-below-the-loaded-trip-editor */}
+          <EntriesList
+            session={session}
+            podRoot={podRoot}
+            tripSlug={editTripSlug}
+            tripStatus={load.trip.status}
+          />
+        </>
       );
   }
 }

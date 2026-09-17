@@ -219,6 +219,13 @@ export const tripUrl = (podRoot: string, slug: string) =>
   new URL(`travel/trips/${encodeURIComponent(slug)}/trip.ttl`, podRoot).toString();
 export const tripIndexUrl = (podRoot: string, slug: string) =>
   new URL(`travel/trips/${encodeURIComponent(slug)}/entries.ttl`, podRoot).toString();
+/** The container `listContainer` enumerates (§4) — never the published-only
+ *  index above. Trailing slash: a container without one is a different LDP
+ *  resource. */
+export const entriesContainerUrl = (podRoot: string, tripSlug: string) =>
+  new URL(`travel/trips/${encodeURIComponent(tripSlug)}/entries/`, podRoot).toString();
+export const entryUrl = (podRoot: string, tripSlug: string, slug: string) =>
+  `${entriesContainerUrl(podRoot, tripSlug)}${encodeURIComponent(slug)}.ttl`;
 export const diaryUrl = (podRoot: string) => new URL("travel/diary.ttl", podRoot).toString();
 
 /**
@@ -288,48 +295,62 @@ export async function readTrip(url: string, opts?: ReadOptions): Promise<Result<
   return read.ok ? ok(read.value.trip) : read;
 }
 
-export async function readEntry(url: string, opts?: ReadOptions): Promise<Result<Entry>> {
+/** The `<#it>` parse, throwing form — mirrors `tripOf`. */
+function entryOf(quads: Quad[], url: string): Entry {
+  const v = viewOf(quads, itOf(url));
+  if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
+
+  const sections = take(sectionsOf(quads, v.all(SCHEMA.hasPart), url));
+
+  if (!v.types().includes(DY_CLASS.Entry)) {
+    throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });
+  }
+  const slug = v.typed(DY.slug)?.value ?? "";
+  take(assertEntrySlug(url, slug));
+
+  return validate(
+    Entry,
+    {
+      iri: itOf(url),
+      slug,
+      status: statusOf(v, url),
+      schemaVersion: schemaVersionOf(v, url),
+      headline: langText(v, SCHEMA.headline),
+      trip: v.one(DY.trip),
+      occurredAt: take(offsetDateTime(v, DY.occurredAt, url)),
+      datePublished: take(offsetDateTime(v, SCHEMA.datePublished, url)),
+      travelModeFrom: travelModeOf(v),
+      place: placeOf(quads, v.one(SCHEMA.contentLocation), url),
+      sections,
+      tags: v.all(DY.tag),
+      // Read even though nothing renders them: an edit that rewrites this
+      // resource without carrying them forward destroys them (§7.3, and the
+      // note on Entry in schema.ts). readTrip has always read `created`.
+      created: take(offsetDateTime(v, DCTERMS.created, url)),
+      creator: v.one(DCTERMS.creator),
+      modified: take(offsetDateTime(v, DCTERMS.modified, url)),
+    },
+    url,
+  );
+}
+
+/** `readEntry`, plus the ETag: the studio's publish action needs a
+ *  precondition (§10), and `readEntry` alone discards it. Mirrors
+ *  `readTripWithEtag`. */
+export async function readEntryWithEtag(
+  url: string,
+  opts?: ReadOptions,
+): Promise<Result<{ entry: Entry; etag: string | null }>> {
   const fetched = await fetchTurtle(url, opts);
   if (!fetched.ok) return fetched;
-  const { quads } = fetched.value;
+  const { quads, etag } = fetched.value;
+  const parsed = guard(() => entryOf(quads, url));
+  return parsed.ok ? ok({ entry: parsed.value, etag }) : parsed;
+}
 
-  return guard(() => {
-    const v = viewOf(quads, itOf(url));
-    if (!v.exists) throw new Bail({ kind: "shape", url, issues: ["no <#it> subject"] });
-
-    const sections = take(sectionsOf(quads, v.all(SCHEMA.hasPart), url));
-
-    if (!v.types().includes(DY_CLASS.Entry)) {
-      throw new Bail({ kind: "shape", url, issues: [`<#it> is not a ${DY_CLASS.Entry}`] });
-    }
-    const slug = v.typed(DY.slug)?.value ?? "";
-    take(assertEntrySlug(url, slug));
-
-    return validate(
-      Entry,
-      {
-        iri: itOf(url),
-        slug,
-        status: statusOf(v, url),
-        schemaVersion: schemaVersionOf(v, url),
-        headline: langText(v, SCHEMA.headline),
-        trip: v.one(DY.trip),
-        occurredAt: take(offsetDateTime(v, DY.occurredAt, url)),
-        datePublished: take(offsetDateTime(v, SCHEMA.datePublished, url)),
-        travelModeFrom: travelModeOf(v),
-        place: placeOf(quads, v.one(SCHEMA.contentLocation), url),
-        sections,
-        tags: v.all(DY.tag),
-        // Read even though nothing renders them: an edit that rewrites this
-        // resource without carrying them forward destroys them (§7.3, and the
-        // note on Entry in schema.ts). readTrip has always read `created`.
-        created: take(offsetDateTime(v, DCTERMS.created, url)),
-        creator: v.one(DCTERMS.creator),
-        modified: take(offsetDateTime(v, DCTERMS.modified, url)),
-      },
-      url,
-    );
-  });
+export async function readEntry(url: string, opts?: ReadOptions): Promise<Result<Entry>> {
+  const read = await readEntryWithEtag(url, opts);
+  return read.ok ? ok(read.value.entry) : read;
 }
 
 /**

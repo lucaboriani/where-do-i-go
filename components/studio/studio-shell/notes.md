@@ -218,3 +218,13 @@ podRoot)` and a malformed `POD_ROOT` makes that throw synchronously — turned
 into a rejection by the `async` keyword. An unhandled rejection in a React
 effect is a studio that renders "Looking for the trips…" for ever with the
 reason only in the console.
+
+## EntriesList mounts below the loaded trip editor
+
+Task 4.1: only in `TripEditorRoute`'s `"ready"` case, which is EDIT mode only
+— `editTripSlug` is narrowed to `string` by the early return above, and
+`load.trip.status` is exactly the `Trip.status` `usePublish`'s entry target
+wants, so no second read is needed for it. CREATE mode (`editTripSlug ===
+undefined`) mounts no entries list, matching the pre-existing behaviour: a
+trip that does not exist on the Pod yet has no `entries/` container to
+enumerate.

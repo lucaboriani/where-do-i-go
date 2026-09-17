@@ -1477,3 +1477,29 @@ whose `entries/` container cannot be listed still appears, with
 `entryCount: 0`, rather than taking every other trip down with it. The trip
 itself was already proven readable by `listStudioTrips`; only its count is
 uncertain.
+
+# `use-studio-entries`
+
+## why this hook builds its own container URL
+
+`lib/pod/read.ts` gained `entriesContainerUrl` alongside `tripUrl`/
+`tripIndexUrl` for `entries-list.tsx`'s own use, but this hook's own test
+module-mocks `@/lib/pod/read` down to `{ readEntry }` alone (mirroring
+`use-studio-trips.test.ts`'s shape) — importing anything else from that
+module would read as `undefined` under the mock. The container URL is
+therefore built locally, from the same `podRoot`/slug inputs, rather than
+shared.
+
+## why container enumeration, and not the index
+
+Task 4.1's own regression guard, same shape as `use-studio-trips`'s
+`entryCount` (finding E2): `entries.ttl` is scoped to published entries only
+(§4), so a drafts-only trip would read as empty on the owner's own screen.
+This hook lists the entries CONTAINER via `ldp:contains` instead, exactly the
+member URLs `listContainer` already returns absolute and pre-resolved — so
+each is passed to `readEntry` unmodified rather than rebuilt from a slug.
+
+No `skipped` field, unlike `StudioTripsState`: the first unreadable member
+fails the whole state. A trip's entries are few enough, and each one
+represents a document the owner is actively trying to see or edit, that
+silently dropping one is a worse surprise than a shown error.
