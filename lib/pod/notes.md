@@ -807,6 +807,40 @@ code claiming a guarantee nobody has measured.
 resource, which is what keeps the owner's Control when the parent's default
 stops applying.
 
+## The verify read bypasses the browser HTTP cache
+
+`verifyContainerAccess` reads the `.acl` back through `uncached(fetch)`
+(`cache: "no-store"`), and this is load-bearing rather than defensive.
+
+The failure it fixes (task-5b): the FIRST PUT-then-GET round trip on a
+container's `.acl` did not observe the write it had just made, against a real
+CSS 7.2.0 from the browser — two shapes, both self-healing on the next
+independent check. `createContainer("travel/")` rewrote the seeded ACL to a
+closed listing, the PUT returned 2xx, and the immediate read-back still saw
+public `acl:accessTo` on the container. Publishing a freshly created trip failed
+the other direction: the PUT set `acl:default read=true`, the verify read still
+saw `read=false`.
+
+Root cause is the **browser HTTP cache**, not the write and not CSS
+eventual-consistency. Measured: CSS serves a `.acl` GET with `Last-Modified` and
+an `ETag` but **no `Cache-Control`**, which is exactly the header shape that
+makes a browser apply heuristic freshness (RFC 9111 §4.2.2) — and a PUT to the
+same URL does not reliably evict the entry. So the earlier read in the same
+operation (`resolveContainerAcl`/`readAcl` populates the cache with the
+pre-write ACL) is what the verify GET is served, stale. Node's `fetch` (undici)
+has no such cache, which is why the same call sequence run in Node reproduced it
+**0/10** for both triggers — the write is instantly visible there — and why no
+mock or fake Pod can see it. `getResourceInfoWithAcl` passes the caller's fetch
+straight through with no cache option (`acl.internal.mjs`), so the bypass has to
+be added at the call site.
+
+`no-store` is the whole fix, deliberately with **no retry**: a retry would be
+defence against a server consistency lag the Node run proves does not exist. The
+hard-fail is preserved — the uncached read fetches the real server state, so a
+genuinely wrong ACL (e.g. a swallowed write) still produces `accessUnverified`.
+The reproduction lives in `test/integration/pod-authoring.integration.test.ts`,
+which models the browser's heuristic cache at the HTTP layer against live CSS.
+
 ## Two kinds of evidence, and neither is proof of enforcement
 
 Every method verifies the **result** rather than the status code, and the two

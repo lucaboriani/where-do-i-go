@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Parser } from "n3";
 import { LDP, SCHEMA, SCHEMA_VERSION } from "@/lib/vocab";
+import { createContainer, makePublic } from "@/lib/pod/access";
 import { ensurePodInitialised } from "@/lib/pod/bootstrap";
 import { diaryUrl, readDiary, tripIndexUrl, tripUrl } from "@/lib/pod/read";
 import { describe as renderError } from "@/lib/pod/result";
@@ -241,6 +242,61 @@ describe("saveTrip -> saveEntry -> publishTrip: a published entry becomes public
     const diary = await readDiary(diaryUrl(POD));
     expect(diary.ok, diary.ok ? "" : renderError(diary.error)).toBe(true);
     if (diary.ok) expect(diary.value.trips).not.toContain(baseTrip().iri);
+  }, 60_000);
+});
+
+describe("makePublic observes the just-written ACL through a browser-shaped cache", () => {
+  /* task-5b root cause, modelled at the HTTP layer: CSS serves an `.acl` GET
+   * with Last-Modified and no Cache-Control, so a browser heuristically caches
+   * it and a PUT does not reliably evict it — the verify read then sees the
+   * pre-write ACL. Node's fetch has none, so it is invisible unless modelled.
+   * Honours `cache: "no-store"` (the fix) and never evicts on PUT (the browser
+   * behaviour that causes it). */
+  function browserishAclCache(inner: typeof globalThis.fetch): typeof globalThis.fetch {
+    const store = new Map<string, Response>();
+    return async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? "GET").toUpperCase();
+      const cacheable = method === "GET" && url.endsWith(".acl") && init?.cache !== "no-store";
+      if (cacheable && store.has(url)) return store.get(url)!.clone();
+      const res = await inner(input, init);
+      if (cacheable && res.ok) store.set(url, res.clone());
+      return res;
+    };
+  }
+
+  const containerUrl = () => `${POD}travel/trips/2026-cachefix/`;
+
+  it("reports success rather than a stale acl:default read=false, and the write really took", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const init = await ensurePodInitialised({ fetch: ownerFetch, podRoot: POD, webId, now: () => NOW });
+    expect(init.ok, init.ok ? "" : renderError(init.error)).toBe(true);
+
+    // Create as a draft: its .acl carries acl:default read=false. Every read of
+    // that .acl in the publish below is served from the browser-shaped cache.
+    const cached = browserishAclCache(ownerFetch);
+    const made = await createContainer(containerUrl(), { fetch: cached, webId, publicChildren: false });
+    expect(made.ok, made.ok ? "" : renderError(made.error)).toBe(true);
+
+    // Publish: resolve/readAcl re-read the draft .acl (default read=false) and
+    // repopulate the cache, the PUT sets read=true, and the verify read must see
+    // read=true — reachable through this cache only by bypassing it. Before the
+    // fix this failed accessUnverified "acl:default read=false".
+    const pub = await makePublic(containerUrl(), { fetch: cached, webId });
+    expect(pub.ok, pub.ok ? "" : renderError(pub.error)).toBe(true);
+    if (!pub.ok) return;
+    expect(pub.value).toMatchObject({ inherits: true, read: false });
+
+    // The evidence that counts (phase 0): a real anonymous read of a child. The
+    // write was correct all along — only the verify read had lagged.
+    const child = `${containerUrl()}trip.ttl`;
+    await ownerFetch(child, {
+      method: "PUT",
+      headers: { "content-type": "text/turtle", "if-none-match": "*" },
+      body: `<#it> <${SCHEMA.headline}> "cachefix"@en .\n`,
+    });
+    await expectPublicTriple(child, SCHEMA.headline, "cachefix");
   }, 60_000);
 });
 

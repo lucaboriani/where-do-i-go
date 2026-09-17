@@ -144,6 +144,14 @@ const unverified = (url: string, expected: string, found: string): PodError => (
  *  branch — it is the difference between "a thing" and "a place things are in". */
 const isContainerUrl = (url: string) => url.endsWith("/");
 
+/** Force a read past the browser's HTTP cache: it heuristically caches an `.acl`
+ *  GET (CSS sends Last-Modified, no Cache-Control) and a PUT does not reliably
+ *  evict it. ./notes.md#the-verify-read-bypasses-the-browser-http-cache */
+const uncached =
+  (fetch: PodFetch): PodFetch =>
+  (input, init) =>
+    fetch(input, { ...init, cache: "no-store" });
+
 /**
  * The server's own answer to "what would an unauthenticated request get?",
  * from the WAC-Allow header. `undefined` when the server did not say — which is
@@ -471,7 +479,8 @@ export function serverListingContradiction(
   );
 }
 
-/** Read the access back. A 2xx on the write above is not evidence (phase 0). */
+/** Read the access back. A 2xx on the write above is not evidence (phase 0), and
+ *  neither is a cached GET of the `.acl` we just wrote — hence `uncached`. */
 async function verifyContainerAccess(
   url: string,
   fetch: PodFetch,
@@ -479,7 +488,7 @@ async function verifyContainerAccess(
 ): Promise<Result<AccessState>> {
   let back: Awaited<ReturnType<typeof getResourceInfoWithAcl>>;
   try {
-    back = await getResourceInfoWithAcl(url, { fetch });
+    back = await getResourceInfoWithAcl(url, { fetch: uncached(fetch) });
   } catch (cause) {
     return err(toPodError(url, cause));
   }
