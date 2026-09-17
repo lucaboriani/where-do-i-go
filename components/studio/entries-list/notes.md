@@ -1,14 +1,19 @@
 # entries-list — notes
 
-## The status word is Published or Private, never Draft
+## The status word is Published or Draft, matching trips-list
 
-Task 4.1's own fixture headlines a draft entry "Still drafting this one" —
-its own visible text already satisfies `/draft/i`. A literal "Draft" badge
-next to it would be a SECOND element matching the same query, and
-`getByText` throws on more than one match. "Private" says the same thing
-("owner-only", per `save-entry.ts`'s `setEntryAccess`) without the
-collision; "Unpublished" was rejected for the opposite reason — it collides
-with `/published/i` instead.
+Fix round 1: the first cut here used "Private" for a draft entry, to dodge a
+`getByText(/draft/i)` collision with the fixture headline "Still drafting
+this one" (its own text already satisfies that regex, and a literal "Draft"
+badge next to it is a second matching element). Review flagged that as a
+naming/UX defect rather than an acceptable test workaround: "Private"
+conflates with §7.6's own privacy/coordinate-fuzzing concept
+(`privacySettingsUrl`/`readPrivacySettings`), which is a different thing
+entirely from "not yet published", and it disagreed with
+`trips-list.tsx`'s own literal "Draft" for the identical `Status` value one
+level up. The badge is "Draft" again; the collision is resolved in the test
+instead, with an exact `getByText("Draft")` rather than the broad
+`/draft/i`.
 
 Task 4.1: rendered inside `/studio/trips/[slug]` (Task 4.2), one level under
 `trips-list.tsx` in the studio's own tree. STUDIO-ONLY.

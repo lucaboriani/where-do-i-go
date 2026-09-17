@@ -119,9 +119,9 @@ function EntryRow({
       <p>
         <Link href={`/studio/trips/${tripSlug}/${row.slug}`}>{row.title}</Link>
         {" — "}
-        {/* "Private", not "Draft": a headline can contain "draft" too.
-            ./notes.md#the-status-word-is-published-or-private-never-draft */}
-        <span>{row.status === "published" ? "Published" : "Private"}</span>
+        {/* Matches trips-list.tsx's own word for the same Status value.
+            ./notes.md#the-status-word-is-published-or-draft-matching-trips-list */}
+        <span>{row.status === "published" ? "Published" : "Draft"}</span>
       </p>
       {full !== undefined &&
         (full.etag === null ? (

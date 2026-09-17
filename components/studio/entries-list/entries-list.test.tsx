@@ -231,7 +231,10 @@ describe("EntriesList", () => {
     await waitFor(() => expect(screen.getByText(/arrival day/i)).toBeInTheDocument());
     expect(screen.getByText(/still drafting this one/i)).toBeInTheDocument();
     expect(screen.getByText(/published/i)).toBeInTheDocument();
-    expect(screen.getByText(/draft/i)).toBeInTheDocument();
+    // Exact, not /draft/i: the draft fixture's own headline ("Still drafting
+    // this one") also matches that regex, so only an exact "Draft" isolates
+    // the status badge from it.
+    expect(screen.getByText("Draft")).toBeInTheDocument();
 
     const links = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
     expect(links).toContain(`/studio/trips/${TRIP_SLUG}/arrival`);
