@@ -14,6 +14,10 @@ import { useEntryForm } from "@/hooks/studio/use-entry-form";
 import { useEntrySave } from "@/hooks/studio/use-entry-save";
 import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
 import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
+import { usePublish } from "@/hooks/studio/use-publish";
+import { describe as describePodError } from "@/lib/pod/result";
+import { saveEntry } from "@/lib/pod/save-entry";
+import { revalidatePublicSite } from "@/lib/studio/revalidate";
 import IdentityFields from "./fields/identity-fields";
 import WhenFields from "./fields/when-fields";
 import WhereFields from "./fields/where-fields";
@@ -74,15 +78,18 @@ export interface EntryEditorProps {
    *  default. Injected so Safari's zero-quota throw can be scripted:
    *  ./notes.md#storage-is-injected-so-the-failure-can-be-scripted */
   storage?: StorageLike;
+  /** `dy:status` of the entry's OWN TRIP — GIVEN, like `EditorTrip.status`,
+   *  and not derived from `trips[]`: ./notes.md#tripstatus-is-given-not-derived */
+  tripStatus?: EntryStatus;
 }
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-/** Composition, and the page's own frame. 167 code lines against the 200 bound,
+/** Composition, and the page's own frame. 186 code lines against the 200 bound,
  *  which is why the `max-lines-per-function` exemption is gone:
  *  ./notes.md#the-exemption-went-because-the-directive-became-unused
- *  What the 167 are, and why they stay over the 130 tendency rather than being
- *  forced under it: ./notes.md#what-the-167-are-and-why-they-stay */
+ *  What the 186 are, and why they stay over the 130 tendency rather than being
+ *  forced under it: ./notes.md#what-the-186-are-and-why-they-stay */
 export default function EntryEditor({
   session,
   trips,
@@ -91,6 +98,7 @@ export default function EntryEditor({
   pipeline,
   initial,
   storage,
+  tripStatus,
 }: EntryEditorProps) {
   const existing = initial?.entry;
 
@@ -130,6 +138,10 @@ export default function EntryEditor({
     text,
     fuzzed: gate.fuzzed,
   });
+
+  /** THE PUBLISH CONTROL's own trip, found the same way `useEntrySave` finds
+   *  it: ./notes.md#the-publish-control-reads-existing-not-the-live-draft */
+  const trip = trips.find((choice) => choice.iri === values.tripIri);
 
   /* ────────────────────────────────────────────────────── the local draft ── */
 
@@ -177,6 +189,24 @@ export default function EntryEditor({
   return (
     <section className="mt-8 border-t border-hairline pt-6">
       <h2 className="text-xl">{initial === undefined ? "New entry" : "Edit entry"}</h2>
+
+      {/* EDIT ONLY — nothing to publish before the entry has ever reached the
+          Pod. A null ETag blocks it with a reason, never coerced into
+          `If-Match: ""`: ./notes.md#the-publish-control-reads-existing-not-the-live-draft */}
+      {existing !== undefined &&
+        (target === null || target.etag === null ? (
+          <p className="mt-2 text-muted-foreground">
+            {"This entry's version could not be confirmed. Reload to publish."}
+          </p>
+        ) : (
+          <PublishEntryControl
+            session={session}
+            existing={existing}
+            trip={trip}
+            etag={target.etag}
+            tripStatus={tripStatus}
+          />
+        ))}
 
       {/* WHETHER THERE IS AN OFFER AT ALL IS ASKED HERE, once: the same answer
           holds the fieldset below and describes the Save button, which is why
@@ -319,5 +349,65 @@ export default function EntryEditor({
           </>
         ))}
     </section>
+  );
+}
+
+/** Transplanted from `entries-list.tsx`'s own `PublishEntryAction`, for the
+ *  standalone entry route that has no entries list around it to hold one.
+ *  ./notes.md#the-publish-control-reads-existing-not-the-live-draft */
+function PublishEntryControl({
+  session,
+  existing,
+  trip,
+  etag,
+  tripStatus,
+}: {
+  session: StudioSessionLike;
+  existing: Entry;
+  trip: EditorTrip | undefined;
+  etag: string;
+  tripStatus: EntryStatus | undefined;
+}) {
+  const isPublished = existing.status === "published";
+
+  async function write(next: EntryStatus): Promise<{ ok: boolean; error?: string }> {
+    if (trip === undefined) return { ok: false, error: "This entry's trip could not be found." };
+    const report = await saveEntry({
+      fetch: session.fetch,
+      entry: { ...existing, status: next },
+      precondition: { etag },
+      indexUrl: trip.indexUrl,
+      tripIri: trip.iri,
+      tripSlug: trip.slug,
+      revalidate: revalidatePublicSite,
+      webId: session.info.webId,
+      tripStatus,
+    });
+    return report.failed
+      ? { ok: false, error: describePodError(report.failed.error) }
+      : { ok: true };
+  }
+
+  const { pending, error, canPublish, reason, publish, unpublish } = usePublish({
+    session,
+    target: { kind: "entry", tripStatus, write },
+  });
+  const disabled = pending || (!isPublished && !canPublish);
+
+  return (
+    <p className="mt-2">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => void (isPublished ? unpublish() : publish())}
+        className="cursor-pointer border border-hairline bg-surface px-2 py-1 hover:bg-hairline"
+      >
+        {isPublished ? "Take offline" : "Publish"}
+      </button>
+      {!isPublished && reason !== null && (
+        <span className="ml-2 text-muted-foreground">{reason}</span>
+      )}
+      {error !== null && <span role="alert">{` ${error}`}</span>}
+    </p>
   );
 }

@@ -18,14 +18,21 @@ import {
   studioState,
   subscribeSessionState,
 } from "@/lib/studio/session";
-import { readTripWithEtag, tripUrl } from "@/lib/pod/read";
+import {
+  entriesContainerUrl,
+  entryUrl,
+  readEntryWithEtag,
+  readTripWithEtag,
+  tripIndexUrl,
+  tripUrl,
+} from "@/lib/pod/read";
 import EntriesList from "@/components/studio/entries-list";
 import EntryEditor from "@/components/studio/entry-editor";
 import TripEditor from "@/components/studio/trip-editor";
 import TripsList from "@/components/studio/trips-list";
 import type { EditorTrip } from "@/components/studio/entry-editor";
 import type { PodError } from "@/lib/pod/result";
-import type { Trip } from "@/lib/pod/schema";
+import type { Entry, Trip } from "@/lib/pod/schema";
 import type { StudioTripListing } from "@/lib/studio/trips";
 import type { SessionState, StudioSessionLike, StudioState } from "@/lib/studio/session";
 
@@ -63,6 +70,14 @@ export interface StudioShellProps {
   /** EDIT mode: load this trip, then mount the editor on it. Set by
    *  `/studio/trips/[slug]`'s page. ./notes.md#the-trip-editor-routing-props */
   editTripSlug?: string;
+  /** CREATE mode, preset to one trip: mount a blank entry editor scoped to it.
+   *  Set by `/studio/trips/[slug]/new-entry`'s page, sibling to `newTrip`.
+   *  ./notes.md#the-entry-editor-routing-props */
+  newEntryTripSlug?: string;
+  /** EDIT mode: load this trip AND this entry, then mount the editor on it.
+   *  Set by `/studio/trips/[slug]/[entry]`'s page, sibling to `editTripSlug`.
+   *  ./notes.md#the-entry-editor-routing-props */
+  editEntry?: { tripSlug: string; entrySlug: string };
 }
 
 /** Where the enumeration has got to. `pending` IS A STATE, NEVER A RESULT, and
@@ -84,6 +99,8 @@ export default function StudioShell({
   tripsHome,
   newTrip,
   editTripSlug,
+  newEntryTripSlug,
+  editEntry,
 }: StudioShellProps) {
   const [state, setState] = useState<SessionState>({ status: "restoring" });
   const [failure, setFailure] = useState<string | null>(null);
@@ -125,7 +142,9 @@ export default function StudioShell({
     trips === undefined &&
     !tripsHome &&
     !newTrip &&
-    editTripSlug === undefined;
+    editTripSlug === undefined &&
+    newEntryTripSlug === undefined &&
+    editEntry === undefined;
 
   /** The in-flight listing, memoised by the root it was started for — the shape
    *  `restoreSession` documents. THE REF IS DELIBERATELY NOT CLEARED ON CLEANUP:
@@ -182,6 +201,8 @@ export default function StudioShell({
         tripsHome={tripsHome}
         newTrip={newTrip}
         editTripSlug={editTripSlug}
+        newEntryTripSlug={newEntryTripSlug}
+        editEntry={editEntry}
         onSignIn={onSignIn}
         onSignOut={onSignOut}
       />
@@ -205,6 +226,8 @@ function Body({
   tripsHome,
   newTrip,
   editTripSlug,
+  newEntryTripSlug,
+  editEntry,
   onSignIn,
   onSignOut,
 }: {
@@ -226,6 +249,9 @@ function Body({
   /** See `StudioShellProps.newTrip`/`.editTripSlug`'s own docblocks. */
   newTrip: boolean | undefined;
   editTripSlug: string | undefined;
+  /** See `StudioShellProps.newEntryTripSlug`/`.editEntry`'s own docblocks. */
+  newEntryTripSlug: string | undefined;
+  editEntry: { tripSlug: string; entrySlug: string } | undefined;
   onSignIn: () => void;
   onSignOut: () => void;
 }) {
@@ -280,7 +306,27 @@ function Body({
             // `tripsHome` unconditionally, and both routes below it pass it
             // straight through — this is what stops a create/edit route
             // rendering the trips list instead. ./notes.md#the-trip-editor-routing-props
-            <TripEditorRoute session={session} podRoot={podRoot} editTripSlug={editTripSlug} />
+            // `key` FORCES A REMOUNT ON A SLUG CHANGE: ./notes.md#the-b-fix-is-a-key-not-a-tracked-reset
+            <TripEditorRoute
+              key={editTripSlug ?? "new-trip"}
+              session={session}
+              podRoot={podRoot}
+              editTripSlug={editTripSlug}
+            />
+          ) : newEntryTripSlug !== undefined || editEntry !== undefined ? (
+            // Same priority argument as the trip pair above, one level down:
+            // ./notes.md#the-entry-editor-routing-props
+            <EntryEditorRoute
+              key={
+                editEntry
+                  ? `${editEntry.tripSlug}/${editEntry.entrySlug}`
+                  : (newEntryTripSlug ?? "new-entry")
+              }
+              session={session}
+              podRoot={podRoot}
+              newEntryTripSlug={newEntryTripSlug}
+              editEntry={editEntry}
+            />
           ) : tripsHome ? (
             <TripsList session={session} podRoot={podRoot} />
           ) : (
@@ -368,6 +414,99 @@ function TripEditorRoute({
           />
         </>
       );
+  }
+}
+
+/** Where loading BOTH the trip and, in EDIT mode, the entry has got to — the
+ *  same "pending is a state" rule `TripLoad` and `ListingState` are held to.
+ *  `entry: null` is CREATE; a present one is what `initial` seeds from. */
+type EntryRouteLoad =
+  | { status: "pending" }
+  | { status: "ready"; trip: Trip; entry: { entry: Entry; etag: string | null } | null }
+  | { status: "failed"; error: PodError };
+
+/**
+ * CREATE reads only the preset trip; EDIT reads the trip AND the entry, both
+ * with the owner's own session — `TripEditorRoute`'s own shape, one level
+ * down. ./notes.md#the-entry-editor-routing-props
+ */
+function EntryEditorRoute({
+  session,
+  podRoot,
+  newEntryTripSlug,
+  editEntry,
+}: {
+  session: StudioSessionLike;
+  podRoot: string;
+  newEntryTripSlug: string | undefined;
+  editEntry: { tripSlug: string; entrySlug: string } | undefined;
+}) {
+  const tripSlug = editEntry?.tripSlug ?? newEntryTripSlug;
+  const [load, setLoad] = useState<EntryRouteLoad>({ status: "pending" });
+
+  useEffect(() => {
+    if (tripSlug === undefined) return;
+    let live = true;
+    const tripRead = readTripWithEtag(tripUrl(podRoot, tripSlug), { fetch: session.fetch });
+    const entryRead =
+      editEntry === undefined
+        ? Promise.resolve(null)
+        : readEntryWithEtag(entryUrl(podRoot, editEntry.tripSlug, editEntry.entrySlug), {
+            fetch: session.fetch,
+          });
+    void Promise.all([tripRead, entryRead]).then(([trip, entry]) => {
+      if (!live) return;
+      if (!trip.ok) {
+        setLoad({ status: "failed", error: trip.error });
+        return;
+      }
+      if (entry !== null && !entry.ok) {
+        setLoad({ status: "failed", error: entry.error });
+        return;
+      }
+      setLoad({ status: "ready", trip: trip.value.trip, entry: entry === null ? null : entry.value });
+    });
+    return () => {
+      live = false;
+    };
+  }, [tripSlug, editEntry, podRoot, session]);
+
+  if (tripSlug === undefined) return null;
+
+  switch (load.status) {
+    case "pending":
+      return <p className="mt-8 text-muted-foreground">{"Looking for this trip and its entry…"}</p>;
+    case "failed":
+      return (
+        <>
+          <p role="alert" className="mt-8">
+            {"This could not be read."}
+          </p>
+          <p className="mt-2 text-muted-foreground">{describePodError(load.error)}</p>
+        </>
+      );
+    case "ready": {
+      // Convention URLs, exactly as `entries-list.tsx`'s own publish action
+      // resolves them — a single-trip preset needs no `dy:index` override.
+      const trip: EditorTrip = {
+        iri: load.trip.iri,
+        slug: load.trip.slug,
+        name: load.trip.name.value,
+        indexUrl: tripIndexUrl(podRoot, load.trip.slug),
+        entriesContainer: entriesContainerUrl(podRoot, load.trip.slug),
+        status: load.trip.status,
+      };
+      return (
+        <EntryEditor
+          session={session}
+          trips={[trip]}
+          settingsUrl={settingsUrlFor(podRoot)}
+          podRoot={podRoot}
+          initial={load.entry ?? undefined}
+          tripStatus={load.trip.status}
+        />
+      );
+    }
   }
 }
 

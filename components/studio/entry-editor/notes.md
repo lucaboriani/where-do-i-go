@@ -170,6 +170,37 @@ was true of stage 1 and is now false of the coordinate half:
 `<select>`, `<input>` and `<textarea>` need no Radix on a screen of sixteen
 controls. Every one of them has a real `<label>`.
 
+## tripStatus is given, not derived
+
+Task 4.2. `tripStatus?: Status` is GIVEN by the caller, exactly the same decision
+`EditorTrip.status` already made one level down and `EntriesListProps.tripStatus`
+makes again for the identical problem: deriving it from
+`trips.find((t) => t.iri === values.tripIri)?.status` would depend on `trips`
+containing, and correctly matching by IRI, the one trip the entry belongs to —
+true for the routes this editor is mounted from today, but not a fact this
+component should have to hold. `undefined` fails closed, matching
+`hooks/studio/use-publish.ts`'s own "why-undefined-fails-closed" rule for every
+other caller — see `entry-editor.publish-additive.test.tsx`'s second case.
+
+## the publish control reads existing, not the live draft
+
+`PublishEntryControl` is `entries-list.tsx`'s `PublishEntryAction`, transplanted:
+same `usePublish` target, same `saveEntry` call, same null-ETag guard (§10 hard
+rule — never `If-Match: ""`). It flips `existing.status`, the entry as it was
+READ, not the entry the open form would currently save — the same choice
+`entries-list.tsx` makes, since nothing there is mid-edit either.
+
+**The one place that differs from `entries-list.tsx`.** There, `full.entry` is
+always the latest read because nothing on that screen edits it. Here, a Save
+between mount and a Publish click moves the Pod's copy forward — `target.etag`
+tracks that (`useEntrySave` updates it on every successful write), but the
+`existing` object handed to `write()` is `initial.entry`, fixed at mount. A
+publish immediately after such a Save re-sends the ORIGINAL fields with only
+`status` flipped, which risks reverting an edit that already reached the Pod.
+Not exercised by any test here — out of scope for Task 4.2's brief — and worth
+closing before this control ships anywhere a Save and a Publish are likely to
+land in the same visit.
+
 ## the trips own status is rendered
 
 `EditorTrip.status` is `dy:status` of the **trip**, not of the entry, which is a
@@ -246,7 +277,7 @@ until 2026-09-08 is gone: at 195 it was already an UNUSED directive and
 "Remove this line with the last field group" — was wrong, and Task 5 proved it:
 after all five groups this function was still 633 lines.
 
-## what the 167 are, and why they stay
+## what the 186 are, and why they stay
 
 Stage C's Task 7, 2026-09-09. **The banner was extracted and the rest stays**,
 with the number measured after the extraction rather than predicted before it:
@@ -254,7 +285,10 @@ with the number measured after the extraction rather than predicted before it:
 bound. Stage 3a's Task 2 (2026-09-16) swapped the single-section block for one
 `<SectionsField>` call and left the count at 167, 33 under the 200 bound —
 still the composition-plus-frame shape this section describes, not a reason to
-re-measure the argument.
+re-measure the argument. Task 4.2 (2026-09-17) added the publish control's
+mount point — one more conditional block, reading `existing`/`target` this
+function already holds — and moved the count to 186, 14 under the 200 bound:
+the same shape again, not a fifth candidate for extraction on its own.
 
 **What left.** `draft-banner/` — the unsaved-draft banner, `HOLD_REASON_ID` and
 `savedAtText`, 31 code lines of the 195. It was the one block in here that

@@ -146,3 +146,58 @@ describe("studio shell — editTripSlug loads, then edits", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Task 4.1 review, deferred minor #B: `TripEditorRoute` keys nothing to
+ * `editTripSlug`, so navigating from one trip's edit page to another shows
+ * trip A's `load` state until the new `readTripWithEtag` settles — a stale
+ * row. `rerender` reuses the SAME session, so only the trip load is exercised.
+ */
+describe("studio shell — editTripSlug does not leave a stale-row window on navigation", () => {
+  const second: Trip = { ...trip, slug: "iceland-2025", name: { value: "Iceland 2025", language: "en" } };
+
+  it("shows loading rather than the previous trip's data the instant editTripSlug changes", async () => {
+    readTripWithEtagMock.mockImplementation(async (url) => {
+      if (url === tripUrl(POD, "japan-2026")) return { ok: true, value: { trip, etag: '"v1"' } };
+      if (url === tripUrl(POD, "iceland-2025")) return { ok: true, value: { trip: second, etag: '"v1"' } };
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const session = fakeOwnerSession();
+
+    const { rerender } = render(
+      <StudioShell
+        session={session}
+        ownerWebId={OWNER}
+        oidcIssuer={ISSUER}
+        siteUrl={SITE}
+        siteName={SITE_NAME}
+        podRoot={POD}
+        editTripSlug="japan-2026"
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Japan 2026"));
+
+    rerender(
+      <StudioShell
+        session={session}
+        ownerWebId={OWNER}
+        oidcIssuer={ISSUER}
+        siteUrl={SITE}
+        siteName={SITE_NAME}
+        podRoot={POD}
+        editTripSlug="iceland-2025"
+      />,
+    );
+
+    // NO `await` in front of this query: the defect is what is on screen the
+    // instant React commits the prop change, before the new trip's promise has
+    // any chance to settle. A `waitFor` here would let the window this test
+    // exists to catch close on its own and report green regardless.
+    expect(
+      screen.queryByDisplayValue("Japan 2026"),
+      "trip A's name is still on screen after the route moved to trip B — the component was not reset",
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Iceland 2025"));
+  });
+});

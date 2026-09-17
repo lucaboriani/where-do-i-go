@@ -219,6 +219,44 @@ into a rejection by the `async` keyword. An unhandled rejection in a React
 effect is a studio that renders "Looking for the trips…" for ever with the
 reason only in the console.
 
+## the entry editor routing props
+
+`newEntryTripSlug` and `editEntry` are Task 4.2's, set by `/studio/trips/[slug]/new-entry` and
+`/studio/trips/[slug]/[entry]` respectively. Same priority argument as `newTrip`/`editTripSlug`
+one level up, and the same reason: `studio-client.tsx` sets `tripsHome` unconditionally, so
+without an explicit order a create/edit-entry route would receive both `tripsHome: true` and its
+own prop and the wrong branch could win. The order is: the trip pair first, the entry pair
+second, `tripsHome` third, the pre-3.2 `Writables` path last — checked in `enumerating`'s guard
+too, for the reason `#trips-is-a-test-seam-and-supplied-means-supplied` already gives.
+
+`EntryEditorRoute` is `TripEditorRoute`'s shape one level down, with one difference: EDIT mode
+reads two resources, not one, so `load` only becomes `"ready"` once BOTH `readTripWithEtag` and
+(when `editEntry` is set) `readEntryWithEtag` have answered — `Promise.all`, not two independent
+effects, which is what keeps "loading" from ever settling on a half-loaded editor. CREATE
+(`editEntry === undefined`) still reads the one preset trip, both for its own `EditorTrip` and for
+the `tripStatus` the picker's `(draft)` suffix and the publish guard both want — the same "give it
+as a prop, don't derive it from `trips[]`" decision `EntryEditorProps.tripStatus` documents,
+applied here to where the value comes from rather than how it is threaded.
+
+The single-trip `EditorTrip` is built from convention URLs (`tripIndexUrl`/`entriesContainerUrl`),
+matching `entries-list.tsx`'s own `PublishEntryAction` rather than `listStudioTrips`'s `dy:index`
+override — a route that already knows which one trip it wants has no listing to reconcile
+against, so the simpler of the two existing answers is the right one here.
+
+## the B fix is a key, not a tracked reset
+
+Deferred-minor #B (Task 4.1 review): `TripEditorRoute` keyed nothing to `editTripSlug`, so
+navigating from one trip's edit page to another kept trip A's `load` state on screen until the new
+`readTripWithEtag` settled. The fix is `key={editTripSlug ?? "new-trip"}` on the element `Body`
+returns, one level up rather than inside the route component: a key change unmounts the old fiber
+and mounts a fresh one, whose `load` starts at `"pending"` in the SAME commit as the prop change —
+no state to track, nothing to reset by hand, and no window where the DOM briefly shows both trips'
+truth at once. `EntryEditorRoute` gets the identical treatment for the identical reason, keyed on
+`editEntry`'s pair when set and on `newEntryTripSlug` otherwise, even though Task 4.2 has no
+pre-existing bug to regress into: the state shape (`load`, reset only by its own effect re-running)
+is the same one #B was found in, and shipping it unguarded a second time would only move the same
+defect to a route nobody had written a test against yet.
+
 ## EntriesList mounts below the loaded trip editor
 
 Task 4.1: only in `TripEditorRoute`'s `"ready"` case, which is EDIT mode only
