@@ -75,8 +75,10 @@ describe("entry editor — the publish control", () => {
     await waitFor(() => expect(pod.entryPut()).toBeDefined());
     const put = pod.entryPut()!;
     // The precondition (§10 hard rule): a targeted status flip is still a
-    // conditional write, never a blind PUT.
-    expect(put.headers["if-match"]).toBe('"entry-7"');
+    // conditional write, never a blind PUT. `"v1"` is the FRESH read's own
+    // ETag (specEntry()'s own GET handler), not the mount-time `"entry-7"` —
+    // fix round 1, Finding #1: ./notes.md#the-publish-control-reads-existing-not-the-live-draft
+    expect(put.headers["if-match"]).toBe('"v1"');
     // The mutation, by graph rather than by bytes: the body really does carry
     // dy:status dy:Published, not the unmodified fixture re-sent.
     const expected = [

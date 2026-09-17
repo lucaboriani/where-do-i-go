@@ -186,20 +186,25 @@ other caller — see `entry-editor.publish-additive.test.tsx`'s second case.
 
 `PublishEntryControl` is `entries-list.tsx`'s `PublishEntryAction`, transplanted:
 same `usePublish` target, same `saveEntry` call, same null-ETag guard (§10 hard
-rule — never `If-Match: ""`). It flips `existing.status`, the entry as it was
-READ, not the entry the open form would currently save — the same choice
-`entries-list.tsx` makes, since nothing there is mid-edit either.
+rule — never `If-Match: ""`). It flips a status, not the entry the open form
+would currently save — the same choice `entries-list.tsx` makes, since nothing
+there is mid-edit either.
 
-**The one place that differs from `entries-list.tsx`.** There, `full.entry` is
-always the latest read because nothing on that screen edits it. Here, a Save
-between mount and a Publish click moves the Pod's copy forward — `target.etag`
-tracks that (`useEntrySave` updates it on every successful write), but the
-`existing` object handed to `write()` is `initial.entry`, fixed at mount. A
-publish immediately after such a Save re-sends the ORIGINAL fields with only
-`status` flipped, which risks reverting an edit that already reached the Pod.
-Not exercised by any test here — out of scope for Task 4.2's brief — and worth
-closing before this control ships anywhere a Save and a Publish are likely to
-land in the same visit.
+**Fix round 1, Finding #1 (2026-09-17): `write()` re-reads before writing,
+rather than reusing the mount-time `existing`.** The original version paired
+`existing` (`initial.entry`, frozen at mount) with `target.etag` (live —
+`useEntrySave` advances it on every successful Save). `entries-list.tsx` gets
+away with reading `full.entry` once because nothing on that screen edits the
+entry; this component's whole job is editing it. A Save between mount and a
+Publish click moved the Pod's own copy forward while `existing` did not, so a
+fresh, MATCHING precondition let a Publish click silently overwrite the saved
+edit with the mount-time snapshot — the ETag check could not catch it, because
+the ETag was exactly what let the stale body through. `write()` now calls
+`readEntryWithEtag(documentUrlOf(existing.iri), …)` immediately before
+building the PUT, and flips status on THAT read's own body and ETag — so the
+body a publish sends is always the one the precondition it carries actually
+describes, whatever happened in between. Pinned by
+`entry-editor.publish-consistency.test.tsx`.
 
 ## the trips own status is rendered
 
@@ -287,8 +292,11 @@ bound. Stage 3a's Task 2 (2026-09-16) swapped the single-section block for one
 still the composition-plus-frame shape this section describes, not a reason to
 re-measure the argument. Task 4.2 (2026-09-17) added the publish control's
 mount point — one more conditional block, reading `existing`/`target` this
-function already holds — and moved the count to 186, 14 under the 200 bound:
-the same shape again, not a fifth candidate for extraction on its own.
+function already holds — and moved the count to 186, 14 under the 200 bound.
+Fix round 1, the same day, dropped one line back out (the `etag` prop this
+function no longer resolves for the control — see the next section) and left
+it at 185: the same shape again, not a fifth candidate for extraction on its
+own.
 
 **What left.** `draft-banner/` — the unsaved-draft banner, `HOLD_REASON_ID` and
 `savedAtText`, 31 code lines of the 195. It was the one block in here that

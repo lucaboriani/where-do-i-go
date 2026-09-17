@@ -15,6 +15,8 @@ import { useEntrySave } from "@/hooks/studio/use-entry-save";
 import { usePhotoPipeline } from "@/hooks/studio/use-photo-pipeline";
 import { useSettingsGate } from "@/hooks/studio/use-settings-gate";
 import { usePublish } from "@/hooks/studio/use-publish";
+import { documentUrlOf } from "@/lib/pod/entry-model";
+import { readEntryWithEtag } from "@/lib/pod/read";
 import { describe as describePodError } from "@/lib/pod/result";
 import { saveEntry } from "@/lib/pod/save-entry";
 import { revalidatePublicSite } from "@/lib/studio/revalidate";
@@ -85,10 +87,10 @@ export interface EntryEditorProps {
 
 /* ════════════════════════════════════════════════════════════════ the form ══ */
 
-/** Composition, and the page's own frame. 186 code lines against the 200 bound,
+/** Composition, and the page's own frame. 185 code lines against the 200 bound,
  *  which is why the `max-lines-per-function` exemption is gone:
  *  ./notes.md#the-exemption-went-because-the-directive-became-unused
- *  What the 186 are, and why they stay over the 130 tendency rather than being
+ *  What the 185 are, and why they stay over the 130 tendency rather than being
  *  forced under it: ./notes.md#what-the-186-are-and-why-they-stay */
 export default function EntryEditor({
   session,
@@ -203,7 +205,6 @@ export default function EntryEditor({
             session={session}
             existing={existing}
             trip={trip}
-            etag={target.etag}
             tripStatus={tripStatus}
           />
         ))}
@@ -359,23 +360,30 @@ function PublishEntryControl({
   session,
   existing,
   trip,
-  etag,
   tripStatus,
 }: {
   session: StudioSessionLike;
   existing: Entry;
   trip: EditorTrip | undefined;
-  etag: string;
   tripStatus: EntryStatus | undefined;
 }) {
   const isPublished = existing.status === "published";
 
+  /** RE-READ, THEN FLIP — fix round 1, Finding #1. `existing` is frozen at
+   *  mount; a Save in between moves the Pod's body forward without moving it,
+   *  so pairing that stale body with a fresh precondition would silently
+   *  revert the save. ./notes.md#the-publish-control-reads-existing-not-the-live-draft */
   async function write(next: EntryStatus): Promise<{ ok: boolean; error?: string }> {
     if (trip === undefined) return { ok: false, error: "This entry's trip could not be found." };
+    const fresh = await readEntryWithEtag(documentUrlOf(existing.iri), { fetch: session.fetch });
+    if (!fresh.ok) return { ok: false, error: describePodError(fresh.error) };
+    if (fresh.value.etag === null) {
+      return { ok: false, error: "This entry's version could not be confirmed. Reload to publish." };
+    }
     const report = await saveEntry({
       fetch: session.fetch,
-      entry: { ...existing, status: next },
-      precondition: { etag },
+      entry: { ...fresh.value.entry, status: next },
+      precondition: { etag: fresh.value.etag },
       indexUrl: trip.indexUrl,
       tripIri: trip.iri,
       tripSlug: trip.slug,
