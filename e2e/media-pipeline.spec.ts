@@ -32,11 +32,12 @@ import type { ExpandedTags } from "exifreader";
  * a deviation from the brief, and each is written down rather than quietly
  * worked around.
  *
- *   1. THERE IS NO `/studio/entries/new` ROUTE. The editor is rendered by
- *      components/studio/studio-shell/studio-shell.tsx on the `owner` branch of `/studio`,
- *      and only once the trips enumeration has come back with at least one trip
- *      (§4: an entry lives inside a trip). `signInAsOwner` leaves the browser
- *      exactly there, so there is nothing to navigate to.
+ *   1. THE EDITOR IS NOT ON `/studio` ANY MORE. Task 3.2 turned that bare route
+ *      into the trips list; the entry editor now lives at
+ *      `/studio/trips/[slug]/new-entry`, reached by opening a seeded trip from
+ *      that list (§4: an entry still lives inside a trip). `signInAsOwner`
+ *      leaves the browser on the list, and `expectOwnerStudio` below does the
+ *      rest of the navigation.
  *
  *   2. THE RENDERED `<img>` CARRIES NO `width`/`height` ATTRIBUTES. It is sized
  *      in CSS (`h-16 w-16 object-cover`) as a 64 px chip, so reading attributes
@@ -168,7 +169,10 @@ test.describe("the media pipeline in a real browser", () => {
     const web = uploads.find((u) => /\/web\./.test(u.url));
     const thumb = uploads.find((u) => /\/thumb\./.test(u.url));
     expect(web, `no web derivative among ${uploads.map((u) => u.url).join(", ")}`).toBeDefined();
-    expect(thumb, `no thumb derivative among ${uploads.map((u) => u.url).join(", ")}`).toBeDefined();
+    expect(
+      thumb,
+      `no thumb derivative among ${uploads.map((u) => u.url).join(", ")}`,
+    ).toBeDefined();
     if (!web || !thumb) return;
 
     /**
@@ -322,7 +326,7 @@ test.describe("the media pipeline in a real browser", () => {
      *  fixture builder that only ever produced N/E would be caught here. */
     const before = exifOf(withExif);
     expect(before?.gps?.Latitude, "the fixture carries no GPS going in").toBeCloseTo(-33.8581, 3);
-    expect(before?.gps?.Longitude).toBeCloseTo(151.2100, 3);
+    expect(before?.gps?.Longitude).toBeCloseTo(151.21, 3);
 
     const uploads = await collectUploads(page);
     await attach(page, "bondi.jpg", withExif);
@@ -653,7 +657,7 @@ async function collectUploads(page: Page): Promise<Upload[]> {
  * received text instead of timing out on a locator that matched nothing.
  */
 async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void> {
-  await page.getByLabel(PHOTOS).setInputFiles({
+  await visiblyLabelled(page, PHOTOS).setInputFiles({
     name,
     mimeType: "image/jpeg",
     buffer: Buffer.from(bytes),
@@ -664,32 +668,29 @@ async function attach(page: Page, name: string, bytes: Uint8Array): Promise<void
   await expect(page.getByRole("img", { name })).toBeVisible();
 }
 
+/** The published trip this spec writes entries into. Any owner-writable trip
+ *  would do; a real seeded one avoids this file creating its own.
+ *  scripts/seed-dev-pod.ts is the source of truth for the slug. */
+const SEEDED_TRIP = "2026-japan";
+
 /**
- * Two assertions, because ONE OF THEM ONLY COVERS HALF OF WHAT THIS USED TO
- * CLAIM — and a docblock claiming coverage it does not have is a documented
- * defect shape in this repository: it stops the next person looking.
+ * Two assertions, because ONE OF THEM ONLY COVERS HALF OF WHAT THIS NEEDS —
+ * a docblock claiming coverage it does not have is a documented defect shape
+ * in this repository: it stops the next person looking.
  *
  * The `Signed in as …` line discriminates OWNER FROM NOT-OWNER and nothing
- * else. That is worth having — it is what breaks when OWNER_WEBID loses its
- * `#me`, since `sameWebId` compares fragments — but it says nothing about the
- * editor. In components/studio/studio-shell/studio-shell.tsx that line is a SIBLING
- * rendered ABOVE `<Writables>`, so a pending enumeration, a failed one and a
- * Pod with zero trips all render it and all render no editor.
- *
- * So the editor is asserted on its own account, and the message names the
- * three ways it can be absent. Otherwise each of them arrives as a bare
- * twenty-second timeout on `setInputFiles`, with nothing saying why there is
- * no control to set files on. Verified by pointing `PHOTOS` at a control that
- * does not exist: the run fails HERE, with this sentence, rather than eleven
- * lines later inside `attach`.
+ * else — worth having, since it is what breaks when OWNER_WEBID loses its
+ * `#me` — but it says nothing about the editor, which is why this also opens
+ * `SEEDED_TRIP`'s own "New entry" route before checking for the control.
  */
 async function expectOwnerStudio(page: Page): Promise<void> {
   await expect(page.getByText(`Signed in as ${E2E.ownerWebId}.`)).toBeVisible();
+  await page.locator(`a[href="/studio/trips/${SEEDED_TRIP}"]`).click();
+  await page.getByRole("link", { name: "New entry" }).click();
   await expect(
-    page.getByLabel(PHOTOS),
-    "the owner studio rendered no editor: the trips enumeration is still pending, or it " +
-      "failed, or the Pod has no trips at all (§4 — an entry lives inside a trip). " +
-      "`Signed in as …` above does not discriminate between the three.",
+    visiblyLabelled(page, PHOTOS),
+    `the owner studio rendered no editor after opening ${SEEDED_TRIP}'s new-entry route: ` +
+      "the trip failed to load, its entries list failed, or the route itself changed.",
   ).toBeVisible();
 }
 
@@ -717,10 +718,7 @@ function exifOf(bytes: Uint8Array): ExpandedTags | null {
 /** Decoded in the browser rather than parsed here: the derivative may be WebP
  *  or JPEG (§6.1 leaves that to the encoder), and a hand-rolled header parser
  *  would be a second thing to get right for no gain. */
-async function dimensionsOf(
-  page: Page,
-  bytes: Buffer,
-): Promise<{ width: number; height: number }> {
+async function dimensionsOf(page: Page, bytes: Buffer): Promise<{ width: number; height: number }> {
   return page.evaluate(async (numbers) => {
     const bitmap = await createImageBitmap(new Blob([new Uint8Array(numbers)]));
     const size = { width: bitmap.width, height: bitmap.height };
@@ -752,7 +750,14 @@ const LONGITUDE = /longitude/i;
 const PRECISION = /precision/i;
 const WHEN = /when|occurred|date/i;
 
-const control = (page: Page, label: RegExp) => page.getByLabel(label);
+/** `getByLabel`, filtered to the one actually on screen. Next's client router
+ *  cache keeps the trip editor's own hidden DOM mounted across the soft nav
+ *  into "New entry" (measured, not assumed), and its own "Cover photo" and
+ *  "Start"/"End date" fields then collide with `PHOTOS` and `WHEN`. */
+const visiblyLabelled = (page: Page, label: string | RegExp) =>
+  page.getByLabel(label).and(page.locator(":visible"));
+
+const control = (page: Page, label: RegExp) => visiblyLabelled(page, label);
 
 /**
  * §7.6, SERVED TO THE BROWSER, AND WHAT IT DECLARES.
@@ -789,7 +794,10 @@ async function serveHomeRegion(page: Page): Promise<{
   long: number;
   precisionMeters: string;
 }> {
-  const doc = readFileSync(fileURLToPath(new URL("../docs/data-model.md", import.meta.url)), "utf8");
+  const doc = readFileSync(
+    fileURLToPath(new URL("../docs/data-model.md", import.meta.url)),
+    "utf8",
+  );
   const blocks = [...doc.matchAll(/```turtle\n([\s\S]*?)```/g)]
     .map((match) => match[1]!)
     .filter((block) => block.includes("dy:homeLat"));
