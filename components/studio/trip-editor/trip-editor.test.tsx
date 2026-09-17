@@ -172,6 +172,39 @@ describe("TripEditor — the cover, driven through use-photo-pipeline", () => {
   });
 });
 
+/* ══════════════════════════════════ the cover slot is replaced, never appended ══ */
+
+describe("TripEditor — the cover slot is replaced on each pick", () => {
+  it("holds exactly one slot, reflecting the latest pick — F1", async () => {
+    type Seed = {
+      form: { addSlot: (sectionId: string, slot: unknown) => void; settleSlot: (sectionId: string, key: string, slot: unknown) => void };
+      sections: readonly { id: string; slots: readonly { key: string }[] }[];
+    };
+    let form!: Seed["form"];
+    let sections: Seed["sections"] = [];
+    usePhotoPipelineMock.mockImplementation((seed: Seed) => {
+      form = seed.form;
+      sections = seed.sections;
+      return { attachAll: vi.fn() };
+    });
+    await renderEditor();
+
+    const pick = (key: string, url: string) => {
+      act(() => form.addSlot("cover", { key, name: `${key}.jpg`, state: "decoding" }));
+      act(() =>
+        form.settleSlot("cover", key, { key, name: `${key}.jpg`, state: "ready", photo: { contentUrl: url } }),
+      );
+    };
+    pick("a", `${POD}travel/media/aaa/web.webp`);
+    pick("b", `${POD}travel/media/bbb/web.webp`);
+    pick("c", `${POD}travel/media/ccc/web.webp`);
+
+    const cover = sections.find((section) => section.id === "cover");
+    expect(cover?.slots, "an earlier pick is still occupying the cover's one slot").toHaveLength(1);
+    expect(cover?.slots[0].key, "the slot does not reflect the latest pick").toBe("c");
+  });
+});
+
 /* ══════════════════════════════════════════════════ the name+slug pre-flight ══ */
 
 describe("TripEditor — blocks save until a name and a slug are present", () => {
@@ -207,6 +240,24 @@ describe("TripEditor — the slug on an edit", () => {
     usePhotoPipelineMock.mockReturnValue({ attachAll: vi.fn() });
     await renderEditor();
     expect(screen.getByLabelText("Slug")).toBeEnabled();
+  });
+
+  it("freezes once an in-session create completes — F2", async () => {
+    usePhotoPipelineMock.mockReturnValue({ attachAll: vi.fn() });
+    saveTripMock.mockResolvedValue(report());
+    await renderEditor();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Japan 2026" } });
+    fireEvent.change(screen.getByLabelText("Slug"), { target: { value: "japan-2026" } });
+    await act(async () => {
+      fireEvent.click(saveButton());
+    });
+    await waitFor(() => expect(saveTripMock).toHaveBeenCalledTimes(1));
+
+    expect(
+      screen.getByLabelText("Slug"),
+      "the trip now exists on the Pod; its container's slug cannot move",
+    ).toBeDisabled();
   });
 });
 

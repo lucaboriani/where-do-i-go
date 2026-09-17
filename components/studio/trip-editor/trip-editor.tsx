@@ -50,7 +50,7 @@ export default function TripEditor({ session, podRoot, initial }: TripEditorProp
     markTouched: () => {},
     sections: coverSections,
     form: {
-      addSlot: (_sectionId, slot) => setCoverSlots((prev) => [...prev, slot]),
+      addSlot: (_sectionId, slot) => setCoverSlots([slot]),
       settleSlot: (_sectionId, key, slot) => {
         setCoverSlots((prev) => prev.map((s) => (s.key === key ? slot : s)));
         if (slot.state === "ready") form.set.coverImage(slot.photo.contentUrl);
@@ -60,7 +60,12 @@ export default function TripEditor({ session, podRoot, initial }: TripEditorProp
     },
   });
 
-  const { outcome, saving, save } = useTripSave({ session, podRoot, initial, values });
+  const { outcome, saving, save, addressFixed } = useTripSave({
+    session,
+    podRoot,
+    initial,
+    values,
+  });
 
   return (
     <section className="mt-8 border-t border-hairline pt-6">
@@ -89,7 +94,7 @@ export default function TripEditor({ session, podRoot, initial }: TripEditorProp
             type="text"
             className={CONTROL}
             value={values.slug}
-            disabled={editing}
+            disabled={editing || addressFixed}
             onChange={(event) => form.set.slug(event.target.value)}
           />
         </Field>
