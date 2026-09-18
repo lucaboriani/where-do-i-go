@@ -19,7 +19,7 @@ Trips, entries and photographs live in storage you control. The site reads them 
 them; it never holds a copy. Delete the app and every word and photograph is still yours,
 where it always was.
 
-> **Status, as of 2026-09-16.** Phases 0–4 are complete and merged to `main`: the platform spike,
+> **Status, as of 2026-09-18.** Phases 0–4 are complete and merged to `main`: the platform spike,
 > installation, the public read path (home, trip and entry pages, sitemap, RSS, metadata, a real
 > 404), the studio where the owner writes (Solid login, entry create/edit, index maintenance,
 > autosave), the media pipeline (client-side resize, EXIF strip, coordinate fuzzing), and the map
@@ -30,10 +30,19 @@ where it always was.
 > (text + up to two photos each), and the restyled pages, sectioned entry page and editor, and
 > the map's new look.
 >
-> **Phase 5's draft/publish flow is done**: the studio can create and edit trips and entries and
-> publish/unpublish either, so the diary is self-serve with no seed script. Still open in phase 5:
-> OG image generation and per-entry deep links. Phases 6 and 8 have not started. Start at
-> `TODO.md`.
+> **Phase 5's draft/publish flow — feature #1, "studio authoring & publishing" — is complete and
+> merged to `main`** (`4e4424b`, 2026-09-18): the studio creates and edits both trips and entries,
+> and publishes/unpublishes either. Drafts stay Pod-ACL-private, never an app-level filter, so the
+> app is now genuinely self-serve — writing and publishing a trip needs no seed script and no
+> code change. Still open in phase 5: OG image generation and per-entry deep links.
+>
+> **Phase 6 — deployability — is done except independent verification.** `netlify.toml`, a
+> `Dockerfile`, and `docs/deploy.md` (env vars, Netlify, self-hosting, Pod compatibility) are all
+> in place, but no one other than the author has run a real deploy yet, and phase-0's question 7
+> (OG images on a live Netlify preview) is still unanswered — it is now tracked under phase 5's
+> remaining OG-image work.
+>
+> **Phase 8 — the marketing landing page — has not started.** Start at `TODO.md`.
 
 ## What makes it unusual
 
