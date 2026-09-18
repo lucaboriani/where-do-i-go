@@ -1,14 +1,18 @@
 # Travel diary
 
-> ## 🚧 Development in progress
+> ## Tested, not yet live-verified
 >
-> **This is not finished software, and it is not ready to be pointed at a Pod you care
-> about.** It is being built in phases, in the open. Things work, then change shape.
+> **The core is complete and tested**: the public site and the studio (Solid login, authoring,
+> publishing) are built, and the suite — unit, integration against a real Community Solid
+> Server, and end-to-end including the login round trip — passes. What hasn't happened yet is a
+> real deploy: no one has pointed this at a Pod on the open internet, OG image generation is
+> unproven outside local dev, and phase 6's independent deploy verification and phase 8 (the
+> marketing page) remain.
 >
-> **Do not write to a Pod holding anything you would miss.** The `dy:` namespace is
-> `https://zeropara.me/ns/traveldiary#`, resolved 2026-09-16. That URL is a permanent
-> identifier baked into every triple this app writes. Local development against
-> Community Solid Server is fine — that data is disposable and meant to be thrown away.
+> **Until that verification lands, be cautious pointing this at a Pod you'd miss.** The `dy:`
+> namespace is `https://zeropara.me/ns/traveldiary#`, resolved 2026-09-16 — a permanent
+> identifier baked into every triple this app writes. Local development against Community Solid
+> Server is fine; that data is disposable and meant to be thrown away.
 >
 > See `TODO.md` for the phase order and what is ticked, and the status note below for where
 > it has actually got to.
