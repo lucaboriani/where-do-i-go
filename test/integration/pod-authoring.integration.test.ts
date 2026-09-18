@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Parser } from "n3";
 import { LDP, SCHEMA, SCHEMA_VERSION } from "@/lib/vocab";
-import { createContainer, makePublic } from "@/lib/pod/access";
+import { createContainer, makePrivate, makePublic } from "@/lib/pod/access";
 import { ensurePodInitialised } from "@/lib/pod/bootstrap";
 import { diaryUrl, readDiary, tripIndexUrl, tripUrl } from "@/lib/pod/read";
 import { describe as renderError } from "@/lib/pod/result";
@@ -297,6 +297,60 @@ describe("makePublic observes the just-written ACL through a browser-shaped cach
       body: `<#it> <${SCHEMA.headline}> "cachefix"@en .\n`,
     });
     await expectPublicTriple(child, SCHEMA.headline, "cachefix");
+  }, 60_000);
+});
+
+describe("setDocumentPublicRead observes the just-written access through a browser-shaped cache", () => {
+  /* Finding 2 (task-5b): the document verify is a read-back too, and CSS serves a
+   * regular resource with the SAME heuristically-cacheable shape as `.acl`
+   * (Last-Modified, no Cache-Control) — measured. This cache serves a HEAD from a
+   * stored read (RFC 9111 §4.3.5), honours `cache: "no-store"` (the fix) and never
+   * evicts on PUT. getResourceInfo HEADs the resource, so without the bypass the
+   * verify reads a stale WAC-Allow. */
+  function browserishResourceCache(inner: typeof globalThis.fetch): typeof globalThis.fetch {
+    const store = new Map<string, Response>();
+    return async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const method = (
+        init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")
+      ).toUpperCase();
+      const cacheable = (method === "GET" || method === "HEAD") && !url.endsWith(".acl") && init?.cache !== "no-store";
+      if (cacheable && store.has(url)) return store.get(url)!.clone();
+      const res = await inner(input, init);
+      if (cacheable && res.ok && res.headers.has("last-modified") && !res.headers.has("cache-control")) {
+        store.set(url, res.clone());
+      }
+      return res;
+    };
+  }
+
+  const docUrl = () => `${POD}travel/cachefix-doc.ttl`;
+
+  it("reports read=true rather than a stale WAC-Allow read=false, and the doc is really public", async (ctx) => {
+    if (!podUp) ctx.skip(`no Pod on ${BASE} — start one with \`npm run pod:dev\``);
+
+    const init = await ensurePodInitialised({ fetch: ownerFetch, podRoot: POD, webId, now: () => NOW });
+    expect(init.ok, init.ok ? "" : renderError(init.error)).toBe(true);
+
+    await ownerFetch(docUrl(), {
+      method: "PUT",
+      headers: { "content-type": "text/turtle", "if-none-match": "*" },
+      body: `<#it> <${SCHEMA.headline}> "doc-cachefix"@en .\n`,
+    });
+    const priv = await makePrivate(docUrl(), { fetch: ownerFetch });
+    expect(priv.ok, priv.ok ? "" : renderError(priv.error)).toBe(true);
+
+    // Prime the cache with the private WAC-Allow, then publish through it — the
+    // verify HEAD would be served that stale read=false without the bypass.
+    const cached = browserishResourceCache(ownerFetch);
+    await cached(docUrl(), { method: "HEAD" });
+    const pub = await makePublic(docUrl(), { fetch: cached });
+    expect(pub.ok, pub.ok ? "" : renderError(pub.error)).toBe(true);
+    if (!pub.ok) return;
+    expect(pub.value).toMatchObject({ read: true, inheritsVerifiedBy: "notApplicable" });
+
+    // The evidence that counts (phase 0): a real anonymous read of the doc.
+    await expectPublicTriple(docUrl(), SCHEMA.headline, "doc-cachefix");
   }, 60_000);
 });
 

@@ -585,10 +585,11 @@ async function setDocumentPublicRead(
   if (!applied.ok) return err(applied.error);
 
   // Cross-check against the server's own evaluation where it offers one, since
-  // the above is still only the rules we just wrote, read back.
+  // the above is still only the rules we just wrote, read back. `uncached` for
+  // the same reason as the container verify: a read-back after our own write.
   let server: ReturnType<typeof serverPublicAccess>;
   try {
-    server = serverPublicAccess(await getResourceInfo(url, { fetch }));
+    server = serverPublicAccess(await getResourceInfo(url, { fetch: uncached(fetch) }));
   } catch (cause) {
     return err(toPodError(url, cause));
   }
