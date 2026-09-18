@@ -1901,10 +1901,18 @@ branch once this stage merges.
 
 ## Phase 6 — deployability
 
-- [ ] `netlify.toml`, `Dockerfile`, `next start` instructions
-- [ ] `docs/deploying.md` and `docs/self-hosting.md`
-- [ ] `docs/pod-compatibility.md` from the phase-0 findings
-- [ ] README deploy section under ten steps, tested by someone other than the author
+- [x] `netlify.toml`, `Dockerfile`, `next start` instructions — landed in phase 0.5
+      (`9fb7408`); `README.md`'s Development section documents `start`.
+- [x] **Written as one file, `docs/deploy.md`, not the two originally named here** —
+      deploying-to-Netlify, self-hosting (Docker and `next start`), and Pod compatibility are
+      one audience and one decision tree, not three documents to keep in sync. Covers first-run
+      setup (`lib/pod/bootstrap.ts`) and the content-propagation model (`docs/deploy.md` §8:
+      publish pushes a revalidation, no rebuild for content — a rebuild is only for code).
+- [x] **`docs/pod-compatibility.md` folded into `docs/deploy.md` §7**, sourced from
+      `docs/phase-0-spike.md`'s results table rather than duplicating it.
+- [x] README deploy section rewritten, six steps, linking to `docs/deploy.md` for depth.
+      **Not yet tested by someone other than the author** — that part of this item is still
+      open; whoever runs it first should fix what's wrong rather than trust it silently.
 
 ## Phase 7 — look and feel
 

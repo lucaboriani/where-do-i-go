@@ -96,15 +96,17 @@ never an app-level filter.
 
 ## Deploying your own
 
-Not yet available — the app does not exist. When it does, this section will be under ten
-steps. The intended shape:
+1. Get a Solid Pod (self-hosted, or a hosted provider) and note your WebID and storage root.
+2. Fork the repository.
+3. Copy `.env.example`, fill in `OWNER_WEBID` (quoted — see the trap in the file) and
+   `POD_ROOT`.
+4. Deploy to Netlify (`netlify.toml` is committed) — or self-host with the committed
+   `Dockerfile`, or plain `next start` on any Node 22 host.
+5. Visit `/studio` on your deployed origin and log in with your WebID. First login bootstraps
+   the Pod's containers and access rules.
+6. Write something and publish it — no rebuild needed for new content, ever.
 
-1. Fork the repository.
-2. Set `OWNER_WEBID`, `POD_ROOT` and the site metadata as environment variables.
-3. Deploy to Netlify, or run `next start` anywhere.
-4. Visit `/studio`, log in with your WebID, and run first-run setup to create the containers
-   and access rules.
-5. Write something.
+Full detail, self-hosting options, and Pod compatibility notes: `docs/deploy.md`.
 
 ## Documentation
 
@@ -118,6 +120,7 @@ steps. The intended shape:
 | `docs/design-brief.md` | Visual direction |
 | `docs/versions.md` | Pinned dependency versions and known pitfalls |
 | `docs/phase-0-spike.md` | Platform assumptions to verify first |
+| `docs/deploy.md` | Deployment, self-hosting, and Pod compatibility |
 
 ## Stack
 
