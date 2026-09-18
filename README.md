@@ -25,10 +25,10 @@ where it always was.
 > autosave), the media pipeline (client-side resize, EXIF strip, coordinate fuzzing), and the map
 > and timeline (an interactive MapLibre map, a mobile sheet, and an all-trips globe).
 >
-> Phase 7 — the visual design — is **in progress on a branch, not yet merged**: the typefaces and
-> type scale are wired, and the entry content model has been reshaped into an ordered list of
-> sections (text + up to two photos each) at the data layer. Restyling the pages, the sectioned
-> entry page and editor, and the map's new look are still to come.
+> Phase 7 — the visual design — is **complete and merged to `main`** (`f1893a1`, 2026-09-16): the
+> typefaces and type scale, the entry content model reshaped into an ordered list of sections
+> (text + up to two photos each), and the restyled pages, sectioned entry page and editor, and
+> the map's new look.
 >
 > **Phase 5's draft/publish flow is done**: the studio can create and edit trips and entries and
 > publish/unpublish either, so the diary is self-serve with no seed script. Still open in phase 5:

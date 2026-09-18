@@ -686,8 +686,7 @@ export async function getAccess(url: string, opts: AccessOptions): Promise<Resul
 
 /**
  * First-run setup: the §4 containers, with the access §5 intends. Idempotent
- * and safe to re-run. It creates NO CONTENT — writes carry the `dy:` namespace,
- * which is still example.org — and `privacy.ttl` least of all.
+ * and safe to re-run. It creates NO CONTENT — not even `privacy.ttl`.
  * ./notes.md#initialisecontainers-creates-no-content-and-privacyttl-least-of-all
  */
 export async function initialiseContainers(opts: {
