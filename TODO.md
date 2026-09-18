@@ -1883,7 +1883,15 @@ branch once this stage merges.
 
 ## Phase 5 — publishing and sharing
 
-- [ ] Draft and publish flow via `dy:status` plus per-resource ACL
+- [x] **Draft and publish flow via `dy:status` plus per-resource ACL.** Landed as feature #1,
+      "studio authoring & publishing" — plan
+      `docs/superpowers/plans/2026-09-16-studio-authoring-and-publishing.md`, decisions.md §37.
+      The studio now has a full authoring surface, not just the entry editor: a trips list, a
+      trip editor (with cover), a per-trip entries list, entry edit/create routing, and
+      publish/unpublish for both trips and entries — all browser→Pod, no server credential.
+      `diary.ttl` became a published-trips-only boundary; ACLs are the privacy guarantee.
+      This also **closes the studio EDIT surface gap** noted under phase 7 (§"Future (not Stage
+      3) — a studio EDIT surface"): the studio can now edit, not only create.
 - [ ] OG image generation, verified on a Netlify preview — **this is phase-0 spike question 7**,
       moved here because it needs a deploy. Generate one `next/og` image containing an embedded
       SVG polyline on a Netlify deploy preview, not locally; local success does not predict the
@@ -1957,10 +1965,13 @@ it.
       end to end (data layer → public page → studio editor → legacy removal).** Deferred: `data-model.md`
       §8's JSON-LD table still maps `schema:articleBody` for a not-yet-built serialiser (one-line edit when
       that lands).
-- [ ] **Future (not Stage 3) — a studio EDIT surface.** The running studio can only CREATE: `studio-shell`
+- [x] **Future (not Stage 3) — a studio EDIT surface.** The running studio can only CREATE: `studio-shell`
       always mounts `EntryEditor` with no `initial`, and there is no entries list / `/studio/entries/[id]`
       route. The edit-with-sections path is component-tested but unreachable in the app. Pre-existing,
       predates the sectioned entry; needs its own task.
+      **Closed by phase 5's feature #1 (studio authoring & publishing)** — see above. The studio
+      now has a trips list, trip editor, per-trip entries list, and entry edit routing, so the
+      edit-with-sections path is reachable in the running app.
 
 ### Phase-7 Tasks 4–9 (independent of the sectioned entry; order with the maintainer)
 

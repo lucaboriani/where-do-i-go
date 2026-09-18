@@ -30,7 +30,10 @@ where it always was.
 > sections (text + up to two photos each) at the data layer. Restyling the pages, the sectioned
 > entry page and editor, and the map's new look are still to come.
 >
-> Not started: sharing and OG images (phase 5) and phase 6. Start at `TODO.md`.
+> **Phase 5's draft/publish flow is done**: the studio can create and edit trips and entries and
+> publish/unpublish either, so the diary is self-serve with no seed script. Still open in phase 5:
+> OG image generation and per-entry deep links. Phases 6 and 8 have not started. Start at
+> `TODO.md`.
 
 ## What makes it unusual
 
@@ -82,6 +85,14 @@ npm run dev          # http://localhost:3000
 
 Develop against the local Pod, never a live one. See `CLAUDE.md` for the rules that are not
 inferable from the code.
+
+## Using the studio
+
+Visit `/studio` and log in with the owner's WebID — first login bootstraps the Pod containers.
+From there: a trips list, a trip editor (title, dates, cover photo), a per-trip entries list, and
+an entry editor (sections of text and photos). Each trip and entry has its own publish/unpublish
+control — publishing is what makes it visible on the public site; drafts stay Pod-ACL-private,
+never an app-level filter.
 
 ## Deploying your own
 
