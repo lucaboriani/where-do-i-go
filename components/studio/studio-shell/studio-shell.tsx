@@ -464,7 +464,11 @@ function EntryEditorRoute({
         setLoad({ status: "failed", error: entry.error });
         return;
       }
-      setLoad({ status: "ready", trip: trip.value.trip, entry: entry === null ? null : entry.value });
+      setLoad({
+        status: "ready",
+        trip: trip.value.trip,
+        entry: entry === null ? null : entry.value,
+      });
     });
     return () => {
       live = false;

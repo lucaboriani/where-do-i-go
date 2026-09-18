@@ -378,7 +378,10 @@ function PublishEntryControl({
     const fresh = await readEntryWithEtag(documentUrlOf(existing.iri), { fetch: session.fetch });
     if (!fresh.ok) return { ok: false, error: describePodError(fresh.error) };
     if (fresh.value.etag === null) {
-      return { ok: false, error: "This entry's version could not be confirmed. Reload to publish." };
+      return {
+        ok: false,
+        error: "This entry's version could not be confirmed. Reload to publish.",
+      };
     }
     const report = await saveEntry({
       fetch: session.fetch,

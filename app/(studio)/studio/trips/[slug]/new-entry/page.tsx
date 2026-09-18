@@ -11,11 +11,7 @@ export const instant = false;
 
 /** CREATE ENTRY mode, preset to one trip: the shell loads that trip and mounts
  *  a blank editor scoped to it. Thin, mirroring `/studio/trips/[slug]/page.tsx`. */
-export default async function NewEntryPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default async function NewEntryPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const profile = await getOwnerProfile();
 
