@@ -1902,7 +1902,8 @@ branch once this stage merges.
 ## Phase 6 — deployability
 
 - [x] `netlify.toml`, `Dockerfile`, `next start` instructions — landed in phase 0.5
-      (`9fb7408`); `README.md`'s Development section documents `start`.
+      (`9fb7408`); `README.md`'s "Deploying your own" section and `docs/deploy.md` document
+      `next start`.
 - [x] **Written as one file, `docs/deploy.md`, not the two originally named here** —
       deploying-to-Netlify, self-hosting (Docker and `next start`), and Pod compatibility are
       one audience and one decision tree, not three documents to keep in sync. Covers first-run
