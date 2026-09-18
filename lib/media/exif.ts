@@ -22,7 +22,8 @@ export const PhotoMetadata = z.object({
   dateTimeOriginal: z.string().optional(),
   /** "+09:00", when OffsetTimeOriginal (0x9011) is present. Usually absent. */
   offsetTimeOriginal: z.string().optional(),
-  /** 1-8. Informational only: production code does no orientation maths (§6.3). */
+  /** 1-8. The browser applies this for every format but HEIC, which the
+   *  worker rotates by hand from this same field (§6.3). */
   orientation: z.number().int().min(1).max(8).optional(),
 });
 export type PhotoMetadata = z.infer<typeof PhotoMetadata>;

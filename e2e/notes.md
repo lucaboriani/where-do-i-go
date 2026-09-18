@@ -1,5 +1,43 @@
 # e2e — notes
 
+## The three HEIC fixtures
+
+`test/fixtures/heic/` cannot be built the way every JPEG fixture here is —
+`canvas.toBlob` has no HEIC encoder, so there is no in-browser way to mint one.
+All three are real, committed HEIC files, made from `.mockups/img/IMG_1875.jpg`
+(a real device photo, itself gitignored) with `sips` (format conversion, macOS
+built-in) and the `exiftool` binary vendored inside the npm package
+`exiftool-vendored.pl` (no system install; `npx exiftool-vendored` pulls it).
+Verified against this repo's own `exifreader` and against `libheif-js`
+1.19.8 — the library the spike (`spike-heic-decode`, commit `7e32bbb`) proved
+decodes in the pipeline worker — before being committed.
+
+- **`plain.heic`** — `sips -s format heic` on the JPEG at its native
+  1800x1350, no further edits. Carries the source's own `DateTimeOriginal`
+  (`2026:03:20 13:49:21`) and no GPS. Decodes at 1800x1350 in `libheif-js`.
+- **`orientation-6.heic`** — the JPEG downsized to 320x240 landscape
+  (`sips -Z 320`), converted, then `exiftool -overwrite_original
+  "-Orientation#=6"`. `sips` and `exiftool` both still report the RAW pixels
+  as 320x240 after the edit — confirmed the tag alone changed, not the
+  pixels — and `libheif-js.HeifDecoder().decode()` on the exact bytes returns
+  `get_width() === 320, get_height() === 240` regardless of the tag. That is
+  the correctness gap this fixture exists to catch: `HeifImage` does not
+  auto-rotate the way `createImageBitmap(file, {imageOrientation:
+  "from-image"})` does, so a HEIC branch that trusts libheif's own
+  width/height ships this photo sideways.
+- **`gps-datetime.heic`** — the same 320x240 base, then `exiftool
+  -GPSLatitude=-33.8581 -GPSLatitudeRef=S -GPSLongitude=151.2100
+  -GPSLongitudeRef=E -DateTimeOriginal="2026:05:12 09:15:33"`. The coordinate
+  is Bondi Beach, the same point `media-pipeline.spec.ts`'s smaller-than-target
+  case already uses — far enough from §7.6's Milan home region (`45.4655,
+  9.1866`) in both axes that "outside the home region" needs no geodesy here
+  either.
+
+All three were read back with this repo's own `exifreader` (`Orientation`,
+`gps.Latitude/Longitude`, `exif.DateTimeOriginal.description` all matched
+exactly what was written) before being committed, so a fixture that failed to
+take an edit would have been caught here rather than shipped as a silent no-op.
+
 ## The three mutation controls
 
 `docs/superpowers/specs/2026-09-13-map-timeline-stage-4a-design.md:119-123` requires the browser

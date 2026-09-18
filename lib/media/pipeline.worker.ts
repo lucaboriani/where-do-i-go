@@ -4,10 +4,11 @@
 // ./notes.md#the-webworker-reference-and-the-postmessage-cast
 
 /**
- * Bytes in, derivatives and metadata out. STUDIO ONLY, deliberately thin, and
- * doing no orientation maths — every target comes from bitmap.width/height.
- * ./notes.md#the-worker-is-thin-and-where-the-decisions-live
+ * Bytes in, derivatives and metadata out. STUDIO ONLY, deliberately thin.
+ * Orientation maths is confined to the HEIC branch below — everything else
+ * still comes from bitmap.width/height. ./notes.md#the-worker-is-thin-and-where-the-decisions-live
  */
+import heicDecode from "heic-decode";
 import { readMetadata } from "./exif";
 import { TARGETS, fitWithin, withinBlurBudget } from "./targets";
 
@@ -51,6 +52,71 @@ async function encode(
   return { blob, width, height };
 }
 
+/**
+ * The canvas transform for each EXIF orientation, applied BEFORE drawing the
+ * decoded pixels. 5-8 also swap the canvas's own width/height. See
+ * ./notes.md#heic-decode-applies-its-own-orientation
+ */
+function applyOrientation(
+  context: OffscreenCanvasRenderingContext2D,
+  orientation: number,
+  width: number,
+  height: number,
+): void {
+  switch (orientation) {
+    case 2:
+      context.transform(-1, 0, 0, 1, width, 0);
+      break;
+    case 3:
+      context.transform(-1, 0, 0, -1, width, height);
+      break;
+    case 4:
+      context.transform(1, 0, 0, -1, 0, height);
+      break;
+    case 5:
+      context.transform(0, 1, 1, 0, 0, 0);
+      break;
+    case 6:
+      context.transform(0, 1, -1, 0, height, 0);
+      break;
+    case 7:
+      context.transform(0, -1, -1, 0, height, width);
+      break;
+    case 8:
+      context.transform(0, -1, 1, 0, 0, width);
+      break;
+    default:
+      break;
+  }
+}
+
+const SWAPS_DIMENSIONS = new Set([5, 6, 7, 8]);
+
+/**
+ * The one format `createImageBitmap` cannot decode: no browser ships a HEIC
+ * codec. `heic-decode` sniffs the ftyp brand and frees its own WASM heap;
+ * libheif does not auto-rotate, so `orientation` is applied below by hand.
+ * ./notes.md#heic-decode-applies-its-own-orientation
+ */
+async function decodeHeic(file: Blob, orientation: number | undefined): Promise<ImageBitmap> {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const { width, height, data } = await heicDecode({ buffer });
+  // A fresh, plain-ArrayBuffer-backed copy: heic-decode's own type declares
+  // `Uint8ClampedArray<ArrayBufferLike>`, which ImageData's constructor rejects.
+  const pixels = new Uint8ClampedArray(data);
+  const source = await createImageBitmap(new ImageData(pixels, width, height));
+
+  const upright = orientation ?? 1;
+  const [outWidth, outHeight] = SWAPS_DIMENSIONS.has(upright) ? [height, width] : [width, height];
+  const canvas = new OffscreenCanvas(outWidth, outHeight);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("no 2d context in this worker");
+  applyOrientation(context, upright, width, height);
+  context.drawImage(source, 0, 0);
+  source.close();
+  return createImageBitmap(canvas);
+}
+
 // THE RE-ENCODE IS THE EXIF STRIP. A canvas holds pixels and nothing else, so
 // there is no separate strip to skip. DO NOT add an "it is already small
 // enough, pass the original through" shortcut: it reads as an optimisation and
@@ -60,7 +126,20 @@ async function run(file: Blob): Promise<TransferableResult> {
   const bytes = await file.arrayBuffer();
   const metadata = readMetadata(bytes);
 
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (cause) {
+    // Neither Chrome nor Firefox ship a HEIC/HEIF image decoder, so this is
+    // the expected path for that format rather than a real failure. Reported
+    // as `cause` if the fallback ALSO fails — e.g. a truly unsupported file —
+    // so the error is the browser's own, not heic-decode's sniff message.
+    try {
+      bitmap = await decodeHeic(file, metadata.orientation);
+    } catch {
+      throw cause;
+    }
+  }
   try {
     const web = await encode(bitmap, TARGETS.web.longestEdge, TARGETS.web.quality);
     const thumb = await encode(bitmap, TARGETS.thumb.longestEdge, TARGETS.thumb.quality);

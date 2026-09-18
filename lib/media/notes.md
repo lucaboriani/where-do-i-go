@@ -49,16 +49,36 @@ names this file as its own gated e2e glob for the same reason: a change
 confined to it touches none of the auth-seam paths, so nothing else would have
 asked for the one test that catches it.
 
-## Orientation is the decoder's job
+## Orientation is the decoder's job, except when it is HEIC's
 
-`imageOrientation: "from-image"` means the bitmap arrives already rotated, so
-every target is computed from `bitmap.width`/`height` and this directory does
-no orientation maths at all — `exif.ts` returns `orientation` as information
-only (§6.3).
+`imageOrientation: "from-image"` means the bitmap `createImageBitmap` hands
+back already rotated, so every target is computed from `bitmap.width`/`height`
+and JPEG/PNG/WebP need no orientation maths of their own — `exif.ts`'s
+`orientation` field is read-only decoration for that path (§6.3).
 
 An orientation-6 photo is stored 4032x3024 and displays 3024x4032. Computing
 targets from the file's recorded size gets both the aspect ratio and the stored
 `schema:width`/`schema:height` wrong.
+
+## HEIC decode applies its own orientation
+
+No browser decodes HEIC/HEIF at all (`docs/decisions.md`'s HEIC spike), so
+`pipeline.worker.ts` falls back to `heic-decode` (`libheif-js`'s `wasm-bundle`
+entry — base64-inlined WASM, no runtime fetch, no §31-class Turbopack
+resolution problem) on a `createImageBitmap` rejection. Unlike the browser,
+libheif hands back raw, un-rotated pixels: `HeifImage`/`heic-decode` apply no
+EXIF orientation at all, so this is the one branch of this directory that does
+orientation maths for itself, straight off `exif.ts`'s own `orientation` field
+rather than trusting the decoded bitmap's own width/height.
+
+The eight EXIF orientations are a canvas transform applied before the source
+pixels are drawn (`applyOrientation`, blueimp/StackOverflow's well-known
+`ctx.transform` matrix per value); 5-8 also swap the destination canvas's own
+width and height ahead of the draw, since those four are the transpose cases.
+`test/fixtures/heic/orientation-6.heic` is stored landscape (320x240) with only
+the tag saying "rotate" — see `../../e2e/notes.md#the-three-heic-fixtures` for
+how the three HEIC fixtures were built and what each one proves. Once rotated
+upright, the result feeds the same `encode()`/`fitWithin()` path unmodified.
 
 ## The encoder can answer a different type
 
