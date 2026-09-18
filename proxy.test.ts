@@ -88,6 +88,34 @@ describe("proxy soft-404 middleware", () => {
     expect(served(await runProxy("kyoto"))).toBe(true);
   });
 
+  // ./notes.md#the-pod_root-trailing-slash-and-why-proxy-normalises-it-inline
+  it("resolves the diary under a sub-path Pod root that lacks a trailing slash", async () => {
+    const subpathRoot = "https://sub.pod.example/alice"; // deliberately no trailing slash
+    process.env.POD_ROOT = subpathRoot;
+
+    let correctReads = 0;
+    let wrongReads = 0;
+    server.use(
+      http.get(`${subpathRoot}/travel/diary.ttl`, () => {
+        correctReads += 1;
+        return HttpResponse.text(diaryTtl(["kyoto"]), {
+          headers: { "content-type": "text/turtle" },
+        });
+      }),
+      // Where the bug resolves to: joined against the origin, dropping "/alice".
+      http.get("https://sub.pod.example/travel/diary.ttl", () => {
+        wrongReads += 1;
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+
+    const res = await runProxy("kyoto");
+
+    expect(correctReads).toBe(1); // the fix: joined under the sub-path, not the origin
+    expect(wrongReads).toBe(0);
+    expect(served(res)).toBe(true);
+  });
+
   // Date only, so fetch/MSW keep real timers and do not hang.
   describe("the forced re-read cooldown", () => {
     const base = new Date("2026-09-18T00:00:00Z").getTime();

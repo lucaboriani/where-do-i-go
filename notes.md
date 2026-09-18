@@ -79,6 +79,17 @@ reset per instance, which only ever makes the cap looser, never the content stal
 the real-404 for genuinely-absent slugs are unchanged — the gate only decides whether to spend a
 read, not what to serve.
 
+## the POD_ROOT trailing slash, and why proxy normalises it inline
+
+`new URL("travel/diary.ttl", root)` treats a base with no trailing slash as ending in a
+document, not a directory, so a sub-path root (`https://host/alice`, no slash) resolves the
+join against `https://host/`, dropping `/alice` — the diary read 404s or hits the wrong Pod
+entirely, `knownSlugs()` returns `null`, and the middleware fails open
+(`#the-module-scope-cache-is-best-effort-only`). `lib/config.ts` and `lib/pod/access.ts`
+already guard this; this file repeats the one-line guard inline rather than importing either,
+because decision 24 keeps this file deliberately dumb and free of the rest of the app's config
+layer (`docs/decisions.md` §24).
+
 ## why the vitest environment is node
 
 Most of the suite needs no DOM and jsdom is not free. Component tests opt in per **file** with a

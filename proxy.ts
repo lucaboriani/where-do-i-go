@@ -16,8 +16,12 @@ let lastForcedAt = 0;
 async function knownSlugs(force = false): Promise<Set<string> | null> {
   if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.slugs;
 
-  const root = process.env.POD_ROOT;
-  if (!root) return null;
+  const raw = process.env.POD_ROOT;
+  if (!raw) return null;
+  // Without a trailing slash, a sub-path root (`.../alice`) resolves the join
+  // below against the parent origin, not the sub-path. lib/config.ts already
+  // guards this; ./notes.md#the-pod_root-trailing-slash-and-why-proxy-normalises-it-inline
+  const root = raw.endsWith("/") ? raw : `${raw}/`;
 
   try {
     // `no-store` so a forced re-read is genuinely fresh even behind a CDN cache;

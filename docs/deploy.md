@@ -19,7 +19,7 @@ committed source of truth. This is the quick-reference version:
 | Variable | Required | Purpose |
 |---|---|---|
 | `OWNER_WEBID` | yes | The diary owner's WebID. Quoted (see below). |
-| `POD_ROOT` | yes | Storage root the diary lives under. Trailing slash (see below). |
+| `POD_ROOT` | yes | Storage root the diary lives under. Trailing slash recommended (see below). |
 | `SITE_NAME` | no (default: "Travel diary") | Site metadata. |
 | `SITE_URL` | no (default: `http://localhost:3000`) | Public origin; builds the OIDC `client_id`. |
 | `SITE_LANGUAGE` | no (default: `en`) | Default language tag for text written to the Pod. |
@@ -28,7 +28,7 @@ committed source of truth. This is the quick-reference version:
 `lib/config.ts` throws at startup if `OWNER_WEBID` or `POD_ROOT` is missing — the app refuses
 to run rather than serve with an unknown Pod.
 
-**Two traps that bite:**
+**One trap that bites, and one habit worth keeping anyway:**
 
 - **Quote `OWNER_WEBID`.** It is a fragment IRI (`https://you.example/profile/card#me`), and
   any `.env*` file Next loads treats an unquoted `#` as the start of a comment — the value
@@ -36,13 +36,13 @@ to run rather than serve with an unknown Pod.
   point of the mistake. `.env.example` walks through exactly what breaks downstream. Quote it
   everywhere you set it (`.env.local`, Netlify's UI, a Docker `-e`/`--build-arg`), even where
   the parser in question may not need it — consistency is cheaper than finding out which ones do.
-- **`POD_ROOT` needs a trailing slash if your Pod lives at a sub-path** (e.g.
-  `https://server.example/alice/`, the common shape on a multi-user server). `lib/config.ts`
-  and `lib/pod/access.ts` normalise a missing slash before using it, but `proxy.ts` reads
-  `process.env.POD_ROOT` directly and does not. Without the slash, `new URL("travel/diary.ttl",
-  root)` resolves against the wrong base (see Troubleshooting) and the middleware silently
-  stops working. `SITE_URL` has no equivalent trap: `lib/config.ts` strips any trailing slash
-  before use, so set it with or without one.
+- **Set `POD_ROOT` with a trailing slash if your Pod lives at a sub-path** (e.g.
+  `https://server.example/alice/`, the common shape on a multi-user server) — still
+  recommended, belt-and-suspenders. `lib/config.ts`, `lib/pod/access.ts`, and `proxy.ts` each
+  normalise a missing slash before using it, so a bare `https://server.example/alice` no longer
+  mis-resolves `new URL("travel/diary.ttl", root)` against the wrong base. `SITE_URL` has no
+  equivalent trap: `lib/config.ts` strips any trailing slash before use, so set it with or
+  without one.
 
 ## 3. Deploy to Netlify
 
@@ -168,8 +168,8 @@ the project's own basemap.
   received undefined`.** `OWNER_WEBID` lost its `#fragment` to comment-stripping. Re-check it's
   quoted; see §2 and `.env.example`.
 - **`/trips/<slug>` 404s right after publishing, or a known trip stops resolving as expected.**
-  If your Pod lives at a sub-path, confirm `POD_ROOT` has its trailing slash — see the trap in
-  §2. Otherwise, the studio's publish flow may not have completed step 4 (revalidation);
+  A missing `POD_ROOT` trailing slash is normalised everywhere now (§2), so this is more likely
+  the studio's publish flow not having completed step 4 (revalidation);
   `revalidatePublicSite` throws when it does, so check the browser console
   (`logging.browserToTerminal` forwards it to the terminal in dev).
 - **The build fails with a message naming `POD_ROOT` or "lists no published trips".** Expected
