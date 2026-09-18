@@ -6,8 +6,12 @@ import { DY } from "@/lib/vocab";
  *  carrying 404 content - measured. ./notes.md#why-the-middleware-returns-the-404 */
 
 const TTL_MS = 60_000;
+/** Cap on the forced re-read: at most one un-cached diary GET per window, so
+ *  enumerating unknown slugs cannot flood the Pod. ./notes.md#the-forced-re-read-cooldown */
+const FORCE_COOLDOWN_MS = 5_000;
 /** Best-effort only, never a guarantee: ./notes.md#the-module-scope-cache-is-best-effort-only */
 let cache: { slugs: Set<string>; at: number } | null = null;
+let lastForcedAt = 0;
 
 async function knownSlugs(force = false): Promise<Set<string> | null> {
   if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.slugs;
@@ -49,10 +53,14 @@ export async function proxy(request: NextRequest) {
   if (!match) return NextResponse.next();
 
   let slugs = await knownSlugs();
-  // A miss for a real slug is the just-published case: the cache predates the
-  // publish and no revalidateTag reaches this runtime, so re-read fresh once
-  // before 404-ing. ./notes.md#the-module-scope-cache-is-best-effort-only
-  if (slugs && !slugs.has(match[1])) slugs = await knownSlugs(true);
+  // A miss for a real slug is the just-published case: re-read fresh once before
+  // 404-ing, but at most once per FORCE_COOLDOWN_MS so enumerating unknown slugs
+  // cannot turn each 404 into an un-cached Pod GET. ./notes.md#the-forced-re-read-cooldown
+  const now = Date.now();
+  if (slugs && !slugs.has(match[1]) && now - lastForcedAt >= FORCE_COOLDOWN_MS) {
+    lastForcedAt = now;
+    slugs = await knownSlugs(true);
+  }
 
   // Fail OPEN. If the Pod is unreachable or the diary is unreadable, serving a
   // page is far better than 404-ing real content over a transient hiccup.

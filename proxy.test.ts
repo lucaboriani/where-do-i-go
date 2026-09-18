@@ -45,6 +45,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   if (savedPodRoot === undefined) delete process.env.POD_ROOT;
   else process.env.POD_ROOT = savedPodRoot;
 });
@@ -85,5 +86,45 @@ describe("proxy soft-404 middleware", () => {
   it("fails open when the diary is unreadable, rather than 404-ing real content", async () => {
     diaryResponse = 500;
     expect(served(await runProxy("kyoto"))).toBe(true);
+  });
+
+  // Date only, so fetch/MSW keep real timers and do not hang.
+  describe("the forced re-read cooldown", () => {
+    const base = new Date("2026-09-18T00:00:00Z").getTime();
+
+    it("caps the forced re-read: a repeat unknown slug within the window does not re-hit the Pod", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(base);
+
+      expect(served(await runProxy("kyoto"))).toBe(true); // fills the cache {kyoto}
+      expect(soft404(await runProxy("ghost"))).toBe(true); // miss → one forced read
+      expect(reads).toBe(2);
+
+      expect(soft404(await runProxy("ghost"))).toBe(true); // within the window → suppressed
+      expect(reads).toBe(2); // no second forced GET
+    });
+
+    it("allows a forced re-read again once the cooldown has elapsed", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(base);
+
+      expect(served(await runProxy("kyoto"))).toBe(true);
+      expect(soft404(await runProxy("ghost"))).toBe(true); // forced read at t=base
+      expect(reads).toBe(2);
+
+      vi.setSystemTime(base + 5_001); // past the window, still within TTL
+      expect(soft404(await runProxy("ghost"))).toBe(true);
+      expect(reads).toBe(3); // forced read allowed again
+    });
+
+    it("a just-published slug still resolves via a forced read when no window is active", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(base);
+
+      expect(served(await runProxy("kyoto"))).toBe(true); // fills {kyoto}, no forced read yet
+      diaryResponse = diaryTtl(["kyoto", "osaka"]); // osaka published after the fill
+      expect(served(await runProxy("osaka"))).toBe(true); // first miss → forced read allowed
+      expect(reads).toBe(2);
+    });
   });
 });

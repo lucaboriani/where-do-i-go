@@ -53,7 +53,10 @@ test.describe("the studio authoring and publishing flow", () => {
     await page.getByRole("link", { name: "New entry" }).click();
     await expect(page.getByRole("heading", { name: "New entry" })).toBeVisible();
 
-    await field(page, "Trip").selectOption({ index: 1 });
+    // By label, not index: the seeded Pod has other trips, so index 1 need not
+    // be this one. The trip is still a draft here, so its option carries the
+    // "(draft)" suffix identity-fields.tsx renders.
+    await field(page, "Trip").selectOption({ label: `${tripName} (draft)` });
     await field(page, "Slug").fill("first-entry");
     await field(page, "Headline").fill(entryHeadline);
     await field(page, "Story").fill(entryStory);

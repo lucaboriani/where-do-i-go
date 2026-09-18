@@ -57,6 +57,28 @@ an unreadable diary still fails open — a miss just pays one extra read, and it
 anyway. Reproduced by `e2e/studio-authoring.spec.ts` (publish → visible, no artificial wait) and
 covered by `proxy.test.ts`.
 
+## the forced re-read cooldown
+
+The re-read-on-miss above, taken alone, is an availability regression: a slug not in the cache
+forces a `no-store` diary GET, and a crawler or attacker enumerating `/trips/<random>` produces
+one un-cached GET against the single datastore **per request** — the forced read repopulates a set
+that still lacks the random slug, so the next identical request forces another. The old cache
+answered these with zero reads.
+
+So the forced read is rate-limited: a module-scope `lastForcedAt` timestamp gates it, and a miss
+skips the forced read when one happened within `FORCE_COOLDOWN_MS`. `lastForcedAt` is set **before**
+the await, so concurrent misses do not each slip a read through. Under a flood the forced-read rate
+is capped at one per window and the extra requests are answered from the stale cache (a 404 for an
+unknown slug — exactly what it was going to be).
+
+**The window is 5s**, chosen as the smallest that meaningfully caps a flood while keeping publish
+promptness within a few seconds: a just-published trip becomes visible within one cooldown window,
+which is why `e2e/studio-authoring.spec.ts` still needs no artificial wait. Like the cache itself
+this is best-effort and per-runtime (`#the-module-scope-cache-is-best-effort-only`): on a CDN it may
+reset per instance, which only ever makes the cap looser, never the content staler. Fail-open and
+the real-404 for genuinely-absent slugs are unchanged — the gate only decides whether to spend a
+read, not what to serve.
+
 ## why the vitest environment is node
 
 Most of the suite needs no DOM and jsdom is not free. Component tests opt in per **file** with a
