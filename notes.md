@@ -46,6 +46,17 @@ The Next docs warn that proxy code may be deployed to a CDN and should not rely 
 or globals. So the module-scope cache is an optimisation that may simply never hit, not a
 guarantee. **The correctness of this file does not depend on it.**
 
+That independence is what the re-read-on-miss makes true. Middleware runs in its own runtime and
+cannot participate in `use cache`/`revalidateTag` (`lib/pod/cached.ts`), so `POST /api/revalidate`
+invalidates the page's cache on publish but never this one. A trip published within `TTL_MS` of the
+last fill is therefore in a fresh `diary.ttl` but absent from the stale set — and 404-ing it would
+be wrong. So a cache miss triggers **one** forced fresh read (`knownSlugs(true)`, `no-store`)
+before any 404: a real slug is served, its fresh set is cached for the next request, and only a
+slug absent from the fresh read is 404'd. Known slugs still serve from the cache with no read, and
+an unreadable diary still fails open — a miss just pays one extra read, and it was going to 404
+anyway. Reproduced by `e2e/studio-authoring.spec.ts` (publish → visible, no artificial wait) and
+covered by `proxy.test.ts`.
+
 ## why the vitest environment is node
 
 Most of the suite needs no DOM and jsdom is not free. Component tests opt in per **file** with a
@@ -57,12 +68,14 @@ three times — here; in `playwright.config.ts`, "23 component tests" against 26
 `docs/testing-gates.md`, 33 against a real 36. All three were removed rather than corrected, the
 last two on 2026-09-09.
 
-## why the include list has five globs and excludes .spec.ts
+## why the include list has six globs and excludes .spec.ts
 
 `components/**` and `app/**` were added **ahead** of the moves that needed them, so a colocated
 test could not land uncollected. `hooks/**` was added *with* the move that needed it, on
 2026-09-12, which is the same-commit rule in `CLAUDE.md` — a root directory the include list does
-not name loses its tests in silence. `test/vitest-collection.test.ts` fails if any of the five
+not name loses its tests in silence. The sixth glob is the bare `*.test.{ts,tsx}`, added for
+`proxy.test.ts`: the middleware sits at the repository root, its test sits beside it, and none of
+the directory globs reach the root. `test/vitest-collection.test.ts` fails if any of the six
 stops matching a file that exists.
 
 `.spec.ts` is excluded and **both halves matter**. `test/fixtures/swallowed-stray.spec.ts` is a

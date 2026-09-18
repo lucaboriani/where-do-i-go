@@ -9,15 +9,18 @@ const TTL_MS = 60_000;
 /** Best-effort only, never a guarantee: ./notes.md#the-module-scope-cache-is-best-effort-only */
 let cache: { slugs: Set<string>; at: number } | null = null;
 
-async function knownSlugs(): Promise<Set<string> | null> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.slugs;
+async function knownSlugs(force = false): Promise<Set<string> | null> {
+  if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.slugs;
 
   const root = process.env.POD_ROOT;
   if (!root) return null;
 
   try {
+    // `no-store` so a forced re-read is genuinely fresh even behind a CDN cache;
+    // the module TTL is what keeps the common case cheap, not fetch's cache.
     const res = await fetch(new URL("travel/diary.ttl", root), {
       headers: { accept: "text/turtle" },
+      cache: "no-store",
     });
     if (!res.ok) return null;
     const body = await res.text();
@@ -45,7 +48,12 @@ export async function proxy(request: NextRequest) {
   const match = /^\/trips\/([^/]+)/.exec(request.nextUrl.pathname);
   if (!match) return NextResponse.next();
 
-  const slugs = await knownSlugs();
+  let slugs = await knownSlugs();
+  // A miss for a real slug is the just-published case: the cache predates the
+  // publish and no revalidateTag reaches this runtime, so re-read fresh once
+  // before 404-ing. ./notes.md#the-module-scope-cache-is-best-effort-only
+  if (slugs && !slugs.has(match[1])) slugs = await knownSlugs(true);
+
   // Fail OPEN. If the Pod is unreachable or the diary is unreadable, serving a
   // page is far better than 404-ing real content over a transient hiccup.
   if (!slugs) return NextResponse.next();
