@@ -10,6 +10,7 @@
  */
 import heicDecode from "heic-decode";
 import { readMetadata } from "./exif";
+import { orientationTransform } from "./orientation";
 import { TARGETS, fitWithin, withinBlurBudget } from "./targets";
 
 export type WorkerRequest = { id: number; file: Blob };
@@ -53,46 +54,6 @@ async function encode(
 }
 
 /**
- * The canvas transform for each EXIF orientation, applied BEFORE drawing the
- * decoded pixels. 5-8 also swap the canvas's own width/height. See
- * ./notes.md#heic-decode-applies-its-own-orientation
- */
-function applyOrientation(
-  context: OffscreenCanvasRenderingContext2D,
-  orientation: number,
-  width: number,
-  height: number,
-): void {
-  switch (orientation) {
-    case 2:
-      context.transform(-1, 0, 0, 1, width, 0);
-      break;
-    case 3:
-      context.transform(-1, 0, 0, -1, width, height);
-      break;
-    case 4:
-      context.transform(1, 0, 0, -1, 0, height);
-      break;
-    case 5:
-      context.transform(0, 1, 1, 0, 0, 0);
-      break;
-    case 6:
-      context.transform(0, 1, -1, 0, height, 0);
-      break;
-    case 7:
-      context.transform(0, -1, -1, 0, height, width);
-      break;
-    case 8:
-      context.transform(0, -1, 1, 0, 0, width);
-      break;
-    default:
-      break;
-  }
-}
-
-const SWAPS_DIMENSIONS = new Set([5, 6, 7, 8]);
-
-/**
  * The one format `createImageBitmap` cannot decode: no browser ships a HEIC
  * codec. `heic-decode` sniffs the ftyp brand and frees its own WASM heap;
  * libheif does not auto-rotate, so `orientation` is applied below by hand.
@@ -101,17 +62,18 @@ const SWAPS_DIMENSIONS = new Set([5, 6, 7, 8]);
 async function decodeHeic(file: Blob, orientation: number | undefined): Promise<ImageBitmap> {
   const buffer = new Uint8Array(await file.arrayBuffer());
   const { width, height, data } = await heicDecode({ buffer });
-  // A fresh, plain-ArrayBuffer-backed copy: heic-decode's own type declares
-  // `Uint8ClampedArray<ArrayBufferLike>`, which ImageData's constructor rejects.
-  const pixels = new Uint8ClampedArray(data);
+  // No copy: heic-decode's `data` is already a real ArrayBuffer; the cast
+  // just narrows its declared `ArrayBufferLike` for ImageData's constructor.
+  // ./notes.md#the-orientation-cast-is-not-a-copy
+  const pixels = data as Uint8ClampedArray<ArrayBuffer>;
   const source = await createImageBitmap(new ImageData(pixels, width, height));
 
-  const upright = orientation ?? 1;
-  const [outWidth, outHeight] = SWAPS_DIMENSIONS.has(upright) ? [height, width] : [width, height];
+  const transform = orientationTransform(orientation, width, height);
+  const [outWidth, outHeight] = transform.swapsDimensions ? [height, width] : [width, height];
   const canvas = new OffscreenCanvas(outWidth, outHeight);
   const context = canvas.getContext("2d");
   if (!context) throw new Error("no 2d context in this worker");
-  applyOrientation(context, upright, width, height);
+  context.transform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f);
   context.drawImage(source, 0, 0);
   source.close();
   return createImageBitmap(canvas);

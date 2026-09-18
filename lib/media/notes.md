@@ -72,13 +72,30 @@ orientation maths for itself, straight off `exif.ts`'s own `orientation` field
 rather than trusting the decoded bitmap's own width/height.
 
 The eight EXIF orientations are a canvas transform applied before the source
-pixels are drawn (`applyOrientation`, blueimp/StackOverflow's well-known
-`ctx.transform` matrix per value); 5-8 also swap the destination canvas's own
-width and height ahead of the draw, since those four are the transpose cases.
+pixels are drawn (`./orientation.ts`'s `orientationTransform`, blueimp/
+StackOverflow's well-known `ctx.transform` matrix per value); 5-8 also swap the
+destination canvas's own width and height ahead of the draw, since those four
+are the transpose cases. The matrix decision is pulled out of the worker
+because it is the one piece of this file jsdom could otherwise never verify —
+`orientation.test.ts` covers all eight values plus the absent/out-of-range
+fallback; the worker itself only draws.
 `test/fixtures/heic/orientation-6.heic` is stored landscape (320x240) with only
 the tag saying "rotate" — see `../../e2e/notes.md#the-three-heic-fixtures` for
 how the three HEIC fixtures were built and what each one proves. Once rotated
 upright, the result feeds the same `encode()`/`fitWithin()` path unmodified.
+
+## The orientation cast is not a copy
+
+`heic-decode`'s own `lib.js` allocates `data` as `new
+Uint8ClampedArray(width*height*4)` — a fresh, non-shared `ArrayBuffer` — but
+`@types/heic-decode` declares it untyped, so it widens to
+`Uint8ClampedArray<ArrayBufferLike>`, which `ImageData`'s constructor rejects
+(it wants the narrower `<ArrayBuffer>`). `pipeline.worker.ts` used to satisfy
+that with `new Uint8ClampedArray(data)`, a full-frame copy — ~200 MB of
+transient memory on a 50 MP photo — for a mismatch that is only in the types.
+The type assertion `data as Uint8ClampedArray<ArrayBuffer>` costs nothing at
+runtime and is true: nothing between libheif and here ever puts `data` on a
+`SharedArrayBuffer`.
 
 ## The encoder can answer a different type
 

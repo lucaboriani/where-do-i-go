@@ -788,3 +788,23 @@ lets a partial failure be repaired by calling the same operation again — route
 `privacy.ttl`. Per §9's fail-closed ruling, defaulting a home region or precision would be a
 choice made on the owner's behalf where every option is wrong; a coordinate-bearing entry on a
 fresh Pod is written with no coordinate until the owner authors `privacy.ttl` deliberately.
+
+---
+
+## 38. HEIC decode ships an LGPL-3.0 dependency
+
+Neither Chrome nor Firefox decode HEIC/HEIF at all — measured directly: both reject it from
+`createImageBitmap` and from `ImageDecoder`. With no native cross-browser decode available,
+`pipeline.worker.ts` falls back to `heic-decode`, which wraps `libheif-js` — **LGPL-3.0**, the one
+LGPL dependency in this stack, taken consciously rather than by oversight.
+
+It clears every invariant this project holds a dependency to: no signup, no key, no account (rule
+6), runs entirely client-side in the studio-only worker chunk (rule 4), and is host-neutral (rule
+7). It ships as the `wasm-bundle` entry — WASM inlined as base64, so no separate binary and no
+runtime fetch — lazy-loaded only when a HEIC file is actually queued, never in the public bundle
+(`npm run size:public` does not see it). Measured on a production build, that chunk is 607 KB
+gzip: the cost of a decoder, paid once, on a path most uploads never take.
+
+LGPL-3.0 permits this use (dynamic linking from application code, unmodified library) without
+placing the application itself under LGPL; it obliges attribution and letting a user replace the
+library, both satisfied by the dependency being an ordinary, swappable `package.json` entry.
