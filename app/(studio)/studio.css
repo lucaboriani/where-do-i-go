@@ -1,0 +1,13 @@
+/* Touch screens only: 44px tap targets, layered so utilities win; see ./notes.md#touch-tap-targets */
+@layer base {
+  @media (pointer: coarse) {
+    main :is(a[href], button, input:not([type="hidden"]), select, textarea) {
+      min-height: 2.75rem;
+    }
+
+    main a[href] {
+      display: inline-flex;
+      align-items: center;
+    }
+  }
+}

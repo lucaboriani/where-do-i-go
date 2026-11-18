@@ -1,5 +1,7 @@
 import { FONT_CLASS } from "@/lib/fonts";
 import "../globals.css";
+// 44px tap targets on touch screens only; see ./notes.md#touch-tap-targets
+import "./studio.css";
 
 /**
  * Studio root layout. Authenticated, client-side, and never server-rendered
