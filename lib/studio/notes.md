@@ -225,7 +225,7 @@ silently. Phase 0 found that when the identity provider cannot use the client ID
 document, login falls back to **dynamic client registration**: the flow still
 completes, nothing errors, and the consent screen shows a bare UUID instead of
 the app's name. A dropped or drifted `clientId` therefore degrades on a screen
-no test looks at.
+no test looks at. (One case drops it on purpose; see the next section.)
 
 `${siteUrl}/studio` and `${siteUrl}/client-id.jsonld` are built here and nowhere
 else, from the same origin, so the pair the browser claims cannot drift from the
@@ -246,6 +246,18 @@ the same way at the source; this is the belt to that pair of braces, because
 this page: the browser navigates to the IdP and comes back to a fresh module
 instance with an empty memo. Clearing it would be behaviour no caller can
 observe and no test can kill.
+
+### A loopback site with a remote issuer registers dynamically
+
+The one deliberate exception to the above. When the site origin is loopback
+(`localhost`, `127.0.0.1`, `[::1]` — `URL.hostname` keeps the brackets) and the
+issuer is not, `signIn` omits `clientId` entirely. A remote IdP cannot fetch a
+`localhost` client ID document, so sending it fails login with `invalid_client`
+rather than falling back. Without it, the library uses dynamic registration —
+fine for one-time setup from a laptop against a real Pod. The key is absent,
+not `undefined`: authn 5.0.0 only checks `!== undefined`, and the tests use
+`toStrictEqual`. A loopback issuer (the local CSS in dev and e2e) keeps the
+document, and so does any public site.
 
 ### signOut: the logout type, and why the clear is in a finally
 

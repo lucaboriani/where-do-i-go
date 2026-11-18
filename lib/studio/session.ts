@@ -208,18 +208,27 @@ export interface SignInOptions {
   siteName: string;
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function isLoopback(url: string): boolean {
+  return LOOPBACK_HOSTS.has(new URL(url).hostname);
+}
+
 /**
  * Start the login redirect; in a browser this does not return. A dropped
- * `clientId` degrades silently to dynamic client registration, and both URLs
- * are derived here and nowhere else.
+ * `clientId` degrades silently to dynamic client registration, except on a
+ * loopback site with a remote issuer, where it is omitted on purpose.
  * ./notes.md#signin-one-derivation-site-and-the-fallback-that-looks-like-success
  */
 export async function signIn(session: StudioSessionLike, options: SignInOptions): Promise<void> {
   const origin = options.siteUrl.replace(/\/+$/, "");
+  // A remote IdP cannot fetch a loopback client ID document.
+  // ./notes.md#a-loopback-site-with-a-remote-issuer-registers-dynamically
+  const omitClientId = isLoopback(origin) && !isLoopback(options.oidcIssuer);
   await session.login({
     oidcIssuer: options.oidcIssuer,
     redirectUrl: `${origin}/studio`,
-    clientId: `${origin}/client-id.jsonld`,
+    ...(omitClientId ? {} : { clientId: `${origin}/client-id.jsonld` }),
     clientName: options.siteName,
   });
 }

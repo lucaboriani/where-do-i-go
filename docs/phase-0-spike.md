@@ -240,6 +240,10 @@ registration**, which registers a *new* client each time. Consequences observed:
   where it did on CSS. The most likely cause is that the restored session refers to a client id
   that no longer matches after re-registration. Not isolated — treat as "unexplained on ESS,
   worked on CSS", not as a property of ESS.
+- **2026-11-18:** the studio sending a localhost `clientId` to `login.inrupt.com` did **not** fall
+  back — it failed with `invalid_client` ("Invalid remote client"). `signIn` now omits
+  `clientId` for a loopback site with a remote issuer; see
+  `lib/studio/notes.md#a-loopback-site-with-a-remote-issuer-registers-dynamically`.
 
 The practical consequence for phase 2: the real login flow cannot be validated locally against a
 hosted Pod. It needs a deployed origin serving `client-id.jsonld`. Budget for that before

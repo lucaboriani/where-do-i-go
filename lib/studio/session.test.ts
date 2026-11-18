@@ -884,6 +884,46 @@ describe("signIn", () => {
       clientName: SITE_NAME,
     });
   });
+
+  // A remote IdP cannot fetch a loopback Client ID Document (`invalid_client`),
+  // so omit clientId and let it dynamically register. Absent, not undefined:
+  // authn 5.0.0 only checks `!== undefined`, so absent is the stricter claim.
+  const REMOTE_ISSUER = "https://login.inrupt.com";
+  it.each(["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"])(
+    "omits clientId when the site is on loopback (%s) and the issuer is remote",
+    async (site) => {
+      const signIn = await loadSignIn();
+      const fake = fakeStudioSession();
+
+      await signIn(fake.session, { oidcIssuer: REMOTE_ISSUER, siteUrl: site, siteName: SITE_NAME });
+
+      expect(fake.logins).toHaveLength(1);
+      expect(fake.logins[0]).not.toHaveProperty("clientId");
+      expect(fake.logins[0]).toStrictEqual({
+        oidcIssuer: REMOTE_ISSUER,
+        redirectUrl: `${site}/studio`,
+        clientName: SITE_NAME,
+      });
+    },
+  );
+
+  // Controls: the local CSS dev/e2e flow and a public site keep the document.
+  it.each([
+    ["a loopback site with a loopback issuer", "http://localhost:3000", "http://localhost:3001/"],
+    ["a public site with a remote issuer", SITE, REMOTE_ISSUER],
+  ])("keeps clientId for %s", async (_label, site, issuer) => {
+    const signIn = await loadSignIn();
+    const fake = fakeStudioSession();
+
+    await signIn(fake.session, { oidcIssuer: issuer, siteUrl: site, siteName: SITE_NAME });
+
+    expect(fake.logins[0]).toStrictEqual({
+      oidcIssuer: issuer,
+      redirectUrl: `${site}/studio`,
+      clientId: `${site}/client-id.jsonld`,
+      clientName: SITE_NAME,
+    });
+  });
 });
 
 /**

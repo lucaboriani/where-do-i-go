@@ -30,7 +30,8 @@ See `docs/phase-0-spike.md` for the seven questions, how to test each, and the r
 - The ACP equivalent of closing the container listing (WAC's `acl:default` without
   `acl:accessTo`) is untested. Until it is, assume draft slugs are public on a hosted Pod.
 - A static `client-id.jsonld` cannot be exercised from localhost against a hosted provider — the
-  identity provider must be able to fetch it. Dynamic registration is the fallback and it showed
+  identity provider must be able to fetch it. Dynamic registration is used there (deliberately
+  since 2026-11-18: a localhost `clientId` failed with `invalid_client`) and it showed
   a bare UUID on the consent screen and broke session restore. Phase 2 needs a deployed origin
   before the login flow can be validated end to end.
 

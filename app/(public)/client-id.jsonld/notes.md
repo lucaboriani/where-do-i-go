@@ -11,8 +11,9 @@ from their own domain.
 
 Phase 0 finding: the identity provider fetches this URL, so it must be publicly
 reachable. It therefore cannot be exercised from localhost against a hosted Pod
-— dynamic client registration is the fallback there, and it shows a bare UUID on
-the consent screen instead of the app name.
+— the studio deliberately omits `clientId` there and uses dynamic registration,
+which shows a bare UUID on the consent screen instead of the app name. See
+`lib/studio/notes.md#a-loopback-site-with-a-remote-issuer-registers-dynamically`.
 
 ## the presence check stays on the raw env var, the value comes from config
 

@@ -114,6 +114,11 @@ absent:
 It authors **no** `privacy.ttl` — that stays a deliberate absence until the owner sets it
 through the studio (see `docs/decisions.md` §37).
 
+Running this from `localhost` against a remote Pod works: the studio omits the client ID
+document (a remote identity provider cannot fetch it from `localhost`) and logs in through
+dynamic client registration instead. That is fine for one-time setup, but expect to log in
+again after a page reload. The deployed site uses its own `client-id.jsonld`.
+
 ## 7. Pod compatibility
 
 Verified against two shapes of Pod in `docs/phase-0-spike.md`; treat that file as the source of
@@ -178,6 +183,10 @@ the project's own basemap.
   not fail the build.
 - **Login redirect loops, or the consent screen shows a bare UUID instead of the app name.**
   The identity provider needs to fetch `client-id.jsonld` from your real, publicly reachable
-  `SITE_URL` — serving it from `localhost` falls back to dynamic client registration, which
-  re-registers a new client on every login and can prevent session restore across reloads.
-  See `docs/phase-0-spike.md` question 2.
+  `SITE_URL`. On a deployed site, a bare UUID means it could not, and login fell back to
+  dynamic client registration, which re-registers a new client on every login and can prevent
+  session restore across reloads. See `docs/phase-0-spike.md` question 2.
+- **Logging in from `localhost` against a remote Pod.** Expected to use dynamic client
+  registration (bare UUID on the consent screen): the studio deliberately omits `clientId`
+  when the site is loopback and the issuer is not, since sending it would fail with
+  `invalid_client`. Fine for one-time setup (§6); not how the deployed site logs in.
