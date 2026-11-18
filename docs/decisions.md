@@ -282,6 +282,9 @@ detectable from headers, which is precisely why the abstraction exists.
 its implementation is the universal API rather than a WAC branch and an ACP branch. The lint rule
 banning ACL primitives elsewhere is load-bearing, not hygiene.
 
+**Reversed for the container path on 2026-11-18 — see §40.** The branch stays inside `access.ts`,
+and header sniffing stays banned.
+
 ---
 
 ## 20. Decision 4 confirmed, with a narrower guarantee than originally claimed
@@ -831,3 +834,30 @@ build with the message naming `POD_ROOT` and the fix: a misconfigured Pod must n
   run this section exists for.
 - `EntryContent` also calls `allEntryParams()` at render time, so a non-404 diary failure there
   throws into the error boundary rather than returning a `Result`. That predates §39.
+
+---
+
+## 40. ACP Pods use per-file public grants; §19 is reversed for the container path
+
+**Decided 2026-11-18 by the owner; not yet implemented** — spec
+`docs/superpowers/specs/2026-11-18-acp-support-design.md`, plan
+`docs/superpowers/plans/2026-11-18-acp-support.md`.
+
+The owner's real Pod is Inrupt ESS (ACP), and first-run setup refuses there: the container path
+writes WAC ACLs only. Spikes against that Pod showed ACP member policies inherit **recursively**
+and **add up** (a file's own rule cannot take back an inherited public read, and the library
+reports success while the file stays public). So ACP cannot copy WAC's container defaults.
+
+- **On ACP:** containers stay owner-only; every document meant to be public gets its own grant
+  (`setInheritedPublicRead`, a no-op on WAC). Nothing inherited, so a missed grant fails closed,
+  and listings stay closed — the draft-slug leak (§20) does not exist on ACP.
+- **On WAC:** unchanged.
+- **§19 reversed for the container path, explicitly by the owner:** `lib/pod/access.ts` branches
+  on the mechanism, detected on **positive evidence only** (a readable ACR → ACP, a readable ACL →
+  WAC, anything else an error; never `isAcpControlled`, which reads a failed ACR fetch as WAC). No
+  other module learns the mechanism.
+- Every ACP grant is verified by reading back the rules and walking every ancestor's ACR to the
+  `pim:Storage` root, refusing any policy that is not exactly the owner's WebID.
+- Product change: a trip is always **created as a draft**; a status change in the trip editor goes
+  through publish/unpublish, never a bare PUT (this also fixes a WAC bug where a trip switched to
+  Draft in the editor stayed public).

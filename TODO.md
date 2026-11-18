@@ -8,6 +8,15 @@ written.
 
 ---
 
+## Next — ACP support (decided 2026-11-18, implement next session)
+
+- [ ] Execute `docs/superpowers/plans/2026-11-18-acp-support.md` (8 tasks, subagent-driven) for
+      the spec `docs/superpowers/specs/2026-11-18-acp-support-design.md`; decision `docs/decisions.md` §40.
+      Blocks the first Netlify deploy: the owner's Pod is Inrupt ESS, and setup refuses there today.
+- [ ] Afterwards: revoke the spike app credentials at login.inrupt.com/registration.html.
+
+---
+
 ## Phase 0 — spike
 
 See `docs/phase-0-spike.md` for the seven questions, how to test each, and the results table.
