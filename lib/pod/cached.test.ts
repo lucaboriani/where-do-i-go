@@ -65,6 +65,8 @@ const blocks = [
   ...readFileSync("docs/data-model.md", "utf8").matchAll(/```turtle\n([\s\S]*?)```/g),
 ].map((m) => m[1]);
 const DIARY_TTL = blocks[0];
+const TRIP_TTL = blocks[1];
+const INDEX_TTL = blocks[3];
 const PROFILE_TTL = blocks[4];
 
 /**
@@ -97,7 +99,7 @@ const POD_ROOT = "https://storage.owner.test/2f9c1a/";
  */
 function mutate(source: string, from: string, to: string): string {
   if (!source.includes(from)) {
-    throw new Error(`fixture anchor not found in docs/data-model.md §7.5: ${JSON.stringify(from)}`);
+    throw new Error(`fixture anchor not found in docs/data-model.md §7: ${JSON.stringify(from)}`);
   }
   const out = source.replace(from, to);
   if (graphEquals(source, out, WEBID_DOC).equal) {
@@ -398,5 +400,176 @@ describe("the 'use cache' directive in lib/pod/cached.ts", () => {
     expect(names).toContain("getOwnerProfile");
     expect(bodyOf("getOwnerProfile")).toContain('"use cache"');
     expect(bodyOf("getOwnerProfile")).toContain("cacheTag(");
+  });
+});
+
+/* ----------------------------------------------- 5. the empty Pod still builds */
+
+/* An empty or 404 diary gets the sentinel param the pages 404 on; every other
+   failure still fails the build loudly. Why: decisions.md §39. */
+const DIARY_URL = `${POD_ROOT}travel/diary.ttl`;
+const JAPAN = `${POD_ROOT}travel/trips/2026-japan/`;
+const PATAGONIA = `${POD_ROOT}travel/trips/2025-patagonia/`;
+
+const EMPTY_DIARY = mutate(
+  DIARY_TTL,
+  "    dy:schemaVersion    2 ;\n    dy:trip             <trips/2026-japan/trip.ttl#it> ,\n                        <trips/2025-patagonia/trip.ttl#it> .",
+  "    dy:schemaVersion    2 .",
+);
+const DRAFT_TRIP = mutate(
+  TRIP_TTL,
+  "dy:status          dy:Published",
+  "dy:status          dy:Draft",
+);
+const OLD_DIARY = mutate(DIARY_TTL, "dy:schemaVersion    2", "dy:schemaVersion    1");
+
+/** Every URL this test fetched that mentions the sentinel — the sentinel is a
+ *  build artefact, not a trip, and must never reach the Pod. */
+const sentinelRequests = (sentinel: string) =>
+  requested().filter((u) => u.includes(encodeURIComponent(sentinel)));
+
+describe("EMPTY_DIARY_SLUG", () => {
+  it("is exported, and is a single URL-safe route segment", async () => {
+    const { EMPTY_DIARY_SLUG } = await load();
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    expect(EMPTY_DIARY_SLUG.length).toBeGreaterThan(0);
+    // It is a route param: it must survive encoding unchanged and contain no
+    // path separator, or the prerendered path is not the one the page sees.
+    expect(encodeURIComponent(EMPTY_DIARY_SLUG)).toBe(EMPTY_DIARY_SLUG);
+    // Convention only — no slug rule anywhere in lib/ enforces it (see report).
+    expect(EMPTY_DIARY_SLUG.startsWith("_")).toBe(true);
+  });
+
+  it("is not a slug the §7 fixtures use", async () => {
+    const { EMPTY_DIARY_SLUG } = await load();
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    const fixtureSlugs = [...blocks.join("\n").matchAll(/dy:slug\s+"([^"]+)"/g)].map((m) => m[1]);
+    expect(fixtureSlugs.length).toBeGreaterThan(0); // control: the scan found something
+    expect(fixtureSlugs).not.toContain(EMPTY_DIARY_SLUG);
+  });
+});
+
+describe("allTripSlugs on an empty or absent diary", () => {
+  it("control: a diary with published trips returns their slugs, and no sentinel", async () => {
+    const { allTripSlugs, EMPTY_DIARY_SLUG } = await load();
+    servePod({
+      [DIARY_URL]: DIARY_TTL,
+      [`${JAPAN}trip.ttl`]: TRIP_TTL,
+      [`${PATAGONIA}trip.ttl`]: 404,
+    });
+
+    const slugs = await allTripSlugs();
+
+    expect(slugs).toEqual(["2026-japan"]);
+    expect(slugs).not.toContain(EMPTY_DIARY_SLUG);
+  });
+
+  it("returns [EMPTY_DIARY_SLUG] when the diary lists no trips", async () => {
+    const { allTripSlugs, EMPTY_DIARY_SLUG } = await load();
+    servePod({ [DIARY_URL]: EMPTY_DIARY });
+
+    await expect(allTripSlugs()).resolves.toEqual([EMPTY_DIARY_SLUG]);
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+  });
+
+  it("returns [EMPTY_DIARY_SLUG] when every listed trip is a draft", async () => {
+    // "Zero published", not merely "zero listed": the status filter in
+    // publishedTripSlugs empties the list here.
+    const { allTripSlugs, EMPTY_DIARY_SLUG } = await load();
+    servePod({
+      [DIARY_URL]: DIARY_TTL,
+      [`${JAPAN}trip.ttl`]: DRAFT_TRIP,
+      [`${PATAGONIA}trip.ttl`]: 404,
+    });
+
+    await expect(allTripSlugs()).resolves.toEqual([EMPTY_DIARY_SLUG]);
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+  });
+
+  it("returns [EMPTY_DIARY_SLUG] when the diary is 404 — a fresh Pod", async () => {
+    const { allTripSlugs, EMPTY_DIARY_SLUG } = await load();
+    servePod({ [DIARY_URL]: 404 });
+
+    await expect(allTripSlugs()).resolves.toEqual([EMPTY_DIARY_SLUG]);
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    expect(requested()).toEqual([DIARY_URL]);
+  });
+});
+
+/**
+ * Regression guards, expected GREEN before and after: only a 404 means
+ * "nothing here yet". Every other failure is a misconfigured or broken Pod, and
+ * a build that silently shipped an empty site over it would hide the fault.
+ */
+describe("allTripSlugs still fails the build on every other diary failure", () => {
+  const cases: [string, () => void, string][] = [
+    ["500", () => servePod({ [DIARY_URL]: 500 }), "http"],
+    ["503", () => servePod({ [DIARY_URL]: 503 }), "http"],
+    ["401", () => servePod({ [DIARY_URL]: 401 }), "http"],
+    ["403", () => servePod({ [DIARY_URL]: 403 }), "http"],
+    ["network", () => server.use(http.get(DIARY_URL, () => HttpResponse.error())), "network"],
+    ["unparseable Turtle", () => servePod({ [DIARY_URL]: "<#it> a <<< not turtle" }), "parse"],
+    ["an older schemaVersion", () => servePod({ [DIARY_URL]: OLD_DIARY }), "schemaVersion"],
+  ];
+
+  for (const [name, arrange, kind] of cases) {
+    it(`throws naming the diary URL and POD_ROOT on ${name}`, async () => {
+      const { allTripSlugs } = await load();
+      arrange();
+
+      const call = allTripSlugs();
+      await expect(call).rejects.toThrow(DIARY_URL);
+      await expect(call).rejects.toThrow("POD_ROOT");
+      // The kind, so a 404 swallowed by an over-broad catch shows up as a
+      // different failure here rather than as a pass.
+      await expect(call).rejects.toThrow(`— ${kind}.`);
+    });
+  }
+});
+
+describe("allEntryParams never returns []", () => {
+  it("control: real pairs come back unchanged, with no sentinel appended", async () => {
+    const { allEntryParams, EMPTY_DIARY_SLUG } = await load();
+    servePod({
+      [DIARY_URL]: DIARY_TTL,
+      [`${JAPAN}trip.ttl`]: TRIP_TTL,
+      [`${PATAGONIA}trip.ttl`]: 404,
+      [`${JAPAN}entries.ttl`]: INDEX_TTL,
+    });
+
+    const pairs = await allEntryParams();
+
+    // §7.4's fixture defines one full row; `#e-2026-03-31-nara` is referenced
+    // but has no triples, so the per-row validation drops it.
+    expect(pairs).toEqual([{ slug: "2026-japan", entry: "2026-03-29-arrival" }]);
+    expect(pairs.some((p) => p.slug === EMPTY_DIARY_SLUG)).toBe(false);
+  });
+
+  it("returns the sentinel pair when published trips have no readable index", async () => {
+    const { allEntryParams, EMPTY_DIARY_SLUG } = await load();
+    servePod({
+      [DIARY_URL]: DIARY_TTL,
+      [`${JAPAN}trip.ttl`]: TRIP_TTL,
+      [`${PATAGONIA}trip.ttl`]: 404,
+      [`${JAPAN}entries.ttl`]: 404,
+    });
+
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    await expect(allEntryParams()).resolves.toEqual([
+      { slug: EMPTY_DIARY_SLUG, entry: EMPTY_DIARY_SLUG },
+    ]);
+  });
+
+  it("returns the sentinel pair on an empty diary, without fetching the sentinel's index", async () => {
+    const { allEntryParams, EMPTY_DIARY_SLUG } = await load();
+    servePod({ [DIARY_URL]: EMPTY_DIARY });
+
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    await expect(allEntryParams()).resolves.toEqual([
+      { slug: EMPTY_DIARY_SLUG, entry: EMPTY_DIARY_SLUG },
+    ]);
+    // The sentinel is not a trip: asking the Pod for travel/trips/<sentinel>/
+    // entries.ttl is a wasted request and, under MSW, a stray one.
+    expect(sentinelRequests(EMPTY_DIARY_SLUG)).toEqual([]);
   });
 });

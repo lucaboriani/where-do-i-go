@@ -1,7 +1,13 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { allTripSlugs, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
+import {
+  EMPTY_DIARY_SLUG,
+  allTripSlugs,
+  getTrip,
+  getTripIndex,
+  publishedTripSlugs,
+} from "@/lib/pod/cached";
 import { describe } from "@/lib/pod/result";
 import { SiteFooter } from "@/components/public/site-footer";
 import TripTimeline from "@/components/public/trip-timeline";
@@ -17,6 +23,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
+  if (slug === EMPTY_DIARY_SLUG) return { title: "Not found" };
   const trip = await getTrip(slug);
   // A draft's name must not reach <title> or the OG tags. generateMetadata runs
   // even when the page body renders not-found, so without this check the draft
@@ -59,6 +66,7 @@ function TripSkeleton() {
 // calling it directly — same reason EntryContent and DiaryContent are exported.
 export async function TripContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  if (slug === EMPTY_DIARY_SLUG) notFound(); // the empty-Pod placeholder (decisions.md §39)
 
   // Second line of defence only. proxy.ts is what sets the 404 status, because
   // under Partial Prerendering the shell is flushed before this code runs and a

@@ -6,12 +6,15 @@
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
+import { EMPTY_DIARY_SLUG, getTrip, getTripIndex, publishedTripSlugs } from "@/lib/pod/cached";
 import { ok } from "@/lib/pod/result";
 import type { IndexEntry, Trip, TripIndex } from "@/lib/pod/schema";
 import { TripContent } from "./page";
 
-vi.mock("@/lib/pod/cached", () => ({
+vi.mock("@/lib/pod/cached", async (importOriginal) => ({
+  // The real constant, not a copy: the page must 404 on exactly what
+  // generateStaticParams emits.
+  EMPTY_DIARY_SLUG: (await importOriginal<typeof import("@/lib/pod/cached")>()).EMPTY_DIARY_SLUG,
   getTrip: vi.fn(),
   getTripIndex: vi.fn(),
   publishedTripSlugs: vi.fn(),
@@ -87,5 +90,21 @@ describe("TripContent", () => {
     const footer = container.querySelector("footer.status-line");
     expect(footer).not.toBeNull();
     expect(footer).toHaveTextContent(/solid pod/i);
+  });
+});
+
+describe("TripContent on the empty-diary sentinel", () => {
+  it("404s on EMPTY_DIARY_SLUG without reading the Pod", async () => {
+    // No clearMocks in vitest.config.ts: earlier tests' calls are still recorded.
+    vi.mocked(publishedTripSlugs).mockClear();
+    vi.mocked(getTrip).mockClear();
+    vi.mocked(getTripIndex).mockClear();
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    await expect(
+      TripContent({ params: Promise.resolve({ slug: EMPTY_DIARY_SLUG }) }),
+    ).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
+    expect(publishedTripSlugs).not.toHaveBeenCalled();
+    expect(getTrip).not.toHaveBeenCalled();
+    expect(getTripIndex).not.toHaveBeenCalled();
   });
 });

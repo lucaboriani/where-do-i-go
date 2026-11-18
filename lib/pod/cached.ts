@@ -76,11 +76,12 @@ export async function allEntryParams(): Promise<{ slug: string; entry: string }[
   const slugs = await allTripSlugs();
   const pairs: { slug: string; entry: string }[] = [];
   for (const slug of slugs) {
+    if (slug === EMPTY_DIARY_SLUG) continue;
     const index = await getTripIndex(slug);
     if (!index.ok) continue; // a trip without a readable index simply prerenders none
     for (const e of index.value.entries) pairs.push({ slug, entry: e.slug });
   }
-  return pairs;
+  return pairs.length > 0 ? pairs : [{ slug: EMPTY_DIARY_SLUG, entry: EMPTY_DIARY_SLUG }];
 }
 
 /**
@@ -112,27 +113,24 @@ export async function publishedTripSlugs(): Promise<Result<string[]>> {
   };
 }
 
-/**
- * Trip slugs for prerendering. THROWS on purpose — use only from
- * generateStaticParams, never from a render path, and fail loudly with the fix
- * in the message rather than shipping a placeholder trip.
- * ./notes.md#one-deliberate-exception-to-a-typed-value-or-a-structured-error-never-a-throw
- */
+/** The placeholder param an empty Pod builds with; the pages 404 on it,
+ *  because Cache Components rejects an empty generateStaticParams. See
+ *  docs/decisions.md §39. */
+export const EMPTY_DIARY_SLUG = "_empty";
+
+/** Trip slugs for prerendering. THROWS on purpose: generateStaticParams only.
+ *  A 404 diary or zero published trips is empty, not a fault.
+ *  ./notes.md#one-deliberate-exception-to-a-typed-value-or-a-structured-error-never-a-throw */
 export async function allTripSlugs(): Promise<string[]> {
   const result = await publishedTripSlugs();
-  if (!result.ok) {
+  const absent = !result.ok && result.error.kind === "http" && result.error.status === 404;
+  if (!result.ok && !absent) {
     throw new Error(
       `Cannot read the diary at ${diaryUrl(config.podRoot)} — ${result.error.kind}. ` +
         `The build reads your Pod to know which trips to prerender. Check POD_ROOT, ` +
         `and that /travel/diary.ttl exists and is publicly readable.`,
     );
   }
-  const slugs = result.value;
-  if (slugs.length === 0) {
-    throw new Error(
-      `Your diary at ${diaryUrl(config.podRoot)} lists no published trips, so there is nothing ` +
-        `to prerender and the build cannot continue. Create and publish one trip, then redeploy.`,
-    );
-  }
-  return slugs;
+  const slugs = result.ok ? result.value : [];
+  return slugs.length > 0 ? slugs : [EMPTY_DIARY_SLUG];
 }

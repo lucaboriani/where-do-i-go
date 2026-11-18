@@ -382,7 +382,7 @@ caching, which gives up the edge-cached public site and puts a Pod round-trip on
 - **The build reads the Pod.** `generateStaticParams` must return at least one param — an empty
   array now raises `empty-generate-static-params` — and `dynamicParams` is not supported. So
   every deploy is coupled to Pod availability, and a deployer whose Pod has no trips yet gets a
-  **failed build rather than an empty site**. Phase 1 must handle this deliberately; see TODO.
+  **failed build rather than an empty site**. Resolved by §39: a placeholder slug that 404s.
 - Trips published after a build are fine: with `partialPrefetching`, an unknown slug is served
   the App Shell and upgraded in the background, so new entries never require a redeploy.
 - Node runtime only. No `runtime = 'edge'` on any route.
@@ -808,3 +808,26 @@ gzip: the cost of a decoder, paid once, on a path most uploads never take.
 LGPL-3.0 permits this use (dynamic linking from application code, unmodified library) without
 placing the application itself under LGPL; it obliges attribution and letting a user replace the
 library, both satisfied by the dependency being an ordinary, swappable `package.json` entry.
+
+---
+
+## 39. An empty Pod builds, with a placeholder slug that 404s
+
+`generateStaticParams` cannot return `[]` under Cache Components (§22), so an empty Pod used to
+fail the build. Now `allTripSlugs()` and `allEntryParams()` return the placeholder
+`EMPTY_DIARY_SLUG` (`"_empty"`, `lib/pod/cached.ts`) instead, and both trip pages call
+`notFound()` on it before any Pod read. A first deploy is an empty site, not a failed build.
+
+Only a **404 diary** (a fresh Pod) or **zero published trips** counts as empty. Every other
+diary failure — unreachable, 401/403/5xx, unparseable, wrong `schemaVersion` — still fails the
+build with the message naming `POD_ROOT` and the fix: a misconfigured Pod must not deploy green.
+
+**Known gaps, accepted:**
+
+- Nothing reserves `_empty` as a trip slug. A trip literally slugged `_empty` would 404.
+- "Zero published trips" includes listed trips whose `trip.ttl` fails publicly (401/403/5xx), so
+  a public diary over unreadable trips builds green. Not narrowed on purpose: a draft trip is
+  owner-only and answers 401 to the build, so throwing on 401 would fail the all-drafts first
+  run this section exists for.
+- `EntryContent` also calls `allEntryParams()` at render time, so a non-404 diary failure there
+  throws into the error boundary rather than returning a `Result`. That predates §39.

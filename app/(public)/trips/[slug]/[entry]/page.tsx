@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { EntrySection } from "@/components/public/entry-section";
 import { SiteFooter } from "@/components/public/site-footer";
 import { config } from "@/lib/config";
-import { allEntryParams, getEntry } from "@/lib/pod/cached";
+import { EMPTY_DIARY_SLUG, allEntryParams, getEntry } from "@/lib/pod/cached";
 import { precisionLabel } from "@/lib/place/precision";
 import { describe } from "@/lib/pod/result";
 import type { Entry } from "@/lib/pod/schema";
@@ -19,6 +19,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string; entry: string }>;
 }): Promise<Metadata> {
   const { slug, entry } = await params;
+  if (slug === EMPTY_DIARY_SLUG) return { title: "Not found" };
   const e = await getEntry(slug, entry);
   // Same reason as the trip route: metadata runs regardless of what the body
   // renders, so a draft headline would otherwise leak into the served HTML.
@@ -67,6 +68,7 @@ export async function EntryContent({
   params: Promise<{ slug: string; entry: string }>;
 }) {
   const { slug, entry } = await params;
+  if (slug === EMPTY_DIARY_SLUG) notFound(); // the empty-Pod placeholder (decisions.md §39)
 
   // Second line of defence, like the trip route: this renders the right body,
   // but it cannot set the status — the shell has already been flushed

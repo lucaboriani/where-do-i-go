@@ -6,12 +6,15 @@
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allEntryParams, getEntry } from "@/lib/pod/cached";
+import { EMPTY_DIARY_SLUG, allEntryParams, getEntry } from "@/lib/pod/cached";
 import { ok } from "@/lib/pod/result";
 import type { Entry, Section } from "@/lib/pod/schema";
 import { EntryContent } from "./page";
 
-vi.mock("@/lib/pod/cached", () => ({
+vi.mock("@/lib/pod/cached", async (importOriginal) => ({
+  // The real constant, not a copy: the page must 404 on exactly what
+  // generateStaticParams emits.
+  EMPTY_DIARY_SLUG: (await importOriginal<typeof import("@/lib/pod/cached")>()).EMPTY_DIARY_SLUG,
   getEntry: vi.fn(),
   allEntryParams: vi.fn(),
 }));
@@ -89,5 +92,25 @@ describe("EntryContent", () => {
     const footer = container.querySelector("footer.status-line");
     expect(footer).not.toBeNull();
     expect(footer).toHaveTextContent(/solid pod/i);
+  });
+});
+
+describe("EntryContent on the empty-diary sentinel", () => {
+  it("404s on the sentinel pair without reading the Pod", async () => {
+    // No clearMocks in vitest.config.ts: earlier tests' calls are still recorded.
+    vi.mocked(allEntryParams).mockClear();
+    vi.mocked(getEntry).mockClear();
+    expect(typeof EMPTY_DIARY_SLUG).toBe("string");
+    // allEntryParams WOULD list the sentinel pair on an empty Pod, so the
+    // guard has to come before it, not rely on it.
+    vi.mocked(allEntryParams).mockResolvedValue([
+      { slug: EMPTY_DIARY_SLUG, entry: EMPTY_DIARY_SLUG },
+    ]);
+    const params = { slug: EMPTY_DIARY_SLUG, entry: EMPTY_DIARY_SLUG };
+    await expect(EntryContent({ params: Promise.resolve(params) })).rejects.toMatchObject({
+      digest: "NEXT_HTTP_ERROR_FALLBACK;404",
+    });
+    expect(allEntryParams).not.toHaveBeenCalled();
+    expect(getEntry).not.toHaveBeenCalled();
   });
 });

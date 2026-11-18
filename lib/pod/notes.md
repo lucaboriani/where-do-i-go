@@ -143,13 +143,16 @@ that deploys green and serves an error fallback on every page.
 So: structured errors are for what the Pod does — 404, a bad shape, an
 unreachable host. A throw there means the deployment is wrong.
 
-`allTripSlugs` throws for a second, unrelated reason, and is for
-`generateStaticParams` only. That function must return at least one param — an
+`allTripSlugs` is for `generateStaticParams` (and `EntryContent`'s render-time
+`allEntryParams()`, §39's known gap), and throws only for a non-empty failure.
+`generateStaticParams` must return at least one param — an
 empty array raises `empty-generate-static-params` — and `dynamicParams` is
 unsupported, so a deployer whose Pod has no trips yet would get a failed build
 rather than an empty site, which is a terrible first run for "fork it and
-deploy". It fails loudly, with the fix in the message, rather than shipping a
-placeholder trip that would appear on a real site.
+deploy". So an empty Pod — a 404 diary, or zero published trips — yields the
+`EMPTY_DIARY_SLUG` placeholder, which both pages 404 on before any Pod read.
+Every other diary failure still throws, with the fix in the message
+(`docs/decisions.md` §39).
 
 `publishedTripSlugs` is the render-path twin and returns a `Result`, because
 `result.ts` opens with "a thrown exception is not a structured error … failures

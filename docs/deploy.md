@@ -60,8 +60,9 @@ to run rather than serve with an unknown Pod.
 **The build reads the Pod.** `generateStaticParams` (`app/(public)/trips/[slug]/page.tsx`) asks
 `lib/pod/cached.ts`'s `allTripSlugs()` for every published trip, and that function **throws** —
 deliberately, the one exception to "never a throw" in this codebase — if `POD_ROOT` can't be
-read or the diary lists no published trips. A misconfigured or empty Pod fails the build with a
-message naming the fix, rather than shipping an empty site.
+read. A misconfigured or unreachable Pod fails the build with a message naming the fix. An
+**empty** Pod (no `diary.ttl` yet, or no published trips) builds an empty site instead
+(`docs/decisions.md` §39).
 
 ## 4. Self-host with Docker
 
@@ -172,8 +173,9 @@ the project's own basemap.
   the studio's publish flow not having completed step 4 (revalidation);
   `revalidatePublicSite` throws when it does, so check the browser console
   (`logging.browserToTerminal` forwards it to the terminal in dev).
-- **The build fails with a message naming `POD_ROOT` or "lists no published trips".** Expected
-  behaviour, not a bug — see §3. Fix `POD_ROOT`, or publish at least one trip, and rebuild.
+- **The build fails with a message naming `POD_ROOT`.** Expected behaviour, not a bug — see §3.
+  Fix `POD_ROOT`, or make `/travel/diary.ttl` publicly readable, and rebuild. An empty Pod does
+  not fail the build.
 - **Login redirect loops, or the consent screen shows a bare UUID instead of the app name.**
   The identity provider needs to fetch `client-id.jsonld` from your real, publicly reachable
   `SITE_URL` — serving it from `localhost` falls back to dynamic client registration, which

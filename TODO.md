@@ -611,12 +611,12 @@ Trip slugs come from the Pod, so:
 - [x] `generateStaticParams` for `/trips/[slug]` reads the diary root's trip list at build time.
       This couples every deploy to Pod availability — accept it knowingly. Present on both
       `/trips/[slug]` and `/trips/[slug]/[entry]`.
-- [ ] **STILL OPEN (not stale).** Decide and implement the empty-Pod case. A deployer who has not written a trip yet
-      currently gets a **failed build, not an empty site**, which is a terrible first run for the
+- [x] **Done — `docs/decisions.md` §39: a placeholder slug that 404s.** Decide and implement the empty-Pod case. A deployer who has not written a trip yet
+      got a **failed build, not an empty site**, which is a terrible first run for the
       "fork it and deploy" promise. Either seed a placeholder param, or fail with an explicit
       message naming the fix ("create your diary root and one trip, then redeploy") rather than
       Next's raw error. Record which in `docs/decisions.md`.
-- [ ] **STILL OPEN (not stale).** Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
+- [x] **Done — `docs/decisions.md` §39: it fails, with the named-fix message.** Decide what a build does when the Pod is unreachable, as distinct from empty. Failing is
       defensible; failing with an unreadable stack trace is not.
 - [x] Confirm the App Shell path: a trip published after the build should be served the shell and
       upgraded in the background, with no redeploy. **Verified** — the build's route table shows
