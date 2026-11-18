@@ -11,16 +11,18 @@ import { signInAsOwner } from "./sign-in";
 
 const PHONE = { width: 390, height: 844 };
 const MIN_TAP = 44;
+const MIN_INPUT_FONT = 16;
 
 test.use({ viewport: PHONE, hasTouch: true, isMobile: true });
 
 type Problem = string;
 
-/** The three checks, in the page: no horizontal page overflow, every control
- *  inside the viewport width, every control at least MIN_TAP tall. Scoped to
- *  `main` (the studio's own UI); invisible and visually-hidden nodes skipped. */
+/** The four checks, in the page: no horizontal page overflow, every control
+ *  inside the viewport width, every control at least MIN_TAP tall, every field
+ *  at least MIN_INPUT_FONT. Scoped to `main` (the studio's own UI);
+ *  invisible and visually-hidden nodes skipped. */
 async function layoutProblems(page: Page): Promise<Problem[]> {
-  return page.evaluate(([minTap, vw]) => {
+  return page.evaluate(([minTap, vw, minFont]) => {
     const problems: string[] = [];
     // NOT window.innerWidth: with isMobile, Chromium grows it to the content's
     // width (measured: 600 after a 600px child), so the overflow check could
@@ -64,9 +66,16 @@ async function layoutProblems(page: Page): Promise<Problem[]> {
       if (tapHeight < minTap) {
         problems.push(`tap target < ${minTap}px: ${name} ${size} (target height ${Math.round(tapHeight)})`);
       }
+
+      // iOS Safari zooms the page on focusing a text-entry field whose font-size is under 16px.
+      const noTextEntry = el instanceof HTMLInputElement && /^(checkbox|radio|file|range|color)$/.test(el.type);
+      const fontPx = parseFloat(getComputedStyle(el).fontSize);
+      if (/^(input|select|textarea)$/i.test(el.tagName) && !noTextEntry && fontPx < minFont) {
+        problems.push(`font-size < ${minFont}px (iOS focus zoom): ${name} ${fontPx}px`);
+      }
     }
     return problems;
-  }, [MIN_TAP, PHONE.width] as const);
+  }, [MIN_TAP, PHONE.width, MIN_INPUT_FONT] as const);
 }
 
 async function checkScreen(page: Page, screen: string) {

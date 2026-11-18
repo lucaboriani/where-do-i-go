@@ -48,7 +48,7 @@ Default to the current diff: `git diff` for uncommitted work, `git diff <base>..
 
 - MapLibre: more than one instance, remounting across navigation or drawer state, `setProjection` called outside the `style.load` handler, a removed OpenStreetMap attribution control, no lazy-mount on intersection.
 - Tailwind: arbitrary values outside `components/ui/**`, a `tailwind.config.js` theme block instead of `@theme` tokens in the global stylesheet, a `.dark` class or a theme toggle (the theme is fixed dark, palette at `:root`).
-- Tests: RDF compared byte-wise instead of by graph isomorphism (permanently red); Inrupt functions stubbed where MSW should fake the HTTP layer; Playwright used for anything but the login redirect.
+- Tests: RDF compared byte-wise instead of by graph isomorphism (permanently red); Inrupt functions stubbed where MSW should fake the HTTP layer; Playwright used for anything that does not clear CLAUDE.md's Testing bar (login redirect, media bytes, WebGL, layout measurement).
 - Stale-training-data artefacts: `shadcn-ui`, `npx tailwindcss init -p`, `forwardRef` shadcn wrappers, shadcn `toast` instead of `sonner`, HSL instead of OKLCH, `mapbox-gl`/`mapboxgl.*`, `zod` v3 syntax, `exifr` instead of `exifreader`, a TypeScript 7 upgrade that breaks the `typescript-eslint` peer range.
 - Ordinary defects: unhandled error paths, race conditions, misleading names, dead code, tests that assert nothing.
 

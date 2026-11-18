@@ -15,11 +15,9 @@ studio root layout, so public routes never load it. The proof is
 Both rules sit in `@layer base`. Unlayered CSS beats every layer, so without it
 a utility on a studio control (`hidden`, `block`) would lose to `inline-flex`
 on touch screens. In the base layer, utilities win again; the `min-height`
-default survives `h-*` because those set `height`. This relies on the layer
-order being fixed before this chunk parses: `globals.css` is imported first, and
-the build links its chunk ahead of `studio.css`'s, declaring `theme`, `base`,
-`components`, `utilities` in that order (checked in the built CSS and in a
-touch-emulated browser, 2026-11-18).
+default survives `h-*` because those set `height`. Chunk order does not matter:
+whichever parses first, `base` is declared before `utilities` (checked in the
+built CSS and in a touch-emulated browser, 2026-11-18).
 
 The query is `pointer: coarse`, not `any-pointer: coarse`, on purpose: a touch
 laptop whose primary pointer is a trackpad keeps the dense desktop studio the

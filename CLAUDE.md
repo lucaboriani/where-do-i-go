@@ -398,7 +398,7 @@ dev                  # Next dev server
 build                # production build
 start                # serve the production build (`next start`); smoke-testing a build locally
 test                 # vitest
-test:e2e             # playwright: the login redirect, and the media pipeline's real bytes
+test:e2e             # playwright: login redirect, media bytes, the WebGL map, studio phone layout
 lint                 # eslint
 typecheck            # tsc --noEmit
 validate:fixtures    # tsx scripts/validate-fixtures.ts
@@ -427,6 +427,8 @@ checks IRI resolution, and rejects blank nodes and wrong datatypes.
   jsdom `Blob` reaches MSW as the nine bytes of `"undefined"` — measured 2026-09-06. The rule
   has not been relaxed; the set of things that clear it grew by one, and the next addition has
   to earn it the same way, by measurement.
+  **Amended 2026-11-18:** two more measured reasons clear it — WebGL (the map specs) and
+  layout measurement (`studio-responsive.spec.ts`; jsdom reports every box as 0×0).
 - Compare RDF by **graph isomorphism**, never bytes. Turtle has no canonical form; a
   byte-comparison test will be permanently red.
 

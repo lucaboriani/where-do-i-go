@@ -202,12 +202,18 @@ NOT DO IT. Measured on 2026-09-14: with the directory gone, re-running the seede
 `SEED_NAME=e2e` answered `POST /.account/account/<id>/pod/ -> 400`. Community Solid Server keeps the
 pod registration, the owner link and the `e2e@localhost.test` password account in
 `.pod-data/.internal/accounts/`, which a directory delete does not touch, so the name stays taken.
-Either of these does work:
+Any of these works:
 
 - `E2E_SEED_NAME=e2e-<something> npm run test:e2e` — the one that needs no server restart. Pod name
   and account email both derive from `SEED_NAME` in `e2e/environment.ts`, so they stay in step.
 - Stop the server, `rm -rf .pod-data`, start it again, re-seed. Clears every local pod, including
   whichever one `.env.local` points at; all of it is disposable by design.
+- **Unsupported**, relying on CSS 7.2's undocumented storage layout: stop the server, delete
+  `.pod-data/e2e` and every file `grep -rl <accountId> .pod-data/.internal` lists (data, indexes,
+  cookies; the id is the file name `grep -rl e2e@localhost.test .pod-data/.internal` prints,
+  minus its trailing `$.json`),
+  restart, and `globalSetup` reseeds. The only option that recovers the default name and keeps every
+  other pod.
 
 `globalSetup` already fails loudly with both suggestions when the seed 400s, so this is a cost, not
 a trap that hides. What would remove the cost is a seed fingerprint in the pod compared against the
@@ -280,8 +286,9 @@ is amended to say narrowed rather than closed.
 had already landed — which is what this project says to distrust. Each mutation below was applied
 on 2026-09-14, the spec run, the named case watched go red, and the mutation reverted with
 `git checkout --`; all eight were re-measured against the final six-case file rather than carried
-over from the first round. The pod was `e2e-globe`: `.pod-data/e2e` was already gone but its
-account was not, so that name is dead — see the section two above this one.
+over from the first round. The pod was `e2e-globe`, because `.pod-data/e2e` was then gone but its
+account was not. On 2026-11-18 that stale pod was retired and the `e2e` name reused — see
+[the seeded pod does not follow the seeder](#the-seeded-pod-does-not-follow-the-seeder).
 
 | # | Mutation | Cases it kills | The failure |
 |---|---|---|---|
@@ -317,3 +324,18 @@ and control 4 is what proves THAT half.
 **Controls 4 and 5 kill the same six cases, and both are kept.** 4 is the page's own filtering; 5
 is the pod the suite runs against. A fixture and a page that disagree is the failure `e2e` has
 already had once — a pod seeded by an older seeder, reported ready, one trip short.
+
+## the studio-responsive control
+
+`e2e/studio-responsive.spec.ts` passed the first time it ran, because `app/(studio)/studio.css`
+landed with it. Measured on 2026-11-18: with `import "./studio.css"` deleted from
+`app/(studio)/layout.tsx`, all six screens went red with 74 tap-target findings and no overflow
+ones. Sign-in had 1, trips list 12, new trip 9, trip editor 14, blank entry 18 and entry editor 20
+(the trips-list count grows with the authoring spec's leftover trips).
+Links measured 19px tall, selects 39, inputs and buttons 34–42. The import was restored and
+`git diff` on the layout was empty.
+
+The iOS focus-zoom check (a field under 16px) passed against the unchanged studio, so no real
+control is under 16px. A planted `text-sm` on the trip description `<textarea>` turned it red on
+both trip screens with `<textarea> "Description" 14px`. The plant was reverted and `git diff` was
+empty.
